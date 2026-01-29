@@ -16,7 +16,17 @@
       "Bash(tree:*)",
       "Bash(openssl rand:*)",
       "Bash(psql:*)",
-      "Bash(/opt/homebrew/opt/postgresql@16/bin/createdb:*)"
+      "Bash(/opt/homebrew/opt/postgresql@16/bin/createdb:*)",
+      "Bash(npx ts-node:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill:*)",
+      "Bash(/opt/homebrew/bin/psql:*)",
+      "Bash(/usr/local/bin/psql:*)",
+      "Bash(flutter build:*)",
+      "Bash(pkill:*)",
+      "Bash(node -e:*)",
+      "Bash(open:*)",
+      "Bash(grep:*)"
     ]
   }
 }

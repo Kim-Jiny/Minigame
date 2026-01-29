@@ -57,183 +57,352 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
   }
 
   Widget _buildIdleView(GameProvider game) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(
-            Icons.all_inclusive,
-            size: 100,
-            color: Colors.purple,
-          ),
-          const SizedBox(height: 24),
-          const Text(
-            '무한 틱택토',
-            style: TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFF74B9FF).withValues(alpha: 0.15),
+            Colors.white,
+          ],
+        ),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: const Color(0xFF74B9FF).withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.all_inclusive,
+                size: 80,
+                color: Color(0xFF74B9FF),
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            '각자 3개까지! 4번째부터 가장 오래된 돌이 사라져요',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey,
+            const SizedBox(height: 24),
+            const Text(
+              '무한 틱택토',
+              style: TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF6C5CE7),
+              ),
             ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.purple.shade50,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Text(
-              '무승부 없음!',
+            const SizedBox(height: 8),
+            Text(
+              '각자 3개까지! 4번째부터 가장 오래된 돌이 사라져요',
               style: TextStyle(
                 fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: Colors.purple,
+                color: Colors.grey.shade600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8E0FF),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.all_inclusive, size: 16, color: Color(0xFF6C5CE7)),
+                  SizedBox(width: 4),
+                  Text(
+                    '무승부 없음!',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF6C5CE7),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
-          const SizedBox(height: 48),
-          ElevatedButton.icon(
-            onPressed: () {
-              game.findMatch(AppConfig.gameTypeInfiniteTicTacToe);
-            },
-            icon: const Icon(Icons.search),
-            label: const Text('상대 찾기'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.purple,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 32,
-                vertical: 16,
+            const SizedBox(height: 48),
+            ElevatedButton.icon(
+              onPressed: () {
+                game.findMatch(AppConfig.gameTypeInfiniteTicTacToe);
+              },
+              icon: const Icon(Icons.search),
+              label: const Text('상대 찾기'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF74B9FF),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 16,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30),
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildSearchingView(GameProvider game) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const CircularProgressIndicator(color: Colors.purple),
-          const SizedBox(height: 24),
-          const Text(
-            '상대를 찾는 중...',
-            style: TextStyle(fontSize: 18),
-          ),
-          const SizedBox(height: 48),
-          OutlinedButton(
-            onPressed: () {
-              game.cancelMatch(AppConfig.gameTypeInfiniteTicTacToe);
-            },
-            child: const Text('취소'),
-          ),
-        ],
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFF74B9FF).withValues(alpha: 0.15),
+            Colors.white,
+          ],
+        ),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const SizedBox(
+              width: 60,
+              height: 60,
+              child: CircularProgressIndicator(
+                color: Color(0xFF74B9FF),
+                strokeWidth: 4,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              '상대를 찾는 중...',
+              style: TextStyle(
+                fontSize: 18,
+                color: Colors.grey.shade700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.auto_awesome, size: 16, color: Color(0xFFFDCB6E)),
+                const SizedBox(width: 4),
+                Text(
+                  '상대를 기다리는 중',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey.shade500,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(Icons.auto_awesome, size: 16, color: Color(0xFFFDCB6E)),
+              ],
+            ),
+            const SizedBox(height: 48),
+            OutlinedButton(
+              onPressed: () {
+                game.cancelMatch(AppConfig.gameTypeInfiniteTicTacToe);
+              },
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF74B9FF),
+                side: const BorderSide(color: Color(0xFF74B9FF)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30),
+                ),
+              ),
+              child: const Text('취소'),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildMatchedView(GameProvider game) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(
-            Icons.check_circle,
-            size: 64,
-            color: Colors.green,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            '${game.opponentNickname}님과 매칭!',
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          const Text('게임이 곧 시작됩니다...'),
-        ],
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFF74B9FF).withValues(alpha: 0.15),
+            Colors.white,
+          ],
+        ),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: const BoxDecoration(
+                color: Color(0xFFE8E0FF),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.sports_esports,
+                size: 64,
+                color: Color(0xFF74B9FF),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '${game.opponentNickname}님과 매칭!',
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF6C5CE7),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '게임이 곧 시작됩니다...',
+              style: TextStyle(color: Colors.grey.shade600),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildPlayingView(GameProvider game) {
-    return Column(
-      children: [
-        // 상태 표시
-        Container(
-          padding: const EdgeInsets.all(16),
-          color: game.isMyTurn ? Colors.purple.shade100 : Colors.grey.shade200,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                game.isMyTurn ? '내 차례' : '상대 차례',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: game.isMyTurn ? Colors.purple : Colors.grey,
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFF74B9FF).withValues(alpha: 0.15),
+            Colors.white,
+          ],
+        ),
+      ),
+      child: Column(
+        children: [
+          // 상태 표시
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: game.isMyTurn
+                  ? const Color(0xFFE8E0FF)
+                  : Colors.grey.shade100,
+              border: Border(
+                bottom: BorderSide(
+                  color: game.isMyTurn
+                      ? const Color(0xFF74B9FF)
+                      : Colors.grey.shade300,
+                  width: 2,
                 ),
               ),
-              Text(
-                'vs ${game.opponentNickname}',
-                style: const TextStyle(fontSize: 16),
-              ),
-            ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      game.isMyTurn ? Icons.sports_esports : Icons.sports_esports_outlined,
+                      color: game.isMyTurn
+                          ? const Color(0xFF74B9FF)
+                          : Colors.grey,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      game.isMyTurn ? '내 차례' : '상대 차례',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: game.isMyTurn
+                            ? const Color(0xFF74B9FF)
+                            : Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    'vs ${game.opponentNickname}',
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
 
-        // 말 개수 표시
-        Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildPieceCounter('나', game.myPieceCount, Colors.red),
-              _buildPieceCounter('상대', game.opponentPieceCount, Colors.blue),
-            ],
+          // 말 개수 표시
+          Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildPieceCounter('나', game.myPieceCount, const Color(0xFF6C5CE7)),
+                _buildPieceCounter('상대', game.opponentPieceCount, const Color(0xFFFFB74D)),
+              ],
+            ),
           ),
-        ),
 
-        // 게임 보드
-        Expanded(
-          child: Center(
-            child: AspectRatio(
-              aspectRatio: 1,
-              child: Container(
-                margin: const EdgeInsets.all(24),
-                child: _buildBoard(game),
+          // 게임 보드
+          Expanded(
+            child: Center(
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: Container(
+                  margin: const EdgeInsets.all(24),
+                  child: _buildBoard(game),
+                ),
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
   Widget _buildPieceCounter(String label, int count, Color color) {
-    return Row(
-      children: [
-        Text('$label: ', style: const TextStyle(fontSize: 14)),
-        ...List.generate(3, (index) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: Icon(
-              index < count ? Icons.circle : Icons.circle_outlined,
-              size: 20,
-              color: index < count ? color : Colors.grey.shade300,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Text(
+            '$label: ',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey.shade700,
             ),
-          );
-        }),
-      ],
+          ),
+          ...List.generate(3, (index) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Icon(
+                index < count ? Icons.circle : Icons.circle_outlined,
+                size: 20,
+                color: index < count ? color : Colors.grey.shade300,
+              ),
+            );
+          }),
+        ],
+      ),
     );
   }
 
@@ -243,8 +412,8 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
       physics: const NeverScrollableScrollPhysics(),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
       ),
       itemCount: 9,
       itemBuilder: (context, index) {
@@ -261,15 +430,24 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
             duration: const Duration(milliseconds: 300),
             decoration: BoxDecoration(
               color: isNextToDisappear
-                  ? Colors.orange.shade100
-                  : Colors.purple.shade50,
-              borderRadius: BorderRadius.circular(12),
+                  ? Colors.orange.shade50
+                  : Colors.white,
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: isNextToDisappear
                     ? Colors.orange
-                    : Colors.purple.shade200,
+                    : const Color(0xFF74B9FF),
                 width: isNextToDisappear ? 3 : 2,
               ),
+              boxShadow: [
+                BoxShadow(
+                  color: isNextToDisappear
+                      ? Colors.orange.withValues(alpha: 0.3)
+                      : const Color(0xFF74B9FF).withValues(alpha: 0.1),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
             child: Stack(
               children: [
@@ -278,10 +456,17 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
                   Positioned(
                     top: 4,
                     right: 4,
-                    child: Icon(
-                      Icons.timer,
-                      size: 16,
-                      color: Colors.orange.shade700,
+                    child: Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade100,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.timer,
+                        size: 14,
+                        color: Colors.orange.shade700,
+                      ),
                     ),
                   ),
               ],
@@ -297,88 +482,128 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
       return const SizedBox.shrink();
     }
 
+    // 0 = 동그라미 (첫 번째 플레이어), 1 = 세모 (두 번째 플레이어)
     if (cell == 0) {
-      return const Icon(
-        Icons.close,
-        size: 48,
-        color: Colors.red,
-      );
-    } else {
       return const Icon(
         Icons.circle_outlined,
         size: 48,
-        color: Colors.blue,
+        color: Color(0xFF6C5CE7),
+      );
+    } else {
+      return const Icon(
+        Icons.change_history,
+        size: 48,
+        color: Color(0xFF00CEC9),
       );
     }
   }
 
   Widget _buildFinishedView(GameProvider game) {
-    // 무한 틱택토는 무승부 없음
     final isWinner = game.isWinner;
-    final resultText = isWinner ? '승리!' : '패배...';
-    final resultColor = isWinner ? Colors.green : Colors.red;
+    final resultText = isWinner ? '승리!' : '아쉬워요...';
+    final resultColor = isWinner ? const Color(0xFF6C5CE7) : Colors.grey;
     final resultIcon = isWinner ? Icons.emoji_events : Icons.sentiment_dissatisfied;
 
-    return Column(
-      children: [
-        Expanded(
-          child: Center(
-            child: AspectRatio(
-              aspectRatio: 1,
-              child: Container(
-                margin: const EdgeInsets.all(24),
-                child: _buildBoard(game),
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            resultColor.withValues(alpha: 0.1),
+            Colors.white,
+          ],
+        ),
+      ),
+      child: Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: Container(
+                  margin: const EdgeInsets.all(24),
+                  child: _buildBoard(game),
+                ),
               ),
             ),
           ),
-        ),
 
-        Container(
-          padding: const EdgeInsets.all(24),
-          color: resultColor.withValues(alpha: 0.1),
-          child: Column(
-            children: [
-              Icon(resultIcon, size: 64, color: resultColor),
-              const SizedBox(height: 8),
-              Text(
-                resultText,
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: resultColor,
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: resultColor.withValues(alpha: 0.1),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(24),
+              ),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: resultColor.withValues(alpha: 0.3),
+                        blurRadius: 20,
+                      ),
+                    ],
+                  ),
+                  child: Icon(resultIcon, size: 48, color: resultColor),
                 ),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      game.reset();
-                      game.findMatch(AppConfig.gameTypeInfiniteTicTacToe);
-                    },
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('다시 찾기'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.purple,
-                      foregroundColor: Colors.white,
+                const SizedBox(height: 16),
+                Text(
+                  resultText,
+                  style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: resultColor,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        game.reset();
+                        game.findMatch(AppConfig.gameTypeInfiniteTicTacToe);
+                      },
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('다시 찾기'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF74B9FF),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      game.reset();
-                      Navigator.pop(context);
-                    },
-                    icon: const Icon(Icons.exit_to_app),
-                    label: const Text('로비로'),
-                  ),
-                ],
-              ),
-            ],
+                    const SizedBox(width: 16),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        game.reset();
+                        Navigator.pop(context);
+                      },
+                      icon: const Icon(Icons.home),
+                      label: const Text('로비로'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF74B9FF),
+                        side: const BorderSide(color: Color(0xFF74B9FF)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -393,19 +618,30 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('게임 나가기'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.exit_to_app, color: Color(0xFF74B9FF)),
+            SizedBox(width: 8),
+            Text('게임 나가기'),
+          ],
+        ),
         content: const Text('정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('취소'),
           ),
-          TextButton(
+          ElevatedButton(
             onPressed: () {
               game.leaveGame();
               Navigator.pop(context);
               Navigator.pop(context);
             },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF74B9FF),
+              foregroundColor: Colors.white,
+            ),
             child: const Text('나가기'),
           ),
         ],

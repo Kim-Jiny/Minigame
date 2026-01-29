@@ -50,7 +50,10 @@ class AuthProvider extends ChangeNotifier {
     _socketService.connect();
 
     _socketService.on('connect', (_) {
-      _socketService.emit('join_lobby', {'nickname': _nickname});
+      _socketService.emit('join_lobby', {
+        'nickname': _nickname,
+        'userId': _userId,
+      });
       _socketId = _socketService.socket?.id;
       notifyListeners();
     });
@@ -61,7 +64,10 @@ class AuthProvider extends ChangeNotifier {
     });
 
     if (_socketService.isConnected) {
-      _socketService.emit('join_lobby', {'nickname': _nickname});
+      _socketService.emit('join_lobby', {
+        'nickname': _nickname,
+        'userId': _userId,
+      });
       _socketId = _socketService.socket?.id;
     }
   }
@@ -214,9 +220,28 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    // 먼저 상태 변경 (UI 즉시 업데이트)
+    _userId = null;
+    _nickname = null;
+    _email = null;
+    _avatarUrl = null;
+    _socketId = null;
+    _isLoggedIn = false;
+    notifyListeners();
+
+    // 소켓 연결 해제
     _socketService.disconnect();
 
-    // 소셜 로그인 로그아웃
+    // SharedPreferences 정리
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('nickname');
+    await prefs.remove('user_id');
+    await prefs.remove('email');
+    await prefs.remove('avatar_url');
+
+    await _apiService.clearToken();
+
+    // 소셜 로그인 로그아웃 (백그라운드에서 처리)
     try {
       await _googleSignIn.signOut();
     } catch (_) {}
@@ -224,22 +249,5 @@ class AuthProvider extends ChangeNotifier {
     try {
       await kakao.UserApi.instance.logout();
     } catch (_) {}
-
-    await _apiService.clearToken();
-
-    _userId = null;
-    _nickname = null;
-    _email = null;
-    _avatarUrl = null;
-    _socketId = null;
-    _isLoggedIn = false;
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('nickname');
-    await prefs.remove('user_id');
-    await prefs.remove('email');
-    await prefs.remove('avatar_url');
-
-    notifyListeners();
   }
 }
