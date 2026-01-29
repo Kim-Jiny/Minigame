@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter --version:*)",
+      "Bash(node --version:*)",
+      "Bash(brew:*)",
+      "Bash(flutter create:*)",
+      "Bash(npm install:*)",
+      "Bash(flutter pub get:*)",
+      "Bash(npm run build:*)",
+      "Bash(flutter analyze:*)",
+      "Bash(npm run dev:*)",
+      "Bash(flutter devices:*)",
+      "Bash(flutter run:*)",
+      "Bash(ipconfig getifaddr:*)",
+      "Bash(tree:*)",
+      "Bash(openssl rand:*)",
+      "Bash(psql:*)",
+      "Bash(/opt/homebrew/opt/postgresql@16/bin/createdb:*)"
+    ]
+  }
+}

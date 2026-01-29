@@ -1,0 +1,28 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Claude
+.claude/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Dependencies (각 프로젝트별로 관리)
+node_modules/
+
+# Environment files (민감 정보)
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
