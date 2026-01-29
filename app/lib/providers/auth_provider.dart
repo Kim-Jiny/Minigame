@@ -10,7 +10,9 @@ import '../services/api_service.dart';
 class AuthProvider extends ChangeNotifier {
   final SocketService _socketService = SocketService();
   final ApiService _apiService = ApiService();
-  final GoogleSignIn _googleSignIn = GoogleSignIn();
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    serverClientId: '78188753964-2seg33bne8kp65o2h6ts7e99fji52dg6.apps.googleusercontent.com',
+  );
 
   int? _userId;
   String? _nickname;
@@ -217,6 +219,32 @@ class AuthProvider extends ChangeNotifier {
 
     _connectSocket();
     notifyListeners();
+  }
+
+  // 닉네임 변경
+  Future<bool> updateNickname(String newNickname) async {
+    try {
+      _isLoading = true;
+      _error = null;
+      notifyListeners();
+
+      final user = await _apiService.updateNickname(newNickname);
+
+      _nickname = user.nickname;
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('nickname', user.nickname);
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = '닉네임 변경 실패: $e';
+      debugPrint(_error);
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   Future<void> logout() async {

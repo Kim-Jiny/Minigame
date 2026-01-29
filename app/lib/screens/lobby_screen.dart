@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/auth_provider.dart';
 import '../providers/friend_provider.dart';
 import '../widgets/invitation_dialog.dart';
 import 'friends_screen.dart';
+import 'profile_screen.dart';
 
 class LobbyScreen extends StatefulWidget {
   const LobbyScreen({super.key});
@@ -58,50 +58,14 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
-
     return Scaffold(
       appBar: AppBar(
-        title: Text(_currentIndex == 0 ? '플레이메이트' : '친구'),
+        title: Text(_currentIndex == 0 ? '플레이메이트' : _currentIndex == 1 ? '친구' : '프로필'),
         backgroundColor: Theme.of(context).primaryColor,
         foregroundColor: Colors.white,
         elevation: 0,
-        actions: [
-          // 프로필/로그아웃
-          PopupMenuButton<String>(
-            icon: CircleAvatar(
-              backgroundColor: Colors.white.withValues(alpha: 0.2),
-              child: const Icon(Icons.person, color: Colors.white, size: 20),
-            ),
-            onSelected: (value) {
-              if (value == 'logout') {
-                auth.logout();
-              }
-            },
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                enabled: false,
-                child: Text(
-                  '안녕하세요, ${auth.nickname}님!',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-              const PopupMenuDivider(),
-              const PopupMenuItem(
-                value: 'logout',
-                child: Row(
-                  children: [
-                    Icon(Icons.logout, size: 20),
-                    SizedBox(width: 8),
-                    Text('로그아웃'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
       ),
-      body: _currentIndex == 0 ? _buildGamesTab() : const FriendsScreen(),
+      body: _buildBody(),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) {
@@ -112,7 +76,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
         selectedItemColor: Theme.of(context).primaryColor,
         items: const [
           BottomNavigationBarItem(
-            icon: Icon(Icons.sports_esports),
+            icon: Icon(Icons.sports_esports_outlined),
             activeIcon: Icon(Icons.sports_esports),
             label: '게임',
           ),
@@ -121,9 +85,27 @@ class _LobbyScreenState extends State<LobbyScreen> {
             activeIcon: Icon(Icons.people),
             label: '친구',
           ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person_outline),
+            activeIcon: Icon(Icons.person),
+            label: '프로필',
+          ),
         ],
       ),
     );
+  }
+
+  Widget _buildBody() {
+    switch (_currentIndex) {
+      case 0:
+        return _buildGamesTab();
+      case 1:
+        return const FriendsScreen();
+      case 2:
+        return const ProfileScreen();
+      default:
+        return _buildGamesTab();
+    }
   }
 
   Widget _buildGamesTab() {

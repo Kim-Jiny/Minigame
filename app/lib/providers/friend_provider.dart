@@ -7,6 +7,7 @@ class Friend {
   final String? email;
   final String? avatarUrl;
   final String? friendCode;
+  final String? memo;
   final bool isOnline;
 
   Friend({
@@ -15,8 +16,21 @@ class Friend {
     this.email,
     this.avatarUrl,
     this.friendCode,
+    this.memo,
     this.isOnline = false,
   });
+
+  Friend copyWith({String? memo}) {
+    return Friend(
+      id: id,
+      nickname: nickname,
+      email: email,
+      avatarUrl: avatarUrl,
+      friendCode: friendCode,
+      memo: memo ?? this.memo,
+      isOnline: isOnline,
+    );
+  }
 
   factory Friend.fromJson(Map<String, dynamic> json) {
     return Friend(
@@ -25,6 +39,7 @@ class Friend {
       email: json['email'],
       avatarUrl: json['avatarUrl'],
       friendCode: json['friendCode'],
+      memo: json['memo'],
       isOnline: json['isOnline'] ?? false,
     );
   }
@@ -176,6 +191,25 @@ class FriendProvider extends ChangeNotifier {
       notifyListeners();
     });
 
+    // 친구 메모 수정 결과
+    _socketService.on('update_friend_memo_result', (data) {
+      _isLoading = false;
+      if (data['success'] == true) {
+        final friendId = data['friendId'] as int;
+        final memo = data['memo'] as String?;
+        final index = _friends.indexWhere((f) => f.id == friendId);
+        if (index != -1) {
+          _friends[index] = _friends[index].copyWith(memo: memo);
+        }
+        _successMessage = data['message'];
+        _error = null;
+      } else {
+        _error = data['message'];
+        _successMessage = null;
+      }
+      notifyListeners();
+    });
+
     // 초대 결과
     _socketService.on('invite_result', (data) {
       _isLoading = false;
@@ -279,6 +313,17 @@ class FriendProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void updateFriendMemo(int friendId, String? memo) {
+    _isLoading = true;
+    _error = null;
+    _successMessage = null;
+    notifyListeners();
+    _socketService.emit('update_friend_memo', {
+      'friendId': friendId,
+      'memo': memo?.isEmpty == true ? null : memo,
+    });
+  }
+
   void inviteToGame(int friendId, String gameType) {
     _isLoading = true;
     _error = null;
@@ -328,6 +373,7 @@ class FriendProvider extends ChangeNotifier {
     _socketService.off('friend_added');
     _socketService.off('friends_list');
     _socketService.off('remove_friend_result');
+    _socketService.off('update_friend_memo_result');
     _socketService.off('invite_result');
     _socketService.off('invitations_list');
     _socketService.off('game_invitation');

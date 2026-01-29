@@ -3,6 +3,7 @@ import { TicTacToeGame } from '../games/tictactoe';
 import { InfiniteTicTacToeGame } from '../games/infinitetictactoe';
 import { friendService } from '../services/friendService';
 import { invitationService } from '../services/invitationService';
+import { statsService } from '../services/statsService';
 
 interface Player {
   id: string;
@@ -147,7 +148,7 @@ export function setupSocketHandlers(io: Server) {
     });
 
     // 게임 액션 (틱택토: 셀 클릭)
-    socket.on('game_action', (data: { roomId: string; action: any }) => {
+    socket.on('game_action', async (data: { roomId: string; action: any }) => {
       const room = rooms.get(data.roomId);
       if (!room || room.status !== 'playing') {
         socket.emit('error', { message: 'Invalid room or game not in progress' });
@@ -186,6 +187,36 @@ export function setupSocketHandlers(io: Server) {
             ? room.players[result.winner].nickname
             : null;
 
+          // 통계 업데이트 및 기록 저장
+          const player0 = room.players[0];
+          const player1 = room.players[1];
+
+          for (let i = 0; i < room.players.length; i++) {
+            const player = room.players[i];
+            const opponent = room.players[i === 0 ? 1 : 0];
+            if (player.userId) {
+              let gameResult: 'win' | 'loss' | 'draw';
+              if (result.isDraw) {
+                gameResult = 'draw';
+              } else if (result.winner === i) {
+                gameResult = 'win';
+              } else {
+                gameResult = 'loss';
+              }
+              try {
+                const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
+                player.socket.emit('stats_updated', { stats });
+
+                // 게임 기록 저장 (첫 번째 플레이어만 저장하면 됨)
+                if (i === 0 && opponent.userId) {
+                  await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
+                }
+              } catch (err) {
+                console.error('Failed to update stats:', err);
+              }
+            }
+          }
+
           io.to(data.roomId).emit('game_end', {
             winner: winnerId,
             winnerNickname: winnerNickname,
@@ -223,6 +254,26 @@ export function setupSocketHandlers(io: Server) {
           const winnerNickname = result.winner !== undefined && result.winner !== null
             ? room.players[result.winner].nickname
             : null;
+
+          // 통계 업데이트 및 기록 저장
+          for (let i = 0; i < room.players.length; i++) {
+            const player = room.players[i];
+            const opponent = room.players[i === 0 ? 1 : 0];
+            if (player.userId) {
+              const gameResult: 'win' | 'loss' = result.winner === i ? 'win' : 'loss';
+              try {
+                const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
+                player.socket.emit('stats_updated', { stats });
+
+                // 게임 기록 저장 (첫 번째 플레이어만 저장하면 됨)
+                if (i === 0 && opponent.userId) {
+                  await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
+                }
+              } catch (err) {
+                console.error('Failed to update stats:', err);
+              }
+            }
+          }
 
           io.to(data.roomId).emit('game_end', {
             winner: winnerId,
@@ -318,6 +369,21 @@ export function setupSocketHandlers(io: Server) {
         socket.emit('remove_friend_result', result);
       } catch (error) {
         socket.emit('remove_friend_result', { success: false, message: '친구 삭제 실패' });
+      }
+    });
+
+    // 친구 메모 수정
+    socket.on('update_friend_memo', async (data: { friendId: number; memo: string | null }) => {
+      if (!currentPlayer?.userId) {
+        socket.emit('update_friend_memo_result', { success: false, message: '로그인이 필요합니다.' });
+        return;
+      }
+
+      try {
+        const result = await friendService.updateFriendMemo(currentPlayer.userId, data.friendId, data.memo);
+        socket.emit('update_friend_memo_result', { ...result, friendId: data.friendId, memo: data.memo });
+      } catch (error) {
+        socket.emit('update_friend_memo_result', { success: false, message: '메모 저장 실패' });
       }
     });
 
@@ -480,6 +546,122 @@ export function setupSocketHandlers(io: Server) {
         }
       } catch (error) {
         socket.emit('decline_invitation_result', { success: false, message: '초대 거절 실패' });
+      }
+    });
+
+    // ====== 통계 시스템 ======
+
+    // 모든 게임 통계 조회
+    socket.on('get_all_stats', async () => {
+      if (!currentPlayer?.userId) {
+        socket.emit('all_stats', { stats: [] });
+        return;
+      }
+
+      try {
+        const stats = await statsService.getAllGameStats(currentPlayer.userId);
+        socket.emit('all_stats', { stats });
+      } catch (error) {
+        socket.emit('all_stats', { stats: [] });
+      }
+    });
+
+    // 최근 게임 기록 조회
+    socket.on('get_recent_records', async (data?: { limit?: number }) => {
+      if (!currentPlayer?.userId) {
+        socket.emit('recent_records', { records: [] });
+        return;
+      }
+
+      try {
+        const records = await statsService.getRecentRecords(currentPlayer.userId, data?.limit || 20);
+        socket.emit('recent_records', { records });
+      } catch (error) {
+        socket.emit('recent_records', { records: [] });
+      }
+    });
+
+    // 특정 게임 통계 조회
+    socket.on('get_game_stats', async (data: { gameType: string }) => {
+      if (!currentPlayer?.userId) {
+        socket.emit('game_stats', { stats: null });
+        return;
+      }
+
+      try {
+        const stats = await statsService.getGameStats(currentPlayer.userId, data.gameType);
+        socket.emit('game_stats', { stats });
+      } catch (error) {
+        socket.emit('game_stats', { stats: null });
+      }
+    });
+
+    // 마일리지 조회
+    socket.on('get_mileage', async () => {
+      if (!currentPlayer?.userId) {
+        socket.emit('mileage', { mileage: 0 });
+        return;
+      }
+
+      try {
+        const mileage = await statsService.getMileage(currentPlayer.userId);
+        socket.emit('mileage', { mileage });
+      } catch (error) {
+        socket.emit('mileage', { mileage: 0 });
+      }
+    });
+
+    // 광고 시청 마일리지 지급
+    socket.on('claim_ad_reward', async () => {
+      if (!currentPlayer?.userId) {
+        socket.emit('ad_reward_result', { success: false, message: '로그인이 필요합니다.' });
+        return;
+      }
+
+      try {
+        const mileage = await statsService.addMileage(currentPlayer.userId, 10, 'ad_watch');
+        socket.emit('ad_reward_result', { success: true, mileage, message: '10 마일리지가 지급되었습니다!' });
+      } catch (error) {
+        socket.emit('ad_reward_result', { success: false, message: '마일리지 지급 실패' });
+      }
+    });
+
+    // 승률 초기화 (마일리지 사용)
+    socket.on('reset_stats', async (data: { gameType: string }) => {
+      if (!currentPlayer?.userId) {
+        socket.emit('reset_stats_result', { success: false, message: '로그인이 필요합니다.' });
+        return;
+      }
+
+      const RESET_COST = 100; // 승률 초기화 비용
+
+      try {
+        // 마일리지 차감
+        const mileageResult = await statsService.useMileage(currentPlayer.userId, RESET_COST, `reset_stats_${data.gameType}`);
+        if (!mileageResult.success) {
+          socket.emit('reset_stats_result', { success: false, message: mileageResult.message, mileage: mileageResult.mileage });
+          return;
+        }
+
+        // 통계 초기화
+        const resetResult = await statsService.resetStats(currentPlayer.userId, data.gameType);
+        if (!resetResult.success) {
+          // 롤백: 마일리지 복구
+          await statsService.addMileage(currentPlayer.userId, RESET_COST, 'reset_stats_rollback');
+          socket.emit('reset_stats_result', { success: false, message: resetResult.message });
+          return;
+        }
+
+        // 새 통계 조회
+        const newStats = await statsService.getGameStats(currentPlayer.userId, data.gameType);
+        socket.emit('reset_stats_result', {
+          success: true,
+          message: '승률이 초기화되었습니다.',
+          stats: newStats,
+          mileage: mileageResult.mileage
+        });
+      } catch (error) {
+        socket.emit('reset_stats_result', { success: false, message: '승률 초기화 실패' });
       }
     });
 

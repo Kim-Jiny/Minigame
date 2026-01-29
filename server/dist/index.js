@@ -10,6 +10,7 @@ const cors_1 = __importDefault(require("cors"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const socket_1 = require("./socket");
 const database_1 = require("./config/database");
+const auth_1 = __importDefault(require("./routes/auth"));
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 const httpServer = (0, http_1.createServer)(app);
@@ -26,6 +27,8 @@ app.use(express_1.default.json());
 app.get('/', (req, res) => {
     res.json({ status: 'ok', message: 'Minigame Server is running!' });
 });
+// Auth routes
+app.use('/api/auth', auth_1.default);
 // Socket.io 핸들러 설정
 (0, socket_1.setupSocketHandlers)(io);
 const PORT = process.env.PORT || 3000;

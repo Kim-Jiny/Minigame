@@ -26,7 +26,16 @@
       "Bash(pkill:*)",
       "Bash(node -e:*)",
       "Bash(open:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(keytool:*)",
+      "Bash(./gradlew signingReport:*)",
+      "Bash(openssl sha1:*)",
+      "Bash(openssl base64:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(flutter clean:*)",
+      "Bash(npm start)",
+      "Bash(xxd:*)"
     ]
   }
 }

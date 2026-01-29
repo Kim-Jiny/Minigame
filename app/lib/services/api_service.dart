@@ -85,6 +85,29 @@ class ApiService {
 
     return AuthResponse.fromJson(data);
   }
+
+  Future<UserInfo> updateNickname(String nickname) async {
+    if (_jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+
+    final response = await http.put(
+      Uri.parse('${AppConfig.serverUrl}/api/auth/nickname'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_jwtToken',
+      },
+      body: jsonEncode({'nickname': nickname}),
+    );
+
+    if (response.statusCode != 200) {
+      final data = jsonDecode(response.body);
+      throw Exception(data['error'] ?? 'Failed to update nickname');
+    }
+
+    final data = jsonDecode(response.body);
+    return UserInfo.fromJson(data['user']);
+  }
 }
 
 class AuthResponse {

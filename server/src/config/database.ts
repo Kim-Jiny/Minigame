@@ -58,9 +58,13 @@ export async function setupDatabase() {
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id),
         friend_id INTEGER REFERENCES users(id),
+        memo VARCHAR(20),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(user_id, friend_id)
       );
+
+      -- memo 컬럼 추가 (기존 테이블용)
+      ALTER TABLE friendships ADD COLUMN IF NOT EXISTS memo VARCHAR(20);
 
       -- 게임 초대 테이블
       CREATE TABLE IF NOT EXISTS game_invitations (
@@ -70,6 +74,39 @@ export async function setupDatabase() {
         game_type VARCHAR(50) NOT NULL,
         status VARCHAR(20) DEFAULT 'pending',
         room_id VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- 게임별 통계 테이블
+      CREATE TABLE IF NOT EXISTS user_game_stats (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        game_type VARCHAR(50) NOT NULL,
+        wins INTEGER DEFAULT 0,
+        losses INTEGER DEFAULT 0,
+        draws INTEGER DEFAULT 0,
+        level INTEGER DEFAULT 1,
+        exp INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, game_type)
+      );
+
+      -- 마일리지 테이블
+      CREATE TABLE IF NOT EXISTS user_mileage (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER UNIQUE REFERENCES users(id),
+        mileage INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- 마일리지 기록 테이블
+      CREATE TABLE IF NOT EXISTS mileage_history (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        amount INTEGER NOT NULL,
+        reason VARCHAR(50) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);

@@ -67,3 +67,25 @@ export async function findUserById(id: number): Promise<User | null> {
 
   return result.rows[0] || null;
 }
+
+export async function updateNickname(userId: number, nickname: string): Promise<User> {
+  const pool = getPool();
+
+  if (!pool) {
+    throw new Error('Database not connected');
+  }
+
+  const result = await pool.query(
+    `UPDATE users
+     SET nickname = $1, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $2
+     RETURNING *`,
+    [nickname, userId]
+  );
+
+  if (result.rows.length === 0) {
+    throw new Error('User not found');
+  }
+
+  return result.rows[0];
+}

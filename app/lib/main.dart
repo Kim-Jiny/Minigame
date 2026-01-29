@@ -4,6 +4,7 @@ import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'providers/auth_provider.dart';
 import 'providers/game_provider.dart';
 import 'providers/friend_provider.dart';
+import 'providers/stats_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/lobby_screen.dart';
 import 'games/tictactoe/tictactoe_screen.dart';
@@ -38,6 +39,7 @@ class MinigameApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthProvider()..init()),
         ChangeNotifierProvider(create: (_) => GameProvider()),
         ChangeNotifierProvider(create: (_) => FriendProvider()),
+        ChangeNotifierProvider(create: (_) => StatsProvider()),
       ],
       child: MaterialApp(
         title: '우리만의 게임',
@@ -118,9 +120,10 @@ class AuthWrapper extends StatelessWidget {
     return Consumer<AuthProvider>(
       builder: (context, auth, child) {
         if (auth.isLoggedIn) {
-          // FriendProvider 초기화
+          // FriendProvider, StatsProvider 초기화
           WidgetsBinding.instance.addPostFrameCallback((_) {
             context.read<FriendProvider>().initialize();
+            context.read<StatsProvider>().initialize();
           });
           return const LobbyScreen();
         }

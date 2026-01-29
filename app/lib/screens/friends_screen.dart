@@ -69,6 +69,53 @@ class _FriendsScreenState extends State<FriendsScreen> {
     );
   }
 
+  void _showEditMemoDialog(BuildContext context, Friend friend, FriendProvider friendProvider) {
+    final controller = TextEditingController(text: friend.memo ?? '');
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.edit_note, color: Theme.of(context).primaryColor),
+            const SizedBox(width: 8),
+            const Text('메모 수정'),
+          ],
+        ),
+        content: TextField(
+          controller: controller,
+          decoration: InputDecoration(
+            labelText: '메모 (최대 20자)',
+            hintText: '친구를 구분할 메모',
+            prefixIcon: const Icon(Icons.note),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          maxLength: 20,
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('취소'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              friendProvider.updateFriendMemo(friend.id, controller.text.trim());
+              Navigator.pop(context);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(context).primaryColor,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('저장'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showInviteGameDialog(BuildContext context, Friend friend) {
     showDialog(
       context: context,
@@ -503,9 +550,26 @@ class _FriendsScreenState extends State<FriendsScreen> {
               ),
           ],
         ),
-        title: Text(
-          friend.nickname,
-          style: const TextStyle(fontWeight: FontWeight.bold),
+        title: Row(
+          children: [
+            Text(
+              friend.nickname,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            if (friend.memo != null && friend.memo!.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  '(${friend.memo})',
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 13,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ],
         ),
         subtitle: Text(
           friend.isOnline ? '온라인' : '오프라인',
@@ -528,7 +592,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
               ),
             PopupMenuButton<String>(
               onSelected: (value) {
-                if (value == 'remove') {
+                if (value == 'memo') {
+                  _showEditMemoDialog(context, friend, friendProvider);
+                } else if (value == 'remove') {
                   showDialog(
                     context: context,
                     builder: (context) => AlertDialog(
@@ -552,6 +618,16 @@ class _FriendsScreenState extends State<FriendsScreen> {
                 }
               },
               itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'memo',
+                  child: Row(
+                    children: [
+                      Icon(Icons.edit_note, size: 20),
+                      SizedBox(width: 8),
+                      Text('메모 수정'),
+                    ],
+                  ),
+                ),
                 const PopupMenuItem(
                   value: 'remove',
                   child: Row(

@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
-import { findOrCreateUser } from '../services/userService';
-import { generateToken } from '../utils/jwt';
+import { findOrCreateUser, updateNickname } from '../services/userService';
+import { generateToken, verifyToken } from '../utils/jwt';
 
 const router = Router();
 
@@ -172,6 +172,52 @@ router.post('/kakao', async (req: Request, res: Response): Promise<void> => {
   } catch (error) {
     console.error('Kakao auth error:', error);
     res.status(401).json({ error: 'Authentication failed' });
+  }
+});
+
+// PUT /api/auth/nickname - 닉네임 변경
+router.put('/nickname', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'No token provided' });
+      return;
+    }
+
+    const token = authHeader.split(' ')[1];
+    const payload = verifyToken(token);
+
+    if (!payload) {
+      res.status(401).json({ error: 'Invalid token' });
+      return;
+    }
+
+    const { nickname } = req.body;
+
+    if (!nickname || typeof nickname !== 'string') {
+      res.status(400).json({ error: 'nickname is required' });
+      return;
+    }
+
+    const trimmedNickname = nickname.trim();
+    if (trimmedNickname.length < 2 || trimmedNickname.length > 20) {
+      res.status(400).json({ error: 'nickname must be 2-20 characters' });
+      return;
+    }
+
+    const user = await updateNickname(payload.userId, trimmedNickname);
+
+    res.json({
+      user: {
+        id: user.id,
+        nickname: user.nickname,
+        email: user.email,
+        avatarUrl: user.avatar_url,
+      },
+    });
+  } catch (error) {
+    console.error('Update nickname error:', error);
+    res.status(500).json({ error: 'Failed to update nickname' });
   }
 });
 

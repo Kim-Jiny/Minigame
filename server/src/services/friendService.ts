@@ -1,8 +1,8 @@
 import { getPool } from '../config/database';
 
-// 8자리 친구 코드 생성 (대문자 + 숫자)
+// 8자리 친구 코드 생성 (대문자 + 숫자, 0/O/1/I 제외)
 function generateRandomCode(): string {
-  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const characters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
   for (let i = 0; i < 8; i++) {
     code += characters.charAt(Math.floor(Math.random() * characters.length));
@@ -16,6 +16,7 @@ export interface Friend {
   email?: string;
   avatarUrl?: string;
   friendCode: string;
+  memo?: string;
 }
 
 export const friendService = {
@@ -140,7 +141,7 @@ export const friendService = {
     if (!pool) throw new Error('Database not connected');
 
     const result = await pool.query(
-      `SELECT u.id, u.nickname, u.email, u.avatar_url as "avatarUrl", fc.code as "friendCode"
+      `SELECT u.id, u.nickname, u.email, u.avatar_url as "avatarUrl", fc.code as "friendCode", f.memo
        FROM users u
        JOIN friendships f ON u.id = f.friend_id
        LEFT JOIN friend_codes fc ON u.id = fc.user_id
@@ -150,6 +151,23 @@ export const friendService = {
     );
 
     return result.rows;
+  },
+
+  // 친구 메모 수정
+  async updateFriendMemo(userId: number, friendId: number, memo: string | null): Promise<{success: boolean; message: string}> {
+    const pool = getPool();
+    if (!pool) throw new Error('Database not connected');
+
+    const result = await pool.query(
+      'UPDATE friendships SET memo = $1 WHERE user_id = $2 AND friend_id = $3',
+      [memo, userId, friendId]
+    );
+
+    if (result.rowCount === 0) {
+      return { success: false, message: '친구 관계를 찾을 수 없습니다.' };
+    }
+
+    return { success: true, message: '메모가 저장되었습니다.' };
   },
 
   // 친구 삭제
