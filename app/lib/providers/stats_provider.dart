@@ -41,6 +41,8 @@ class GameRecord {
         return '반응속도';
       case 'rps':
         return '가위바위보';
+      case 'speedtap':
+        return '스피드탭';
       default:
         return gameType;
     }
@@ -109,6 +111,8 @@ class GameStats {
         return '반응속도';
       case 'rps':
         return '가위바위보';
+      case 'speedtap':
+        return '스피드탭';
       default:
         return gameType;
     }

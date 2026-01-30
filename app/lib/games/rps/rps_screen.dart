@@ -137,6 +137,11 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
 
     _socketService.on('game_start', (data) {
       if (data['gameType'] == 'rps') {
+        // finished 상태에서 재경기 요청 안 했으면 무시
+        if (_status == RpsGameStatus.finished && !_rematchWaiting) {
+          debugPrint('🎮 game_start ignored: not waiting for rematch');
+          return;
+        }
         setState(() {
           _status = RpsGameStatus.playing;
           _currentRound = 0;
@@ -144,6 +149,11 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
           _myChoice = null;
           _opponentChosen = false;
           _waitingForResult = false;
+          // 이전 라운드 결과 리셋
+          _lastPlayer0Choice = null;
+          _lastPlayer1Choice = null;
+          _lastWinnerIndex = null;
+          _lastIsDraw = false;
           // 재경기 상태 리셋
           _rematchWaiting = false;
           _opponentWantsRematch = false;
@@ -580,7 +590,9 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
 
         // 게임 영역
         Expanded(
-          child: showResult ? _buildResultView() : _buildChoiceView(),
+          child: _currentRound == 0
+              ? _buildWaitingForRoundView()
+              : (showResult ? _buildResultView() : _buildChoiceView()),
         ),
       ],
     );
@@ -646,6 +658,28 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildWaitingForRoundView() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const CircularProgressIndicator(
+            color: Color(0xFF9B59B6),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            '준비 중...',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey.shade700,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

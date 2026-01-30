@@ -6,6 +6,7 @@ const infinitetictactoe_1 = require("../games/infinitetictactoe");
 const gomoku_1 = require("../games/gomoku");
 const reaction_1 = require("../games/reaction");
 const rps_1 = require("../games/rps");
+const speedtap_1 = require("../games/speedtap");
 const friendService_1 = require("../services/friendService");
 const invitationService_1 = require("../services/invitationService");
 const statsService_1 = require("../services/statsService");
@@ -153,47 +154,39 @@ function startRpsRound(io, room) {
         timeLimit: RPS_TIME_LIMIT,
     });
     console.log(`✊ RPS Round ${game.getCurrentRound()} started`);
-    // 10초 타임아웃 (둘 다 선택 안하면)
+    // 10초 타임아웃 (선택 안 한 사람은 랜덤 선택)
     room.roundTimer = setTimeout(() => {
         if (!game.isGameOver() && (!game.hasChosen(0) || !game.hasChosen(1))) {
-            // 선택 안 한 사람은 패배 처리
-            const choices = game.getChoices();
-            if (choices[0] === null && choices[1] === null) {
-                // 둘 다 안했으면 무승부
-                io.to(room.id).emit('rps_round_timeout', {
-                    round: game.getCurrentRound(),
-                });
-                // 다음 라운드 시작
-                setTimeout(() => startRpsRound(io, room), 2000);
+            // 선택 안 한 플레이어는 랜덤으로 선택
+            if (!game.hasChosen(0)) {
+                const randomChoice = game.setRandomChoice(0);
+                console.log(`⏰ Player 0 timeout - random choice: ${randomChoice}`);
+            }
+            if (!game.hasChosen(1)) {
+                const randomChoice = game.setRandomChoice(1);
+                console.log(`⏰ Player 1 timeout - random choice: ${randomChoice}`);
+            }
+            // 라운드 결과 계산
+            const roundResult = game.calculateRoundResult();
+            const winner = roundResult.roundWinner !== null ? room.players[roundResult.roundWinner] : null;
+            io.to(room.id).emit('rps_round_result', {
+                round: game.getCurrentRound(),
+                player0Choice: roundResult.player0Choice,
+                player1Choice: roundResult.player1Choice,
+                winnerIndex: roundResult.roundWinner,
+                winnerId: winner?.id ?? null,
+                winnerNickname: winner?.nickname ?? null,
+                isDraw: roundResult.isDraw,
+                isTimeout: true,
+                scores: game.getScores(),
+            });
+            // 게임 종료 체크
+            if (roundResult.gameOver) {
+                finishRpsGame(io, room);
             }
             else {
-                // 한 명만 선택했으면 그 사람이 승리
-                const winnerIndex = choices[0] !== null ? 0 : 1;
-                const winner = room.players[winnerIndex];
-                // 안전 체크: 승자 플레이어가 존재하는지 확인
-                if (!winner) {
-                    console.log('⚠️ RPS timeout: winner player not found, ending game');
-                    return;
-                }
-                // 타임아웃 시 선택한 쪽에 점수 부여
-                game.forceWin(winnerIndex);
-                io.to(room.id).emit('rps_round_result', {
-                    round: game.getCurrentRound(),
-                    player0Choice: choices[0],
-                    player1Choice: choices[1],
-                    winnerIndex,
-                    winnerId: winner.id,
-                    winnerNickname: winner.nickname,
-                    isDraw: false,
-                    isTimeout: true,
-                    scores: game.getScores(),
-                });
-                if (game.isGameOver()) {
-                    finishRpsGame(io, room);
-                }
-                else {
-                    setTimeout(() => startRpsRound(io, room), 2000);
-                }
+                // 다음 라운드 시작
+                setTimeout(() => startRpsRound(io, room), 2000);
             }
         }
     }, RPS_TIME_LIMIT);
@@ -246,6 +239,114 @@ async function finishRpsGame(io, room) {
         roundResults: game.getRoundResults(),
     });
     console.log(`🏆 RPS game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores[0]}-${scores[1]})`);
+}
+// 스피드탭 라운드 시작 (3초 카운트다운 후)
+function startSpeedTapRound(io, room) {
+    if (room.gameType !== 'speedtap' || !(room.game instanceof speedtap_1.SpeedTapGame))
+        return;
+    const game = room.game;
+    game.startRound();
+    const roundNum = game.getCurrentRound();
+    const roundScores = game.getRoundScores();
+    // 카운트다운 시작 알림
+    io.to(room.id).emit('speedtap_countdown', {
+        round: roundNum,
+        roundScores: roundScores,
+        countdown: 3,
+    });
+    console.log(`👆 SpeedTap Round ${roundNum} countdown started`);
+    // 3초 후 실제 라운드 시작
+    setTimeout(() => {
+        // 방이 아직 유효한지 확인
+        if (room.status !== 'playing')
+            return;
+        io.to(room.id).emit('speedtap_round_start', {
+            round: roundNum,
+            roundScores: roundScores,
+            duration: speedtap_1.SpeedTapGame.ROUND_TIME,
+        });
+        console.log(`👆 SpeedTap Round ${roundNum} started`);
+        // 라운드 종료 타이머
+        room.roundTimer = setTimeout(() => {
+            endSpeedTapRound(io, room);
+        }, speedtap_1.SpeedTapGame.ROUND_TIME);
+    }, 3000);
+}
+// 스피드탭 라운드 종료
+async function endSpeedTapRound(io, room) {
+    if (!(room.game instanceof speedtap_1.SpeedTapGame))
+        return;
+    clearRoundTimer(room);
+    const game = room.game;
+    const result = game.endRound();
+    const winner = result.roundWinner !== null ? room.players[result.roundWinner] : null;
+    io.to(room.id).emit('speedtap_round_result', {
+        round: game.getCurrentRound(),
+        player0Taps: result.player0Taps,
+        player1Taps: result.player1Taps,
+        roundWinner: result.roundWinner,
+        winnerId: winner?.id ?? null,
+        winnerNickname: winner?.nickname ?? null,
+        isDraw: result.isDraw,
+        roundScores: game.getRoundScores(),
+    });
+    console.log(`👆 SpeedTap Round ${game.getCurrentRound()} ended: ${result.player0Taps} vs ${result.player1Taps}`);
+    if (result.gameOver) {
+        await finishSpeedTapGame(io, room);
+    }
+    else {
+        // 2초 후 다음 라운드 시작
+        setTimeout(() => startSpeedTapRound(io, room), 2000);
+    }
+}
+// 스피드탭 게임 종료 처리
+async function finishSpeedTapGame(io, room) {
+    if (!(room.game instanceof speedtap_1.SpeedTapGame))
+        return;
+    room.status = 'finished';
+    clearRoundTimer(room);
+    const game = room.game;
+    const winnerIndex = game.getWinner();
+    const roundScores = game.getRoundScores();
+    const winner = winnerIndex !== null ? room.players[winnerIndex] : null;
+    const winnerId = winner?.id ?? null;
+    const winnerNickname = winner?.nickname ?? null;
+    const isDraw = winnerIndex === null;
+    // 통계 업데이트
+    for (let i = 0; i < room.players.length; i++) {
+        const player = room.players[i];
+        const opponent = room.players[i === 0 ? 1 : 0];
+        if (player.userId) {
+            let gameResult;
+            if (isDraw) {
+                gameResult = 'draw';
+            }
+            else if (winnerIndex === i) {
+                gameResult = 'win';
+            }
+            else {
+                gameResult = 'loss';
+            }
+            try {
+                const stats = await statsService_1.statsService.recordGameResult(player.userId, room.gameType, gameResult);
+                player.socket.emit('stats_updated', { stats });
+                if (i === 0 && opponent.userId) {
+                    await statsService_1.statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
+                }
+            }
+            catch (err) {
+                console.error('Failed to update stats:', err);
+            }
+        }
+    }
+    io.to(room.id).emit('game_end', {
+        winner: winnerId,
+        winnerNickname,
+        isDraw,
+        roundScores,
+        roundResults: game.getRoundResults(),
+    });
+    console.log(`🏆 SpeedTap game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${roundScores[0]}-${roundScores[1]})`);
 }
 // 시간 초과 처리 - 랜덤 위치에 두기 (턴제 게임 전용)
 async function handleTurnTimeout(io, room) {
@@ -432,6 +533,9 @@ function setupSocketHandlers(io) {
                 else if (gameType === 'rps') {
                     room.game = new rps_1.RpsGame();
                 }
+                else if (gameType === 'speedtap') {
+                    room.game = new speedtap_1.SpeedTapGame();
+                }
                 rooms.set(roomId, room);
                 // 두 플레이어를 방에 조인
                 opponent.socket.join(roomId);
@@ -465,6 +569,14 @@ function setupSocketHandlers(io) {
                     });
                     // 1초 후 첫 라운드 시작
                     setTimeout(() => startRpsRound(io, room), 1000);
+                }
+                else if (gameType === 'speedtap') {
+                    // 스피드탭 게임
+                    io.to(roomId).emit('game_start', {
+                        gameType: 'speedtap',
+                    });
+                    // 1초 후 첫 라운드 시작
+                    setTimeout(() => startSpeedTapRound(io, room), 1000);
                 }
                 else {
                     // 턴제 게임
@@ -783,6 +895,19 @@ function setupSocketHandlers(io) {
                         // 다음 라운드 시작 (2초 후)
                         setTimeout(() => startRpsRound(io, room), 2000);
                     }
+                }
+            }
+            // 스피드탭 게임 로직
+            if (room.gameType === 'speedtap' && room.game instanceof speedtap_1.SpeedTapGame) {
+                const result = room.game.tap(playerIndex);
+                if (result.valid) {
+                    // 탭 카운트 업데이트 브로드캐스트
+                    io.to(data.roomId).emit('speedtap_tap', {
+                        playerId: socket.id,
+                        playerIndex,
+                        tapCount: result.tapCount,
+                        taps: room.game.getTaps(),
+                    });
                 }
             }
         });
@@ -1137,6 +1262,9 @@ function setupSocketHandlers(io) {
                 else if (invitation.gameType === 'rps') {
                     room.game = new rps_1.RpsGame();
                 }
+                else if (invitation.gameType === 'speedtap') {
+                    room.game = new speedtap_1.SpeedTapGame();
+                }
                 rooms.set(roomId, room);
                 // 방 참가
                 inviterSocket.join(roomId);
@@ -1208,6 +1336,37 @@ function setupSocketHandlers(io) {
                         gameType: 'rps',
                     });
                     setTimeout(() => startRpsRound(io, room), 1000);
+                }
+                else if (invitation.gameType === 'speedtap') {
+                    // 스피드탭 게임
+                    socket.emit('accept_invitation_result', {
+                        success: true,
+                        roomId,
+                        gameType: invitation.gameType,
+                        gameState: {
+                            players,
+                            isInvitation: true,
+                        }
+                    });
+                    inviterSocket.emit('invitation_accepted', {
+                        roomId,
+                        gameType: invitation.gameType,
+                        acceptedBy: currentPlayer.nickname,
+                        gameState: {
+                            players,
+                            isInvitation: true,
+                        }
+                    });
+                    io.to(roomId).emit('match_found', {
+                        roomId,
+                        gameType: invitation.gameType,
+                        isInvitation: true,
+                        players
+                    });
+                    io.to(roomId).emit('game_start', {
+                        gameType: 'speedtap',
+                    });
+                    setTimeout(() => startSpeedTapRound(io, room), 1000);
                 }
                 else {
                     // 턴제 게임
@@ -1436,6 +1595,9 @@ function setupSocketHandlers(io) {
                     else if (room.gameType === 'rps') {
                         room.game = new rps_1.RpsGame();
                     }
+                    else if (room.gameType === 'speedtap') {
+                        room.game = new speedtap_1.SpeedTapGame();
+                    }
                     room.status = 'playing';
                     room.rematchRequests.clear();
                     // 플레이어 순서 교체 (선공/후공 바꾸기)
@@ -1453,6 +1615,13 @@ function setupSocketHandlers(io) {
                             gameType: 'rps',
                         });
                         setTimeout(() => startRpsRound(io, room), 1000);
+                    }
+                    else if (room.gameType === 'speedtap') {
+                        // 스피드탭 게임 재대결
+                        io.to(data.roomId).emit('game_start', {
+                            gameType: 'speedtap',
+                        });
+                        setTimeout(() => startSpeedTapRound(io, room), 1000);
                     }
                     else {
                         // 턴제 게임

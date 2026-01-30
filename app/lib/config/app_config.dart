@@ -16,4 +16,5 @@ class AppConfig {
   static const String gameTypeGomoku = 'gomoku';
   static const String gameTypeReaction = 'reaction';
   static const String gameTypeRps = 'rps';
+  static const String gameTypeSpeedTap = 'speedtap';
 }

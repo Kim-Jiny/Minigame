@@ -167,6 +167,14 @@ export class RpsGame {
     }
   }
 
+  // 랜덤 선택 (타임아웃 시 선택 안 한 플레이어용)
+  setRandomChoice(playerIndex: number): RpsChoice {
+    const options: RpsChoice[] = ['rock', 'paper', 'scissors'];
+    const randomChoice = options[Math.floor(Math.random() * options.length)];
+    this.choices[playerIndex] = randomChoice;
+    return randomChoice;
+  }
+
   reset(): void {
     this.scores = [0, 0];
     this.currentRound = 0;
