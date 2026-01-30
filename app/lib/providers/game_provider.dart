@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../services/socket_service.dart';
 
@@ -15,6 +16,7 @@ class GameProvider extends ChangeNotifier {
   GameStatus _status = GameStatus.idle;
   String? _roomId;
   String? _opponentNickname;
+  int? _opponentUserId;
   String? _currentTurn;
   List<int?> _board = List.filled(9, null);
   String? _myId;
@@ -27,10 +29,33 @@ class GameProvider extends ChangeNotifier {
   List<Map<String, dynamic>> _moveHistory = [];
   int? _removedPosition;
 
+  // 재경기 관련
+  bool _rematchWaiting = false;
+  bool _opponentWantsRematch = false;
+  bool _opponentLeft = false;  // 상대가 나갔는지
+  bool _isInvitationGame = false;  // 친구 초대 게임인지
+
+  // 턴 타이머 관련
+  int? _turnTimeLimit;  // 턴 제한 시간 (밀리초)
+  int? _turnStartTime;  // 턴 시작 시간 (서버 타임스탬프)
+  int _remainingTime = 0;  // 남은 시간 (초)
+  Timer? _countdownTimer;
+  String? _timeoutPlayerNickname;  // 타임아웃된 플레이어
+
+  // 하드코어 모드
+  bool _isHardcore = false;  // 하드코어 모드 설정
+  bool _isHardcoreGame = false;  // 현재 게임이 하드코어인지
+
+  // 생성자에서 리스너 설정
+  GameProvider() {
+    _setupSocketListeners();
+  }
+
   // Getters
   GameStatus get status => _status;
   String? get roomId => _roomId;
   String? get opponentNickname => _opponentNickname;
+  int? get opponentUserId => _opponentUserId;
   String? get currentTurn => _currentTurn;
   List<int?> get board => _board;
   bool get isMyTurn => _currentTurn == _myId;
@@ -38,6 +63,21 @@ class GameProvider extends ChangeNotifier {
   String? get winnerNickname => _winnerNickname;
   bool get isDraw => _isDraw;
   bool get isWinner => _winnerId == _myId;
+  bool get rematchWaiting => _rematchWaiting;
+  bool get opponentWantsRematch => _opponentWantsRematch;
+  bool get opponentLeft => _opponentLeft;
+  bool get isInvitationGame => _isInvitationGame;
+  int get remainingTime => _remainingTime;
+  int get turnTimeLimit => (_turnTimeLimit ?? 30000) ~/ 1000;  // 초 단위
+  String? get timeoutPlayerNickname => _timeoutPlayerNickname;
+  bool get isHardcore => _isHardcore;
+  bool get isHardcoreGame => _isHardcoreGame;
+
+  // 하드코어 모드 설정
+  void setHardcoreMode(bool value) {
+    _isHardcore = value;
+    notifyListeners();
+  }
 
   // 무한 틱택토용 getters
   int get myPieceCount => _board.where((cell) => cell == _myPlayerIndex).length;
@@ -62,29 +102,41 @@ class GameProvider extends ChangeNotifier {
 
   void initialize(String myId) {
     _myId = myId;
-    _setupSocketListeners();
   }
 
   void _setupSocketListeners() {
+    // 소켓 연결 시 myId 자동 설정
+    _socketService.on('lobby_joined', (_) {
+      _myId = _socketService.socket?.id;
+    });
+
     _socketService.on('waiting_for_match', (data) {
       _status = GameStatus.searching;
       notifyListeners();
     });
 
     _socketService.on('match_found', (data) {
+      debugPrint('🎮 match_found 전체 데이터: $data');
       _status = GameStatus.matched;
       _roomId = data['roomId'];
       final players = data['players'] as List;
       final opponent = players.firstWhere((p) => p['id'] != _myId);
       _opponentNickname = opponent['nickname'];
+      _opponentUserId = opponent['userId'];
 
       // 내 플레이어 인덱스 저장
       _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
+
+      // 친구 초대 게임인지 확인
+      _isInvitationGame = data['isInvitation'] == true;
+      _isHardcoreGame = data['isHardcore'] == true;
+      debugPrint('🎮 match_found - isInvitation: ${data['isInvitation']}, isHardcore: ${data['isHardcore']}');
 
       notifyListeners();
     });
 
     _socketService.on('game_start', (data) {
+      debugPrint('🎮 game_start 데이터: $data');
       _status = GameStatus.playing;
       _currentTurn = data['currentTurn'];
       _board = List<int?>.from(data['board']);
@@ -93,12 +145,23 @@ class GameProvider extends ChangeNotifier {
       _isDraw = false;
       _moveHistory = [];
       _removedPosition = null;
+      _timeoutPlayerNickname = null;
+      // 재경기 상태 초기화
+      _rematchWaiting = false;
+      _opponentWantsRematch = false;
+      _opponentLeft = false;
+      // 턴 타이머 시작
+      _turnTimeLimit = data['turnTimeLimit'];
+      _turnStartTime = data['turnStartTime'];
+      _startCountdownTimer();
+      debugPrint('🎮 game_start 후 상태: status=$_status, currentTurn=$_currentTurn, myId=$_myId');
       notifyListeners();
     });
 
     _socketService.on('game_update', (data) {
       _board = List<int?>.from(data['board']);
       _currentTurn = data['currentTurn'];
+      _timeoutPlayerNickname = null;  // 타임아웃 알림 초기화
 
       // 무한 틱택토용 데이터
       if (data['moveHistory'] != null) {
@@ -110,6 +173,13 @@ class GameProvider extends ChangeNotifier {
         _removedPosition = data['removedPosition'];
       }
 
+      // 턴 타이머 재시작
+      if (data['turnTimeLimit'] != null) {
+        _turnTimeLimit = data['turnTimeLimit'];
+        _turnStartTime = data['turnStartTime'];
+        _startCountdownTimer();
+      }
+
       notifyListeners();
     });
 
@@ -119,12 +189,39 @@ class GameProvider extends ChangeNotifier {
       _winnerId = data['winner'];
       _winnerNickname = data['winnerNickname'];
       _isDraw = data['isDraw'] ?? false;
+      _stopCountdownTimer();
       notifyListeners();
     });
 
     _socketService.on('opponent_left', (data) {
       _status = GameStatus.finished;
       _winnerId = _myId; // 상대가 나가면 승리
+      _rematchWaiting = false;
+      _opponentWantsRematch = false;
+      _opponentLeft = true;  // 상대가 나감
+      _stopCountdownTimer();
+      notifyListeners();
+    });
+
+    // 턴 타임아웃
+    _socketService.on('turn_timeout', (data) {
+      _timeoutPlayerNickname = data['playerNickname'];
+      notifyListeners();
+    });
+
+    // 재경기 관련 리스너
+    _socketService.on('rematch_waiting', (data) {
+      _rematchWaiting = data['waiting'] ?? false;
+      notifyListeners();
+    });
+
+    _socketService.on('rematch_requested', (data) {
+      _opponentWantsRematch = true;
+      notifyListeners();
+    });
+
+    _socketService.on('rematch_cancelled', (data) {
+      _opponentWantsRematch = false;
       notifyListeners();
     });
 
@@ -133,12 +230,88 @@ class GameProvider extends ChangeNotifier {
     });
   }
 
+  // 카운트다운 타이머 시작
+  void _startCountdownTimer() {
+    _stopCountdownTimer();
+
+    if (_turnTimeLimit == null || _turnStartTime == null) return;
+
+    // 서버 시간과의 차이 계산
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final elapsed = now - _turnStartTime!;
+    final remaining = _turnTimeLimit! - elapsed;
+
+    _remainingTime = (remaining / 1000).ceil();
+    if (_remainingTime < 0) _remainingTime = 0;
+
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_remainingTime > 0) {
+        _remainingTime--;
+        notifyListeners();
+      } else {
+        timer.cancel();
+      }
+    });
+  }
+
+  // 카운트다운 타이머 정지
+  void _stopCountdownTimer() {
+    _countdownTimer?.cancel();
+    _countdownTimer = null;
+  }
+
+  // 초대 게임 상태 직접 설정 (match_found/game_start 이벤트 대신 사용)
+  void initializeInvitationGame({
+    required String roomId,
+    required List<dynamic> players,
+    required String currentTurn,
+    required List<dynamic> board,
+    int? turnTimeLimit,
+    int? turnStartTime,
+  }) {
+    debugPrint('🎮 initializeInvitationGame called');
+    debugPrint('🎮 roomId: $roomId, currentTurn: $currentTurn');
+    debugPrint('🎮 players: $players');
+
+    _roomId = roomId;
+    _myId = _socketService.socket?.id;
+
+    final opponent = players.firstWhere((p) => p['id'] != _myId);
+    _opponentNickname = opponent['nickname'];
+    _opponentUserId = opponent['userId'];
+    _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
+    _isInvitationGame = true;
+
+    _status = GameStatus.playing;
+    _currentTurn = currentTurn;
+    _board = List<int?>.from(board);
+    _winnerId = null;
+    _winnerNickname = null;
+    _isDraw = false;
+    _moveHistory = [];
+    _removedPosition = null;
+    _rematchWaiting = false;
+    _opponentWantsRematch = false;
+    _opponentLeft = false;
+    _timeoutPlayerNickname = null;
+
+    // 턴 타이머 시작
+    _turnTimeLimit = turnTimeLimit;
+    _turnStartTime = turnStartTime;
+    if (_turnTimeLimit != null && _turnStartTime != null) {
+      _startCountdownTimer();
+    }
+
+    debugPrint('🎮 initializeInvitationGame complete: status=$_status, isMyTurn=$isMyTurn');
+    notifyListeners();
+  }
+
   void findMatch(String gameType) {
-    _socketService.emit('find_match', {'gameType': gameType});
+    _socketService.emit('find_match', {'gameType': gameType, 'isHardcore': _isHardcore});
   }
 
   void cancelMatch(String gameType) {
-    _socketService.emit('cancel_match', {'gameType': gameType});
+    _socketService.emit('cancel_match', {'gameType': gameType, 'isHardcore': _isHardcore});
     _status = GameStatus.idle;
     notifyListeners();
   }
@@ -156,8 +329,10 @@ class GameProvider extends ChangeNotifier {
     _socketService.emit('rematch_request', {'roomId': _roomId});
   }
 
-  void acceptRematch() {
-    _socketService.emit('rematch_accept', {'roomId': _roomId});
+  void cancelRematch() {
+    _socketService.emit('rematch_cancel', {'roomId': _roomId});
+    _rematchWaiting = false;
+    notifyListeners();
   }
 
   void leaveGame() {
@@ -168,9 +343,11 @@ class GameProvider extends ChangeNotifier {
   }
 
   void reset() {
+    _stopCountdownTimer();
     _status = GameStatus.idle;
     _roomId = null;
     _opponentNickname = null;
+    _opponentUserId = null;
     _currentTurn = null;
     _board = List.filled(9, null);
     _winnerId = null;
@@ -179,17 +356,32 @@ class GameProvider extends ChangeNotifier {
     _myPlayerIndex = null;
     _moveHistory = [];
     _removedPosition = null;
+    _rematchWaiting = false;
+    _opponentWantsRematch = false;
+    _opponentLeft = false;
+    _isInvitationGame = false;
+    _isHardcoreGame = false;
+    _turnTimeLimit = null;
+    _turnStartTime = null;
+    _remainingTime = 0;
+    _timeoutPlayerNickname = null;
     notifyListeners();
   }
 
   @override
   void dispose() {
+    _stopCountdownTimer();
+    _socketService.off('lobby_joined');
     _socketService.off('waiting_for_match');
     _socketService.off('match_found');
     _socketService.off('game_start');
     _socketService.off('game_update');
     _socketService.off('game_end');
     _socketService.off('opponent_left');
+    _socketService.off('turn_timeout');
+    _socketService.off('rematch_waiting');
+    _socketService.off('rematch_requested');
+    _socketService.off('rematch_cancelled');
     _socketService.off('error');
     super.dispose();
   }

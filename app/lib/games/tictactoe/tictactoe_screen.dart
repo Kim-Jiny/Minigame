@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/game_provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/friend_provider.dart';
 import '../../config/app_config.dart';
 
 class TicTacToeScreen extends StatefulWidget {
@@ -102,15 +103,58 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
                 color: Colors.grey.shade600,
               ),
             ),
-            const SizedBox(height: 48),
+            const SizedBox(height: 32),
+            // 하드코어 모드 토글
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: game.isHardcore ? Colors.red.shade50 : Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: game.isHardcore ? Colors.red : Colors.grey.shade300,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.local_fire_department,
+                    color: game.isHardcore ? Colors.red : Colors.grey,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '하드코어',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: game.isHardcore ? Colors.red : Colors.grey.shade600,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '(10초)',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: game.isHardcore ? Colors.red.shade400 : Colors.grey,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Switch(
+                    value: game.isHardcore,
+                    onChanged: (value) => game.setHardcoreMode(value),
+                    activeColor: Colors.red,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
             ElevatedButton.icon(
               onPressed: () {
                 game.findMatch(AppConfig.gameTypeTicTacToe);
               },
               icon: const Icon(Icons.search),
-              label: const Text('상대 찾기'),
+              label: Text(game.isHardcore ? '하드코어 상대 찾기' : '상대 찾기'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF6C5CE7),
+                backgroundColor: game.isHardcore ? Colors.red : const Color(0xFF6C5CE7),
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 32,
@@ -153,29 +197,53 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
             ),
             const SizedBox(height: 24),
             Text(
-              '상대를 찾는 중...',
+              game.isHardcore ? '하드코어 상대를 찾는 중...' : '상대를 찾는 중...',
               style: TextStyle(
                 fontSize: 18,
-                color: Colors.grey.shade700,
+                color: game.isHardcore ? Colors.red.shade700 : Colors.grey.shade700,
               ),
             ),
             const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.auto_awesome, size: 16, color: const Color(0xFFFDCB6E)),
-                const SizedBox(width: 4),
-                Text(
-                  '상대를 기다리는 중',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey.shade500,
-                  ),
+            if (game.isHardcore)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                const SizedBox(width: 4),
-                Icon(Icons.auto_awesome, size: 16, color: const Color(0xFFFDCB6E)),
-              ],
-            ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.local_fire_department, size: 16, color: Colors.red),
+                    const SizedBox(width: 4),
+                    Text(
+                      '하드코어 모드 (10초)',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.red.shade700,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.auto_awesome, size: 16, color: const Color(0xFFFDCB6E)),
+                  const SizedBox(width: 4),
+                  Text(
+                    '상대를 기다리는 중',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(Icons.auto_awesome, size: 16, color: const Color(0xFFFDCB6E)),
+                ],
+              ),
             const SizedBox(height: 48),
             OutlinedButton(
               onPressed: () {
@@ -300,23 +368,46 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
                     ),
                   ],
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    'vs ${game.opponentNickname}',
-                    style: const TextStyle(fontSize: 14),
-                  ),
+                Row(
+                  children: [
+                    // 타이머 표시
+                    _buildTimer(game),
+                    const SizedBox(width: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        'vs ${game.opponentNickname}',
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
+
+          // 타임아웃 알림
+          if (game.timeoutPlayerNickname != null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              color: Colors.orange.shade100,
+              child: Text(
+                '${game.timeoutPlayerNickname}님 시간 초과! 랜덤 위치에 배치됨',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.orange.shade800,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
 
           // 게임 보드
           Expanded(
@@ -328,6 +419,59 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
                   child: _buildBoard(game, auth.socketId),
                 ),
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimer(GameProvider game) {
+    final remaining = game.remainingTime;
+    final isLow = remaining <= 10;
+    final isCritical = remaining <= 5;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: isCritical
+            ? Colors.red.shade100
+            : isLow
+                ? Colors.orange.shade100
+                : Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isCritical
+              ? Colors.red
+              : isLow
+                  ? Colors.orange
+                  : Colors.grey.shade300,
+          width: isCritical ? 2 : 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.timer,
+            size: 18,
+            color: isCritical
+                ? Colors.red
+                : isLow
+                    ? Colors.orange
+                    : Colors.grey.shade600,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            '${remaining}초',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: isCritical
+                  ? Colors.red
+                  : isLow
+                      ? Colors.orange
+                      : Colors.grey.shade700,
             ),
           ),
         ],
@@ -402,6 +546,8 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
   }
 
   Widget _buildFinishedView(GameProvider game) {
+    debugPrint('🎮 _buildFinishedView - isInvitationGame: ${game.isInvitationGame}');
+
     String resultText;
     Color resultColor;
     IconData resultIcon;
@@ -480,36 +626,123 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
                     color: resultColor,
                   ),
                 ),
-                const SizedBox(height: 24),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                // 상대가 나갔을 때 표시
+                if (game.opponentLeft)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.exit_to_app, size: 16, color: Colors.grey.shade600),
+                        const SizedBox(width: 8),
+                        Text(
+                          '상대방이 나갔습니다',
+                          style: TextStyle(color: Colors.grey.shade600),
+                        ),
+                      ],
+                    ),
+                  ),
+                // 상대방 재경기 요청 표시
+                if (game.opponentWantsRematch && !game.opponentLeft)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.green.shade200),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.hourglass_top, size: 16, color: Colors.green.shade700),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${game.opponentNickname}님이 대기 중...',
+                          style: TextStyle(color: Colors.green.shade700, fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        game.reset();
-                        game.findMatch(AppConfig.gameTypeTicTacToe);
-                      },
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('다시 찾기'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF6C5CE7),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(30),
+                    // 재경기 버튼 (상대가 나가지 않았을 때만 표시)
+                    if (!game.opponentLeft)
+                      ElevatedButton.icon(
+                        onPressed: game.rematchWaiting
+                            ? () => game.cancelRematch()
+                            : () => game.requestRematch(),
+                        icon: Icon(game.rematchWaiting ? Icons.hourglass_top : Icons.replay),
+                        label: Text(game.rematchWaiting ? '대기 중...' : '재경기'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: game.rematchWaiting
+                              ? Colors.orange
+                              : const Color(0xFF6C5CE7),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 16),
+                    // 다시 찾기 버튼 (친구 초대 게임이 아닐 때만)
+                    if (!game.isInvitationGame)
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          game.leaveGame();
+                          game.findMatch(AppConfig.gameTypeTicTacToe);
+                        },
+                        icon: const Icon(Icons.search),
+                        label: const Text('다시 찾기'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF6C5CE7),
+                          side: const BorderSide(color: Color(0xFF6C5CE7)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                        ),
+                      ),
+                    // 친구 요청 버튼 (랜덤 매칭이고 상대가 나가지 않았을 때)
+                    if (!game.isInvitationGame && !game.opponentLeft && game.opponentUserId != null)
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          context.read<FriendProvider>().sendFriendRequestByUserId(game.opponentUserId!);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('${game.opponentNickname}님에게 친구 요청을 보냈습니다'),
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.person_add),
+                        label: const Text('친구 요청'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.green,
+                          side: const BorderSide(color: Colors.green),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                        ),
+                      ),
+                    // 로비로 버튼
                     OutlinedButton.icon(
                       onPressed: () {
-                        game.reset();
+                        game.leaveGame();
                         Navigator.pop(context);
                       },
                       icon: const Icon(Icons.home),
-                      label: const Text('로비로'),
+                      label: const Text('로비'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF6C5CE7),
-                        side: const BorderSide(color: Color(0xFF6C5CE7)),
+                        foregroundColor: Colors.grey,
+                        side: BorderSide(color: Colors.grey.shade400),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(30),
                         ),

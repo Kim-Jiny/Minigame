@@ -6,12 +6,145 @@ const infinitetictactoe_1 = require("../games/infinitetictactoe");
 const friendService_1 = require("../services/friendService");
 const invitationService_1 = require("../services/invitationService");
 const statsService_1 = require("../services/statsService");
+const messageService_1 = require("../services/messageService");
+// 턴 시간 제한 (밀리초)
+const TURN_TIME_LIMIT_NORMAL = 30000; // 30초
+const TURN_TIME_LIMIT_HARDCORE = 10000; // 10초 (하드코어)
+function getTurnTimeLimit(room) {
+    return room.isHardcore ? TURN_TIME_LIMIT_HARDCORE : TURN_TIME_LIMIT_NORMAL;
+}
 // 게임방 관리
 const rooms = new Map();
-// 매칭 대기열 (게임 타입별)
+// 매칭 대기열 (게임 타입별 + 하드코어 여부)
+// key: "tictactoe_normal" 또는 "tictactoe_hardcore"
 const matchQueues = new Map();
 // 유저 ID별 소켓 매핑 (초대 알림용)
 const userSockets = new Map();
+function getQueueKey(gameType, isHardcore) {
+    return `${gameType}_${isHardcore ? 'hardcore' : 'normal'}`;
+}
+// 턴 타이머 시작
+function startTurnTimer(io, room) {
+    // 기존 타이머 정리
+    if (room.turnTimer) {
+        clearTimeout(room.turnTimer);
+    }
+    room.turnStartTime = Date.now();
+    const timeLimit = getTurnTimeLimit(room);
+    room.turnTimer = setTimeout(() => {
+        handleTurnTimeout(io, room);
+    }, timeLimit);
+}
+// 턴 타이머 정리
+function clearTurnTimer(room) {
+    if (room.turnTimer) {
+        clearTimeout(room.turnTimer);
+        room.turnTimer = undefined;
+    }
+    room.turnStartTime = undefined;
+}
+// 시간 초과 처리 - 랜덤 위치에 두기
+async function handleTurnTimeout(io, room) {
+    if (room.status !== 'playing' || !room.game)
+        return;
+    const currentPlayerIndex = room.game.getCurrentPlayer();
+    const currentPlayer = room.players[currentPlayerIndex];
+    // 빈 칸 찾기
+    const board = room.game.getBoard();
+    const emptyPositions = [];
+    for (let i = 0; i < board.length; i++) {
+        if (board[i] === null) {
+            emptyPositions.push(i);
+        }
+    }
+    if (emptyPositions.length === 0)
+        return;
+    // 랜덤 위치 선택
+    const randomPosition = emptyPositions[Math.floor(Math.random() * emptyPositions.length)];
+    console.log(`⏰ Turn timeout: ${currentPlayer.nickname} - random move to position ${randomPosition}`);
+    // 게임 진행
+    const result = room.game.makeMove(randomPosition, currentPlayerIndex);
+    if (!result.valid) {
+        console.error('Random move failed:', result.message);
+        return;
+    }
+    // 타임아웃 알림
+    io.to(room.id).emit('turn_timeout', {
+        playerId: currentPlayer.id,
+        playerNickname: currentPlayer.nickname,
+        position: randomPosition,
+    });
+    // 게임 상태 업데이트
+    if (room.gameType === 'infinite_tictactoe' && room.game instanceof infinitetictactoe_1.InfiniteTicTacToeGame) {
+        const infiniteResult = result;
+        io.to(room.id).emit('game_update', {
+            board: room.game.getBoard(),
+            currentTurn: room.players[room.game.getCurrentPlayer()].id,
+            lastMove: randomPosition,
+            removedPosition: infiniteResult.removedPosition,
+            moveHistory: room.game.getMoveHistory(),
+            turnTimeLimit: getTurnTimeLimit(room),
+            turnStartTime: Date.now(),
+        });
+    }
+    else {
+        io.to(room.id).emit('game_update', {
+            board: room.game.getBoard(),
+            currentTurn: room.players[room.game.getCurrentPlayer()].id,
+            lastMove: randomPosition,
+            turnTimeLimit: getTurnTimeLimit(room),
+            turnStartTime: Date.now(),
+        });
+    }
+    // 게임 종료 체크
+    if (result.gameOver) {
+        room.status = 'finished';
+        clearTurnTimer(room);
+        const winnerId = result.winner !== undefined && result.winner !== null
+            ? room.players[result.winner].id
+            : null;
+        const winnerNickname = result.winner !== undefined && result.winner !== null
+            ? room.players[result.winner].nickname
+            : null;
+        // 통계 업데이트
+        for (let i = 0; i < room.players.length; i++) {
+            const player = room.players[i];
+            const opponent = room.players[i === 0 ? 1 : 0];
+            if (player.userId) {
+                let gameResult;
+                if (result.isDraw) {
+                    gameResult = 'draw';
+                }
+                else if (result.winner === i) {
+                    gameResult = 'win';
+                }
+                else {
+                    gameResult = 'loss';
+                }
+                try {
+                    const stats = await statsService_1.statsService.recordGameResult(player.userId, room.gameType, gameResult);
+                    player.socket.emit('stats_updated', { stats });
+                    if (i === 0 && opponent.userId) {
+                        await statsService_1.statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
+                    }
+                }
+                catch (err) {
+                    console.error('Failed to update stats:', err);
+                }
+            }
+        }
+        io.to(room.id).emit('game_end', {
+            winner: winnerId,
+            winnerNickname: winnerNickname,
+            isDraw: result.isDraw || false,
+            board: room.game.getBoard(),
+        });
+    }
+    else {
+        // 다음 턴 타이머 시작
+        startTurnTimer(io, room);
+    }
+}
 function setupSocketHandlers(io) {
     io.on('connection', (socket) => {
         console.log(`👤 Player connected: ${socket.id}`);
@@ -52,22 +185,24 @@ function setupSocketHandlers(io) {
                 socket.emit('error', { message: 'Please join lobby first' });
                 return;
             }
-            const { gameType } = data;
-            if (!matchQueues.has(gameType)) {
-                matchQueues.set(gameType, []);
+            const { gameType, isHardcore = false } = data;
+            const queueKey = getQueueKey(gameType, isHardcore);
+            if (!matchQueues.has(queueKey)) {
+                matchQueues.set(queueKey, []);
             }
-            const queue = matchQueues.get(gameType);
+            const queue = matchQueues.get(queueKey);
             // 이미 대기열에 상대가 있으면 매칭
             if (queue.length > 0) {
                 const opponent = queue.shift();
                 // 방 생성
-                const roomId = `${gameType}_${Date.now()}`;
+                const roomId = `${gameType}_${isHardcore ? 'hc_' : ''}${Date.now()}`;
                 const room = {
                     id: roomId,
                     gameType,
                     players: [opponent, currentPlayer],
                     game: null,
                     status: 'waiting',
+                    isHardcore,
                 };
                 // 게임 초기화
                 if (gameType === 'tictactoe') {
@@ -85,29 +220,35 @@ function setupSocketHandlers(io) {
                 io.to(roomId).emit('match_found', {
                     roomId,
                     gameType,
+                    isHardcore,
                     players: [
-                        { id: opponent.id, nickname: opponent.nickname },
-                        { id: currentPlayer.id, nickname: currentPlayer.nickname },
+                        { id: opponent.id, nickname: opponent.nickname, userId: opponent.userId },
+                        { id: currentPlayer.id, nickname: currentPlayer.nickname, userId: currentPlayer.userId },
                     ],
                 });
-                console.log(`🎯 Match found: ${opponent.nickname} vs ${currentPlayer.nickname}`);
+                console.log(`🎯 Match found: ${opponent.nickname} vs ${currentPlayer.nickname} ${isHardcore ? '(하드코어)' : ''}`);
                 // 게임 시작
                 room.status = 'playing';
+                startTurnTimer(io, room);
                 io.to(roomId).emit('game_start', {
                     currentTurn: opponent.id, // 첫 번째 플레이어가 선공
                     board: room.game?.getBoard(),
+                    turnTimeLimit: getTurnTimeLimit(room),
+                    turnStartTime: room.turnStartTime,
                 });
             }
             else {
                 // 대기열에 추가
                 queue.push(currentPlayer);
-                socket.emit('waiting_for_match', { gameType });
-                console.log(`⏳ ${currentPlayer.nickname} waiting for match (${gameType})`);
+                socket.emit('waiting_for_match', { gameType, isHardcore });
+                console.log(`⏳ ${currentPlayer.nickname} waiting for match (${gameType}${isHardcore ? ' 하드코어' : ''})`);
             }
         });
         // 매칭 취소
         socket.on('cancel_match', (data) => {
-            const queue = matchQueues.get(data.gameType);
+            const { gameType, isHardcore = false } = data;
+            const queueKey = getQueueKey(gameType, isHardcore);
+            const queue = matchQueues.get(queueKey);
             if (queue) {
                 const index = queue.findIndex(p => p.id === socket.id);
                 if (index !== -1) {
@@ -135,12 +276,8 @@ function setupSocketHandlers(io) {
                     socket.emit('error', { message: result.message });
                     return;
                 }
-                // 게임 상태 업데이트 브로드캐스트
-                io.to(data.roomId).emit('game_update', {
-                    board: room.game.getBoard(),
-                    currentTurn: room.players[room.game.getCurrentPlayer()].id,
-                    lastMove: data.action.position,
-                });
+                // 타이머 정리 및 재시작
+                clearTurnTimer(room);
                 // 게임 종료 체크
                 if (result.gameOver) {
                     room.status = 'finished';
@@ -188,6 +325,18 @@ function setupSocketHandlers(io) {
                     });
                     console.log(`🏆 Game ended: ${result.isDraw ? 'Draw' : winnerNickname + ' wins'}`);
                 }
+                else {
+                    // 게임 계속 - 다음 턴 타이머 시작
+                    startTurnTimer(io, room);
+                    // 게임 상태 업데이트 브로드캐스트
+                    io.to(data.roomId).emit('game_update', {
+                        board: room.game.getBoard(),
+                        currentTurn: room.players[room.game.getCurrentPlayer()].id,
+                        lastMove: data.action.position,
+                        turnTimeLimit: getTurnTimeLimit(room),
+                        turnStartTime: room.turnStartTime,
+                    });
+                }
             }
             // 무한 틱택토 게임 로직
             if (room.gameType === 'infinite_tictactoe' && room.game instanceof infinitetictactoe_1.InfiniteTicTacToeGame) {
@@ -196,14 +345,8 @@ function setupSocketHandlers(io) {
                     socket.emit('error', { message: result.message });
                     return;
                 }
-                // 게임 상태 업데이트 브로드캐스트
-                io.to(data.roomId).emit('game_update', {
-                    board: room.game.getBoard(),
-                    currentTurn: room.players[room.game.getCurrentPlayer()].id,
-                    lastMove: data.action.position,
-                    removedPosition: result.removedPosition, // 사라진 말 위치
-                    moveHistory: room.game.getMoveHistory(), // 이동 기록
-                });
+                // 타이머 정리
+                clearTurnTimer(room);
                 // 게임 종료 체크
                 if (result.gameOver) {
                     room.status = 'finished';
@@ -240,6 +383,20 @@ function setupSocketHandlers(io) {
                     });
                     console.log(`🏆 Infinite TicTacToe ended: ${winnerNickname} wins`);
                 }
+                else {
+                    // 게임 계속 - 다음 턴 타이머 시작
+                    startTurnTimer(io, room);
+                    // 게임 상태 업데이트 브로드캐스트
+                    io.to(data.roomId).emit('game_update', {
+                        board: room.game.getBoard(),
+                        currentTurn: room.players[room.game.getCurrentPlayer()].id,
+                        lastMove: data.action.position,
+                        removedPosition: result.removedPosition,
+                        moveHistory: room.game.getMoveHistory(),
+                        turnTimeLimit: getTurnTimeLimit(room),
+                        turnStartTime: room.turnStartTime,
+                    });
+                }
             }
         });
         // ====== 친구 시스템 ======
@@ -261,22 +418,84 @@ function setupSocketHandlers(io) {
                 socket.emit('friend_code_error', { message: '친구 코드 조회 실패' });
             }
         });
-        // 친구 추가
-        socket.on('add_friend', async (data) => {
+        // 친구 요청 보내기 (친구 코드로)
+        socket.on('send_friend_request', async (data) => {
             if (!currentPlayer?.userId) {
-                socket.emit('add_friend_result', { success: false, message: '로그인이 필요합니다.' });
+                socket.emit('friend_request_result', { success: false, message: '로그인이 필요합니다.' });
                 return;
             }
             try {
-                const result = await friendService_1.friendService.addFriend(currentPlayer.userId, data.friendCode);
-                socket.emit('add_friend_result', result);
-                // 상대방에게도 친구 추가 알림
+                const result = await friendService_1.friendService.sendFriendRequest(currentPlayer.userId, data.friendCode);
+                socket.emit('friend_request_result', result);
+                // 상대방에게 친구 요청 알림
+                if (result.success && result.toUserId) {
+                    const friendSocket = userSockets.get(result.toUserId);
+                    if (friendSocket) {
+                        friendSocket.emit('friend_request_received', {
+                            fromUserId: currentPlayer.userId,
+                            fromNickname: currentPlayer.nickname
+                        });
+                    }
+                }
+            }
+            catch (error) {
+                socket.emit('friend_request_result', { success: false, message: '친구 요청 실패' });
+            }
+        });
+        // 친구 요청 보내기 (유저 ID로 - 게임에서 만난 상대)
+        socket.on('send_friend_request_by_user_id', async (data) => {
+            if (!currentPlayer?.userId) {
+                socket.emit('friend_request_result', { success: false, message: '로그인이 필요합니다.' });
+                return;
+            }
+            try {
+                const result = await friendService_1.friendService.sendFriendRequestByUserId(currentPlayer.userId, data.friendUserId);
+                socket.emit('friend_request_result', result);
+                // 상대방에게 친구 요청 알림
+                if (result.success && result.toUserId) {
+                    const friendSocket = userSockets.get(result.toUserId);
+                    if (friendSocket) {
+                        friendSocket.emit('friend_request_received', {
+                            fromUserId: currentPlayer.userId,
+                            fromNickname: currentPlayer.nickname
+                        });
+                    }
+                }
+            }
+            catch (error) {
+                socket.emit('friend_request_result', { success: false, message: '친구 요청 실패' });
+            }
+        });
+        // 친구 요청 목록 조회
+        socket.on('get_friend_requests', async () => {
+            if (!currentPlayer?.userId) {
+                socket.emit('friend_requests_list', { received: [], sent: [] });
+                return;
+            }
+            try {
+                const received = await friendService_1.friendService.getReceivedFriendRequests(currentPlayer.userId);
+                const sent = await friendService_1.friendService.getSentFriendRequests(currentPlayer.userId);
+                socket.emit('friend_requests_list', { received, sent });
+            }
+            catch (error) {
+                socket.emit('friend_requests_list', { received: [], sent: [] });
+            }
+        });
+        // 친구 요청 수락
+        socket.on('accept_friend_request', async (data) => {
+            if (!currentPlayer?.userId) {
+                socket.emit('friend_request_action_result', { success: false, message: '로그인이 필요합니다.' });
+                return;
+            }
+            try {
+                const result = await friendService_1.friendService.acceptFriendRequest(currentPlayer.userId, data.requestId);
+                socket.emit('friend_request_action_result', { ...result, action: 'accept' });
+                // 요청을 보낸 사람에게 알림
                 if (result.success && result.friend) {
                     const friendSocket = userSockets.get(result.friend.id);
                     if (friendSocket) {
-                        // 내 정보 조회해서 전송
                         const myCode = await friendService_1.friendService.getFriendCode(currentPlayer.userId);
-                        friendSocket.emit('friend_added', {
+                        friendSocket.emit('friend_request_accepted', {
                             id: currentPlayer.userId,
                             nickname: currentPlayer.nickname,
                             friendCode: myCode
@@ -285,7 +504,35 @@ function setupSocketHandlers(io) {
                 }
             }
             catch (error) {
-                socket.emit('add_friend_result', { success: false, message: '친구 추가 실패' });
+                socket.emit('friend_request_action_result', { success: false, message: '수락 실패' });
+            }
+        });
+        // 친구 요청 거절
+        socket.on('decline_friend_request', async (data) => {
+            if (!currentPlayer?.userId) {
+                socket.emit('friend_request_action_result', { success: false, message: '로그인이 필요합니다.' });
+                return;
+            }
+            try {
+                const result = await friendService_1.friendService.declineFriendRequest(currentPlayer.userId, data.requestId);
+                socket.emit('friend_request_action_result', { ...result, action: 'decline' });
+            }
+            catch (error) {
+                socket.emit('friend_request_action_result', { success: false, message: '거절 실패' });
+            }
+        });
+        // 보낸 친구 요청 취소
+        socket.on('cancel_friend_request', async (data) => {
+            if (!currentPlayer?.userId) {
+                socket.emit('friend_request_action_result', { success: false, message: '로그인이 필요합니다.' });
+                return;
+            }
+            try {
+                const result = await friendService_1.friendService.cancelFriendRequest(currentPlayer.userId, data.requestId);
+                socket.emit('friend_request_action_result', { ...result, action: 'cancel' });
+            }
+            catch (error) {
+                socket.emit('friend_request_action_result', { success: false, message: '취소 실패' });
             }
         });
         // 친구 목록 조회
@@ -335,6 +582,82 @@ function setupSocketHandlers(io) {
                 socket.emit('update_friend_memo_result', { success: false, message: '메모 저장 실패' });
             }
         });
+        // ====== 메시지 시스템 ======
+        // 메시지 전송
+        socket.on('send_message', async (data) => {
+            if (!currentPlayer?.userId) {
+                socket.emit('send_message_result', { success: false, message: '로그인이 필요합니다.' });
+                return;
+            }
+            const content = data.content.trim();
+            if (!content || content.length > 500) {
+                socket.emit('send_message_result', { success: false, message: '메시지는 1-500자여야 합니다.' });
+                return;
+            }
+            try {
+                const message = await messageService_1.messageService.sendMessage(currentPlayer.userId, data.friendId, content);
+                if (!message) {
+                    socket.emit('send_message_result', { success: false, message: '친구에게만 메시지를 보낼 수 있습니다.' });
+                    return;
+                }
+                socket.emit('send_message_result', { success: true, message });
+                // 상대방에게 실시간 전송
+                const friendSocket = userSockets.get(data.friendId);
+                if (friendSocket) {
+                    friendSocket.emit('new_message', {
+                        message: { ...message, isMine: false }
+                    });
+                }
+            }
+            catch (error) {
+                socket.emit('send_message_result', { success: false, message: '메시지 전송 실패' });
+            }
+        });
+        // 대화 내역 조회
+        socket.on('get_messages', async (data) => {
+            if (!currentPlayer?.userId) {
+                socket.emit('messages_list', { messages: [], friendId: data.friendId });
+                return;
+            }
+            try {
+                const messages = await messageService_1.messageService.getMessages(currentPlayer.userId, data.friendId);
+                // 읽음 처리
+                await messageService_1.messageService.markAsRead(currentPlayer.userId, data.friendId);
+                socket.emit('messages_list', { messages, friendId: data.friendId });
+            }
+            catch (error) {
+                socket.emit('messages_list', { messages: [], friendId: data.friendId });
+            }
+        });
+        // 안 읽은 메시지 수 조회
+        socket.on('get_unread_counts', async () => {
+            console.log(`📥 get_unread_counts requested by user:`, currentPlayer?.userId);
+            if (!currentPlayer?.userId) {
+                socket.emit('unread_counts', { counts: {} });
+                return;
+            }
+            try {
+                const counts = await messageService_1.messageService.getUnreadCount(currentPlayer.userId);
+                console.log(`✅ Sending unread counts:`, counts);
+                socket.emit('unread_counts', { counts });
+            }
+            catch (error) {
+                console.error('❌ get_unread_counts error:', error);
+                socket.emit('unread_counts', { counts: {} });
+            }
+        });
+        // 메시지 읽음 처리
+        socket.on('mark_messages_read', async (data) => {
+            if (!currentPlayer?.userId)
+                return;
+            try {
+                await messageService_1.messageService.markAsRead(currentPlayer.userId, data.friendId);
+                socket.emit('messages_marked_read', { friendId: data.friendId });
+            }
+            catch (error) {
+                // 무시
+            }
+        });
         // ====== 게임 초대 시스템 ======
         // 게임 초대 보내기
         socket.on('invite_to_game', async (data) => {
@@ -343,7 +666,7 @@ function setupSocketHandlers(io) {
                 return;
             }
             try {
-                const invitation = await invitationService_1.invitationService.createInvitation(currentPlayer.userId, data.friendId, data.gameType);
+                const invitation = await invitationService_1.invitationService.createInvitation(currentPlayer.userId, data.friendId, data.gameType, data.isHardcore);
                 socket.emit('invite_result', { success: true, invitation });
                 // 상대방에게 초대 알림
                 const friendSocket = userSockets.get(data.friendId);
@@ -382,7 +705,8 @@ function setupSocketHandlers(io) {
                     return;
                 }
                 // 게임방 생성
-                const roomId = `${invitation.gameType}_invite_${Date.now()}`;
+                const isHardcore = invitation.isHardcore || false;
+                const roomId = `${invitation.gameType}_${isHardcore ? 'hc_' : ''}invite_${Date.now()}`;
                 const result = await invitationService_1.invitationService.acceptInvitation(data.invitationId, roomId);
                 if (!result.success) {
                     socket.emit('accept_invitation_result', result);
@@ -406,7 +730,8 @@ function setupSocketHandlers(io) {
                     gameType: invitation.gameType,
                     players: [inviterPlayer, currentPlayer],
                     game: null,
-                    status: 'waiting'
+                    status: 'waiting',
+                    isHardcore
                 };
                 // 게임 초기화
                 if (invitation.gameType === 'tictactoe') {
@@ -420,27 +745,58 @@ function setupSocketHandlers(io) {
                 inviterSocket.join(roomId);
                 socket.join(roomId);
                 currentRoomId = roomId;
-                socket.emit('accept_invitation_result', { success: true, roomId, gameType: invitation.gameType });
-                // 초대자에게 수락 알림 (게임 화면으로 이동하도록)
+                room.status = 'playing';
+                startTurnTimer(io, room);
+                const gameBoard = room.game?.getBoard();
+                const currentTurn = inviterPlayer.id;
+                const turnStartTime = room.turnStartTime;
+                const players = [
+                    { id: inviterPlayer.id, nickname: inviterPlayer.nickname, userId: inviterPlayer.userId },
+                    { id: currentPlayer.id, nickname: currentPlayer.nickname, userId: currentPlayer.userId }
+                ];
+                // 초대 받은 사람에게 게임 상태 포함해서 전송
+                socket.emit('accept_invitation_result', {
+                    success: true,
+                    roomId,
+                    gameType: invitation.gameType,
+                    // 게임 상태 포함
+                    gameState: {
+                        players,
+                        currentTurn,
+                        board: gameBoard,
+                        isInvitation: true,
+                        turnTimeLimit: getTurnTimeLimit(room),
+                        turnStartTime,
+                    }
+                });
+                // 초대자에게 수락 알림 (게임 상태 포함)
                 inviterSocket.emit('invitation_accepted', {
                     roomId,
                     gameType: invitation.gameType,
-                    acceptedBy: currentPlayer.nickname
+                    acceptedBy: currentPlayer.nickname,
+                    // 게임 상태 포함
+                    gameState: {
+                        players,
+                        currentTurn,
+                        board: gameBoard,
+                        isInvitation: true,
+                        turnTimeLimit: getTurnTimeLimit(room),
+                        turnStartTime,
+                    }
                 });
-                // 양쪽에 매칭 성공 알림
+                // 양쪽에 매칭 성공 알림 (기존 리스너용)
                 io.to(roomId).emit('match_found', {
                     roomId,
                     gameType: invitation.gameType,
-                    players: [
-                        { id: inviterPlayer.id, nickname: inviterPlayer.nickname },
-                        { id: currentPlayer.id, nickname: currentPlayer.nickname }
-                    ]
+                    isInvitation: true,
+                    players
                 });
-                // 게임 시작
-                room.status = 'playing';
+                // 게임 시작 (기존 리스너용)
                 io.to(roomId).emit('game_start', {
-                    currentTurn: inviterPlayer.id,
-                    board: room.game?.getBoard()
+                    currentTurn,
+                    board: gameBoard,
+                    turnTimeLimit: getTurnTimeLimit(room),
+                    turnStartTime,
                 });
                 console.log(`🎮 Invitation game started: ${inviterPlayer.nickname} vs ${currentPlayer.nickname}`);
             }
@@ -579,31 +935,60 @@ function setupSocketHandlers(io) {
                 socket.emit('reset_stats_result', { success: false, message: '승률 초기화 실패' });
             }
         });
-        // 재대결 요청
+        // 재대결 요청 (양쪽 모두 눌러야 시작)
         socket.on('rematch_request', (data) => {
             const room = rooms.get(data.roomId);
             if (room && room.status === 'finished') {
+                // 재경기 요청 목록 초기화
+                if (!room.rematchRequests) {
+                    room.rematchRequests = new Set();
+                }
+                // 현재 플레이어 요청 추가
+                room.rematchRequests.add(socket.id);
+                console.log(`🔄 Rematch requested by ${currentPlayer?.nickname} (${room.rematchRequests.size}/2)`);
+                // 상대방에게 알림
                 socket.to(data.roomId).emit('rematch_requested', {
                     from: currentPlayer?.nickname,
+                    fromId: socket.id,
                 });
+                // 본인에게 대기 상태 알림
+                socket.emit('rematch_waiting', {
+                    waiting: true,
+                });
+                // 두 명 모두 요청했으면 게임 시작
+                if (room.rematchRequests.size >= 2) {
+                    // 게임 리셋
+                    if (room.gameType === 'tictactoe') {
+                        room.game = new tictactoe_1.TicTacToeGame();
+                    }
+                    else if (room.gameType === 'infinite_tictactoe') {
+                        room.game = new infinitetictactoe_1.InfiniteTicTacToeGame();
+                    }
+                    room.status = 'playing';
+                    room.rematchRequests.clear();
+                    // 플레이어 순서 교체 (선공/후공 바꾸기)
+                    room.players.reverse();
+                    // 턴 타이머 시작
+                    startTurnTimer(io, room);
+                    // 게임 시작 (항상 players[0]이 선공)
+                    io.to(data.roomId).emit('game_start', {
+                        currentTurn: room.players[0].id,
+                        board: room.game?.getBoard(),
+                        turnTimeLimit: getTurnTimeLimit(room),
+                        turnStartTime: room.turnStartTime,
+                    });
+                    console.log(`🎮 Rematch started: ${room.players[0].nickname} vs ${room.players[1].nickname}`);
+                }
             }
         });
-        // 재대결 수락
-        socket.on('rematch_accept', (data) => {
+        // 재대결 취소
+        socket.on('rematch_cancel', (data) => {
             const room = rooms.get(data.roomId);
-            if (room && room.status === 'finished') {
-                // 게임 리셋
-                if (room.gameType === 'tictactoe') {
-                    room.game = new tictactoe_1.TicTacToeGame();
-                }
-                else if (room.gameType === 'infinite_tictactoe') {
-                    room.game = new infinitetictactoe_1.InfiniteTicTacToeGame();
-                }
-                room.status = 'playing';
-                // 선공 교체 (두 번째 플레이어가 선공)
-                io.to(data.roomId).emit('game_start', {
-                    currentTurn: room.players[1].id,
-                    board: room.game?.getBoard(),
+            if (room && room.rematchRequests) {
+                room.rematchRequests.delete(socket.id);
+                socket.emit('rematch_waiting', { waiting: false });
+                socket.to(data.roomId).emit('rematch_cancelled', {
+                    from: currentPlayer?.nickname,
                 });
             }
         });
@@ -630,9 +1015,35 @@ function setupSocketHandlers(io) {
                 leaveRoom(socket, currentRoomId);
             }
         });
-        function leaveRoom(socket, roomId) {
+        async function leaveRoom(socket, roomId) {
             const room = rooms.get(roomId);
             if (room) {
+                // 타이머 정리
+                clearTurnTimer(room);
+                // 게임 중이었다면 탈주 처리 (전적 기록, 경험치 없음)
+                if (room.status === 'playing') {
+                    const leavingPlayer = room.players.find(p => p.id === socket.id);
+                    const remainingPlayer = room.players.find(p => p.id !== socket.id);
+                    if (leavingPlayer && remainingPlayer) {
+                        try {
+                            // 탈주자: 패배 기록 (경험치 없음)
+                            if (leavingPlayer.userId) {
+                                await statsService_1.statsService.recordGameResultNoExp(leavingPlayer.userId, room.gameType, 'loss');
+                                if (remainingPlayer.userId) {
+                                    await statsService_1.statsService.saveGameRecordNoExp(leavingPlayer.userId, remainingPlayer.userId, room.gameType, 'loss');
+                                }
+                            }
+                            // 남은 플레이어: 승리 기록 (경험치 없음)
+                            if (remainingPlayer.userId) {
+                                await statsService_1.statsService.recordGameResultNoExp(remainingPlayer.userId, room.gameType, 'win');
+                            }
+                            console.log(`🚪 Player quit: ${leavingPlayer.nickname} left, ${remainingPlayer.nickname} wins (no exp)`);
+                        }
+                        catch (err) {
+                            console.error('Failed to record quit game:', err);
+                        }
+                    }
+                }
                 socket.leave(roomId);
                 // 상대방에게 알림
                 socket.to(roomId).emit('opponent_left', {

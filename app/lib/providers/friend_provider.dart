@@ -45,6 +45,35 @@ class Friend {
   }
 }
 
+class FriendRequest {
+  final int id;
+  final int fromUserId;
+  final String fromNickname;
+  final int toUserId;
+  final String toNickname;
+  final DateTime createdAt;
+
+  FriendRequest({
+    required this.id,
+    required this.fromUserId,
+    required this.fromNickname,
+    required this.toUserId,
+    required this.toNickname,
+    required this.createdAt,
+  });
+
+  factory FriendRequest.fromJson(Map<String, dynamic> json) {
+    return FriendRequest(
+      id: json['id'],
+      fromUserId: json['fromUserId'],
+      fromNickname: json['fromNickname'],
+      toUserId: json['toUserId'],
+      toNickname: json['toNickname'],
+      createdAt: DateTime.parse(json['createdAt']),
+    );
+  }
+}
+
 class Invitation {
   final int id;
   final int inviterId;
@@ -52,6 +81,7 @@ class Invitation {
   final int inviteeId;
   final String inviteeNickname;
   final String gameType;
+  final bool isHardcore;
   final String status;
   final String? roomId;
   final DateTime createdAt;
@@ -63,6 +93,7 @@ class Invitation {
     required this.inviteeId,
     required this.inviteeNickname,
     required this.gameType,
+    required this.isHardcore,
     required this.status,
     this.roomId,
     required this.createdAt,
@@ -76,6 +107,7 @@ class Invitation {
       inviteeId: json['inviteeId'],
       inviteeNickname: json['inviteeNickname'],
       gameType: json['gameType'],
+      isHardcore: json['isHardcore'] ?? false,
       status: json['status'],
       roomId: json['roomId'],
       createdAt: DateTime.parse(json['createdAt']),
@@ -83,14 +115,12 @@ class Invitation {
   }
 
   String get gameTypeName {
-    switch (gameType) {
-      case 'tictactoe':
-        return '틱택토';
-      case 'infinite_tictactoe':
-        return '무한 틱택토';
-      default:
-        return gameType;
-    }
+    final name = switch (gameType) {
+      'tictactoe' => '틱택토',
+      'infinite_tictactoe' => '무한 틱택토',
+      _ => gameType,
+    };
+    return isHardcore ? '$name (하드코어)' : name;
   }
 }
 
@@ -99,54 +129,79 @@ class FriendProvider extends ChangeNotifier {
 
   String? _myFriendCode;
   List<Friend> _friends = [];
+  List<FriendRequest> _receivedRequests = [];
+  List<FriendRequest> _sentRequests = [];
   List<Invitation> _invitations = [];
   bool _isLoading = false;
   String? _error;
   String? _successMessage;
   bool _listenersInitialized = false;
+  Map<int, int> _unreadCounts = {}; // friendId -> unread count
 
   // 초대 받았을 때 콜백
   Function(Invitation)? onInvitationReceived;
-  // 게임 시작 콜백 (초대 수락 후)
-  Function(String gameType, String roomId)? onGameStart;
+  // 게임 시작 콜백 (초대 수락 후) - gameState 포함
+  Function(String gameType, String roomId, Map<String, dynamic>? gameState)? onGameStart;
+  // 친구 요청 받았을 때 콜백
+  Function(String fromNickname)? onFriendRequestReceived;
 
   String? get myFriendCode => _myFriendCode;
   List<Friend> get friends => _friends;
+  List<FriendRequest> get receivedRequests => _receivedRequests;
+  List<FriendRequest> get sentRequests => _sentRequests;
   List<Invitation> get invitations => _invitations;
   bool get isLoading => _isLoading;
   String? get error => _error;
   String? get successMessage => _successMessage;
+  Map<int, int> get unreadCounts => _unreadCounts;
+  int get totalUnreadCount => _unreadCounts.values.fold(0, (sum, count) => sum + count);
+  int get pendingRequestCount => _receivedRequests.length;
 
   void initialize() {
+    debugPrint('🔧 FriendProvider.initialize() called, _listenersInitialized=$_listenersInitialized, isConnected=${_socketService.isConnected}');
     if (!_listenersInitialized) {
       _setupSocketListeners();
       _listenersInitialized = true;
     }
+    // 이미 소켓이 연결되어 있으면 바로 데이터 가져오기
+    if (_socketService.isConnected) {
+      debugPrint('🔧 Socket connected, fetching initial data');
+      _fetchInitialData();
+    }
+  }
+
+  void _fetchInitialData() {
     getMyFriendCode();
     getFriends();
+    getFriendRequests();
     getInvitations();
+    getUnreadCounts();
   }
 
   void _setupSocketListeners() {
+    // 로비 입장 후 데이터 가져오기
+    _socketService.on('lobby_joined', (_) {
+      _fetchInitialData();
+    });
+
     // 친구 코드 응답
     _socketService.on('friend_code', (data) {
       _myFriendCode = data['code'];
       notifyListeners();
     });
 
-    // 친구 추가 결과
-    _socketService.on('add_friend_result', (data) {
+    // 친구 요청 결과
+    _socketService.on('friend_request_result', (data) {
       _isLoading = false;
       if (data['success'] == true) {
         _successMessage = data['message'];
-        if (data['friend'] != null) {
-          final newFriend = Friend.fromJson(data['friend']);
-          // 중복 체크
-          if (!_friends.any((f) => f.id == newFriend.id)) {
-            _friends.add(newFriend);
-          }
-        }
         _error = null;
+        // 친구 요청 목록 새로고침
+        getFriendRequests();
+        // 바로 친구가 된 경우 친구 목록도 새로고침
+        if (data['message']?.contains('친구가 되었습니다') == true) {
+          getFriends();
+        }
       } else {
         _error = data['message'];
         _successMessage = null;
@@ -154,19 +209,58 @@ class FriendProvider extends ChangeNotifier {
       notifyListeners();
     });
 
-    // 다른 사람이 나를 친구 추가했을 때
-    _socketService.on('friend_added', (data) {
+    // 친구 요청 받음 (실시간)
+    _socketService.on('friend_request_received', (data) {
+      final fromNickname = data['fromNickname'] as String;
+      onFriendRequestReceived?.call(fromNickname);
+      // 친구 요청 목록 새로고침
+      getFriendRequests();
+    });
+
+    // 친구 요청 목록 응답
+    _socketService.on('friend_requests_list', (data) {
+      _receivedRequests = (data['received'] as List)
+          .map((r) => FriendRequest.fromJson(r))
+          .toList();
+      _sentRequests = (data['sent'] as List)
+          .map((r) => FriendRequest.fromJson(r))
+          .toList();
+      notifyListeners();
+    });
+
+    // 친구 요청 수락/거절/취소 결과
+    _socketService.on('friend_request_action_result', (data) {
+      _isLoading = false;
+      if (data['success'] == true) {
+        _successMessage = data['message'];
+        _error = null;
+        // 친구 요청 목록 새로고침
+        getFriendRequests();
+        // 수락인 경우 친구 목록도 새로고침
+        if (data['action'] == 'accept') {
+          getFriends();
+        }
+      } else {
+        _error = data['message'];
+        _successMessage = null;
+      }
+      notifyListeners();
+    });
+
+    // 내가 보낸 친구 요청이 수락됨
+    _socketService.on('friend_request_accepted', (data) {
       final newFriend = Friend(
         id: data['id'],
         nickname: data['nickname'],
         friendCode: data['friendCode'],
         isOnline: true,
       );
-      // 중복 체크
       if (!_friends.any((f) => f.id == newFriend.id)) {
         _friends.add(newFriend);
-        notifyListeners();
       }
+      // 보낸 요청 목록에서 제거
+      getFriendRequests();
+      notifyListeners();
     });
 
     // 친구 목록 응답
@@ -245,11 +339,12 @@ class FriendProvider extends ChangeNotifier {
     _socketService.on('accept_invitation_result', (data) {
       _isLoading = false;
       if (data['success'] == true) {
-        // 게임 시작 콜백 호출
+        // 게임 시작 콜백 호출 (게임 상태 포함)
         final roomId = data['roomId'] as String?;
         final gameType = data['gameType'] as String?;
+        final gameState = data['gameState'] as Map<String, dynamic>?;
         if (roomId != null && gameType != null) {
-          onGameStart?.call(gameType, roomId);
+          onGameStart?.call(gameType, roomId, gameState);
         }
       } else {
         _error = data['message'];
@@ -278,8 +373,30 @@ class FriendProvider extends ChangeNotifier {
     _socketService.on('invitation_accepted', (data) {
       final roomId = data['roomId'] as String?;
       final gameType = data['gameType'] as String?;
+      final gameState = data['gameState'] as Map<String, dynamic>?;
       if (roomId != null && gameType != null) {
-        onGameStart?.call(gameType, roomId);
+        onGameStart?.call(gameType, roomId, gameState);
+      }
+    });
+
+    // 안 읽은 메시지 수
+    _socketService.on('unread_counts', (data) {
+      debugPrint('📩 unread_counts received: $data');
+      if (data['counts'] != null) {
+        _unreadCounts = Map<int, int>.from(
+          (data['counts'] as Map).map((k, v) => MapEntry(int.parse(k.toString()), v as int)),
+        );
+        debugPrint('📩 _unreadCounts updated: $_unreadCounts, total: $totalUnreadCount');
+        notifyListeners();
+      }
+    });
+
+    // 새 메시지 알림 (친구 탭 뱃지 업데이트용)
+    _socketService.on('new_message', (data) {
+      if (data['message'] != null) {
+        final senderId = data['message']['senderId'] as int;
+        _unreadCounts[senderId] = (_unreadCounts[senderId] ?? 0) + 1;
+        notifyListeners();
       }
     });
   }
@@ -288,12 +405,54 @@ class FriendProvider extends ChangeNotifier {
     _socketService.emit('get_friend_code', {});
   }
 
-  void addFriend(String code) {
+  // 친구 요청 보내기 (친구 코드로)
+  void sendFriendRequest(String code) {
     _isLoading = true;
     _error = null;
     _successMessage = null;
     notifyListeners();
-    _socketService.emit('add_friend', {'friendCode': code.toUpperCase()});
+    _socketService.emit('send_friend_request', {'friendCode': code.toUpperCase()});
+  }
+
+  // 친구 요청 보내기 (유저 ID로)
+  void sendFriendRequestByUserId(int friendUserId) {
+    _isLoading = true;
+    _error = null;
+    _successMessage = null;
+    notifyListeners();
+    _socketService.emit('send_friend_request_by_user_id', {'friendUserId': friendUserId});
+  }
+
+  // 친구 요청 목록 조회
+  void getFriendRequests() {
+    _socketService.emit('get_friend_requests', {});
+  }
+
+  // 친구 요청 수락
+  void acceptFriendRequest(int requestId) {
+    _isLoading = true;
+    _error = null;
+    _successMessage = null;
+    notifyListeners();
+    _socketService.emit('accept_friend_request', {'requestId': requestId});
+  }
+
+  // 친구 요청 거절
+  void declineFriendRequest(int requestId) {
+    _isLoading = true;
+    _error = null;
+    _successMessage = null;
+    notifyListeners();
+    _socketService.emit('decline_friend_request', {'requestId': requestId});
+  }
+
+  // 보낸 친구 요청 취소
+  void cancelFriendRequest(int requestId) {
+    _isLoading = true;
+    _error = null;
+    _successMessage = null;
+    notifyListeners();
+    _socketService.emit('cancel_friend_request', {'requestId': requestId});
   }
 
   void getFriends() {
@@ -324,7 +483,7 @@ class FriendProvider extends ChangeNotifier {
     });
   }
 
-  void inviteToGame(int friendId, String gameType) {
+  void inviteToGame(int friendId, String gameType, {bool isHardcore = false}) {
     _isLoading = true;
     _error = null;
     _successMessage = null;
@@ -332,6 +491,7 @@ class FriendProvider extends ChangeNotifier {
     _socketService.emit('invite_to_game', {
       'friendId': friendId,
       'gameType': gameType,
+      'isHardcore': isHardcore,
     });
   }
 
@@ -366,11 +526,26 @@ class FriendProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void getUnreadCounts() {
+    debugPrint('📤 Emitting get_unread_counts');
+    _socketService.emit('get_unread_counts', {});
+  }
+
+  void markMessagesRead(int friendId) {
+    _socketService.emit('mark_messages_read', {'friendId': friendId});
+    _unreadCounts.remove(friendId);
+    notifyListeners();
+  }
+
   @override
   void dispose() {
+    _socketService.off('lobby_joined');
     _socketService.off('friend_code');
-    _socketService.off('add_friend_result');
-    _socketService.off('friend_added');
+    _socketService.off('friend_request_result');
+    _socketService.off('friend_request_received');
+    _socketService.off('friend_requests_list');
+    _socketService.off('friend_request_action_result');
+    _socketService.off('friend_request_accepted');
     _socketService.off('friends_list');
     _socketService.off('remove_friend_result');
     _socketService.off('update_friend_memo_result');
@@ -381,6 +556,8 @@ class FriendProvider extends ChangeNotifier {
     _socketService.off('decline_invitation_result');
     _socketService.off('invitation_declined');
     _socketService.off('invitation_accepted');
+    _socketService.off('unread_counts');
+    _socketService.off('new_message');
     super.dispose();
   }
 }

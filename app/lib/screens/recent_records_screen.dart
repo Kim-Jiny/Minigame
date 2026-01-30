@@ -2,8 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/stats_provider.dart';
 
-class RecentRecordsScreen extends StatelessWidget {
+class RecentRecordsScreen extends StatefulWidget {
   const RecentRecordsScreen({super.key});
+
+  @override
+  State<RecentRecordsScreen> createState() => _RecentRecordsScreenState();
+}
+
+class _RecentRecordsScreenState extends State<RecentRecordsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // 화면 열릴 때 데이터 새로고침
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<StatsProvider>().getRecentRecords();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

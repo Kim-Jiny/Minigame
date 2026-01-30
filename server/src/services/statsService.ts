@@ -121,6 +121,89 @@ export const statsService = {
     };
   },
 
+  // 탈주 시 전적만 기록 (경험치 없음)
+  async recordGameResultNoExp(
+    userId: number,
+    gameType: string,
+    result: 'win' | 'loss'
+  ): Promise<GameStats> {
+    const pool = getPool();
+    if (!pool) throw new Error('Database not connected');
+
+    // 기존 통계 조회 또는 생성
+    let stats = await pool.query(
+      'SELECT * FROM user_game_stats WHERE user_id = $1 AND game_type = $2',
+      [userId, gameType]
+    );
+
+    if (stats.rows.length === 0) {
+      await pool.query(
+        'INSERT INTO user_game_stats (user_id, game_type) VALUES ($1, $2)',
+        [userId, gameType]
+      );
+      stats = await pool.query(
+        'SELECT * FROM user_game_stats WHERE user_id = $1 AND game_type = $2',
+        [userId, gameType]
+      );
+    }
+
+    const currentStats = stats.rows[0];
+    let { wins, losses, draws, level, exp } = currentStats;
+
+    // 결과에 따른 업데이트 (경험치 없음)
+    if (result === 'win') {
+      wins++;
+    } else {
+      losses++;
+    }
+
+    // 통계 업데이트
+    await pool.query(
+      `UPDATE user_game_stats
+       SET wins = $1, losses = $2, draws = $3, updated_at = CURRENT_TIMESTAMP
+       WHERE user_id = $4 AND game_type = $5`,
+      [wins, losses, draws, userId, gameType]
+    );
+
+    const totalGames = wins + losses + draws;
+    const winRate = totalGames > 0 ? Math.round((wins / totalGames) * 100) : 0;
+
+    return {
+      gameType,
+      wins,
+      losses,
+      draws,
+      level,
+      exp,
+      winRate,
+      totalGames,
+      expToNextLevel: getExpForLevel(level),
+    };
+  },
+
+  // 탈주 게임 기록 저장 (경험치 0)
+  async saveGameRecordNoExp(
+    userId: number,
+    opponentId: number,
+    gameType: string,
+    result: 'win' | 'loss'
+  ): Promise<void> {
+    const pool = getPool();
+    if (!pool) throw new Error('Database not connected');
+
+    await pool.query(
+      `INSERT INTO game_records (game_type, player1_id, player2_id, winner_id, game_data)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        gameType,
+        userId,
+        opponentId,
+        result === 'win' ? userId : opponentId,
+        JSON.stringify({ result, expGained: 0, isQuit: true })
+      ]
+    );
+  },
+
   // 특정 게임 통계 조회
   async getGameStats(userId: number, gameType: string): Promise<GameStats> {
     const pool = getPool();

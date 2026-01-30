@@ -15,6 +15,10 @@ class InvitationDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isHardcore = invitation.isHardcore;
+    final primaryColor = isHardcore ? Colors.red : const Color(0xFF6C5CE7);
+    final bgColor = isHardcore ? Colors.red.shade50 : const Color(0xFFE8E0FF);
+
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       content: Column(
@@ -24,24 +28,24 @@ class InvitationDialog extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFFE8E0FF),
+              color: bgColor,
               shape: BoxShape.circle,
             ),
-            child: const Icon(
-              Icons.sports_esports,
+            child: Icon(
+              isHardcore ? Icons.local_fire_department : Icons.sports_esports,
               size: 48,
-              color: Color(0xFF6C5CE7),
+              color: primaryColor,
             ),
           ),
           const SizedBox(height: 20),
 
           // 초대 메시지
-          const Text(
-            '게임 초대',
+          Text(
+            isHardcore ? '하드코어 초대!' : '게임 초대',
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
-              color: Color(0xFF6C5CE7),
+              color: primaryColor,
             ),
           ),
           const SizedBox(height: 12),
@@ -54,16 +58,25 @@ class InvitationDialog extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: const Color(0xFFE8E0FF),
+              color: bgColor,
               borderRadius: BorderRadius.circular(20),
             ),
-            child: Text(
-              invitation.gameTypeName,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF6C5CE7),
-              ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isHardcore) ...[
+                  Icon(Icons.local_fire_department, size: 18, color: primaryColor),
+                  const SizedBox(width: 4),
+                ],
+                Text(
+                  invitation.gameTypeName,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: primaryColor,
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 4),
@@ -71,6 +84,17 @@ class InvitationDialog extends StatelessWidget {
             '에 초대했어요!',
             style: TextStyle(fontSize: 16),
           ),
+          if (isHardcore) ...[
+            const SizedBox(height: 8),
+            Text(
+              '⚡ 턴당 10초!',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Colors.red.shade600,
+              ),
+            ),
+          ],
           const SizedBox(height: 24),
 
           // 버튼들
@@ -100,19 +124,19 @@ class InvitationDialog extends StatelessWidget {
                     Navigator.pop(context);
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF6C5CE7),
+                    backgroundColor: primaryColor,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.play_arrow, size: 18),
-                      SizedBox(width: 4),
-                      Text('함께하기'),
+                      Icon(isHardcore ? Icons.local_fire_department : Icons.play_arrow, size: 18),
+                      const SizedBox(width: 4),
+                      Text(isHardcore ? '도전!' : '함께하기'),
                     ],
                   ),
                 ),

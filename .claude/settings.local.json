@@ -35,7 +35,8 @@
       "Bash(find:*)",
       "Bash(flutter clean:*)",
       "Bash(npm start)",
-      "Bash(xxd:*)"
+      "Bash(xxd:*)",
+      "Bash(pgrep:*)"
     ]
   }
 }

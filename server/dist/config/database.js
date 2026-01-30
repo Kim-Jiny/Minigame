@@ -64,16 +64,30 @@ async function setupDatabase() {
       -- memo 컬럼 추가 (기존 테이블용)
       ALTER TABLE friendships ADD COLUMN IF NOT EXISTS memo VARCHAR(20);
 
+      -- 친구 요청 테이블
+      CREATE TABLE IF NOT EXISTS friend_requests (
+        id SERIAL PRIMARY KEY,
+        from_user_id INTEGER REFERENCES users(id),
+        to_user_id INTEGER REFERENCES users(id),
+        status VARCHAR(20) DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(from_user_id, to_user_id)
+      );
+
       -- 게임 초대 테이블
       CREATE TABLE IF NOT EXISTS game_invitations (
         id SERIAL PRIMARY KEY,
         inviter_id INTEGER REFERENCES users(id),
         invitee_id INTEGER REFERENCES users(id),
         game_type VARCHAR(50) NOT NULL,
+        is_hardcore BOOLEAN DEFAULT FALSE,
         status VARCHAR(20) DEFAULT 'pending',
         room_id VARCHAR(255),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      -- is_hardcore 컬럼 추가 (기존 테이블용)
+      ALTER TABLE game_invitations ADD COLUMN IF NOT EXISTS is_hardcore BOOLEAN DEFAULT FALSE;
 
       -- 게임별 통계 테이블
       CREATE TABLE IF NOT EXISTS user_game_stats (
@@ -107,6 +121,19 @@ async function setupDatabase() {
         reason VARCHAR(50) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      -- 친구 메시지 테이블
+      CREATE TABLE IF NOT EXISTS friend_messages (
+        id SERIAL PRIMARY KEY,
+        sender_id INTEGER REFERENCES users(id),
+        receiver_id INTEGER REFERENCES users(id),
+        content TEXT NOT NULL,
+        is_read BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- 7일 지난 메시지 자동 삭제용 인덱스
+      CREATE INDEX IF NOT EXISTS idx_friend_messages_created_at ON friend_messages(created_at);
     `);
         console.log('✅ Database tables ready');
         client.release();

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/friend_provider.dart';
 import '../providers/auth_provider.dart';
+import 'chat_screen.dart';
 
 class FriendsScreen extends StatefulWidget {
   const FriendsScreen({super.key});
@@ -13,6 +14,7 @@ class FriendsScreen extends StatefulWidget {
 
 class _FriendsScreenState extends State<FriendsScreen> {
   final _friendCodeController = TextEditingController();
+  bool _inviteHardcoreMode = false;
 
   @override
   void dispose() {
@@ -29,7 +31,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
           children: [
             Icon(Icons.person_add, color: Theme.of(context).primaryColor),
             const SizedBox(width: 8),
-            const Text('친구 추가'),
+            const Text('친구 요청'),
           ],
         ),
         content: TextField(
@@ -54,7 +56,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
             onPressed: () {
               final code = _friendCodeController.text.trim();
               if (code.length == 8) {
-                context.read<FriendProvider>().addFriend(code);
+                context.read<FriendProvider>().sendFriendRequest(code);
                 Navigator.pop(context);
               }
             },
@@ -62,7 +64,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
               backgroundColor: Theme.of(context).primaryColor,
               foregroundColor: Colors.white,
             ),
-            child: const Text('추가'),
+            child: const Text('요청 보내기'),
           ),
         ],
       ),
@@ -127,27 +129,82 @@ class _FriendsScreenState extends State<FriendsScreen> {
             Text('${friend.nickname}님 초대'),
           ],
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('어떤 게임으로 초대할까요?'),
-            const SizedBox(height: 16),
-            _buildGameOption(
-              context,
-              friend,
-              '틱택토',
-              'tictactoe',
-              Icons.grid_3x3,
-            ),
-            const SizedBox(height: 8),
-            _buildGameOption(
-              context,
-              friend,
-              '무한 틱택토',
-              'infinite_tictactoe',
-              Icons.all_inclusive,
-            ),
-          ],
+        content: StatefulBuilder(
+          builder: (context, setState) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('어떤 게임으로 초대할까요?'),
+                const SizedBox(height: 16),
+                // 하드코어 모드 토글
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: _inviteHardcoreMode ? Colors.red.shade50 : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: _inviteHardcoreMode ? Colors.red : Colors.grey.shade300,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.local_fire_department,
+                            color: _inviteHardcoreMode ? Colors.red : Colors.grey,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '하드코어 모드',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: _inviteHardcoreMode ? Colors.red : Colors.grey.shade600,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '(10초)',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: _inviteHardcoreMode ? Colors.red.shade400 : Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Switch(
+                        value: _inviteHardcoreMode,
+                        onChanged: (value) {
+                          setState(() {
+                            _inviteHardcoreMode = value;
+                          });
+                        },
+                        activeColor: Colors.red,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _buildGameOption(
+                  context,
+                  friend,
+                  '틱택토',
+                  'tictactoe',
+                  Icons.grid_3x3,
+                ),
+                const SizedBox(height: 8),
+                _buildGameOption(
+                  context,
+                  friend,
+                  '무한 틱택토',
+                  'infinite_tictactoe',
+                  Icons.all_inclusive,
+                ),
+              ],
+            );
+          },
         ),
         actions: [
           TextButton(
@@ -168,25 +225,38 @@ class _FriendsScreenState extends State<FriendsScreen> {
   ) {
     return InkWell(
       onTap: () {
-        context.read<FriendProvider>().inviteToGame(friend.id, gameType);
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${friend.nickname}님에게 초대를 보냈습니다!')),
+        context.read<FriendProvider>().inviteToGame(
+          friend.id,
+          gameType,
+          isHardcore: _inviteHardcoreMode,
         );
+        Navigator.pop(context);
+        final modeText = _inviteHardcoreMode ? ' (하드코어)' : '';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${friend.nickname}님에게$modeText 초대를 보냈습니다!')),
+        );
+        // 다음 초대를 위해 리셋
+        _inviteHardcoreMode = false;
       },
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.pink.shade200),
+          border: Border.all(
+            color: _inviteHardcoreMode ? Colors.red.shade200 : Colors.pink.shade200,
+          ),
           borderRadius: BorderRadius.circular(12),
+          color: _inviteHardcoreMode ? Colors.red.shade50 : null,
         ),
         child: Row(
           children: [
-            Icon(icon, color: Colors.pink),
+            Icon(icon, color: _inviteHardcoreMode ? Colors.red : Colors.pink),
             const SizedBox(width: 12),
             Text(title, style: const TextStyle(fontSize: 16)),
             const Spacer(),
+            if (_inviteHardcoreMode)
+              Icon(Icons.local_fire_department, size: 16, color: Colors.red),
+            const SizedBox(width: 4),
             const Icon(Icons.arrow_forward_ios, size: 16),
           ],
         ),
@@ -265,7 +335,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
         return RefreshIndicator(
           onRefresh: () async {
             friendProvider.getFriends();
+            friendProvider.getFriendRequests();
             friendProvider.getInvitations();
+            friendProvider.getUnreadCounts();
           },
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
@@ -280,6 +352,18 @@ class _FriendsScreenState extends State<FriendsScreen> {
                 // 받은 초대
                 if (friendProvider.invitations.isNotEmpty) ...[
                   _buildInvitationsSection(context, friendProvider),
+                  const SizedBox(height: 24),
+                ],
+
+                // 받은 친구 요청
+                if (friendProvider.receivedRequests.isNotEmpty) ...[
+                  _buildFriendRequestsSection(context, friendProvider),
+                  const SizedBox(height: 24),
+                ],
+
+                // 보낸 친구 요청
+                if (friendProvider.sentRequests.isNotEmpty) ...[
+                  _buildSentRequestsSection(context, friendProvider),
                   const SizedBox(height: 24),
                 ],
 
@@ -458,6 +542,150 @@ class _FriendsScreenState extends State<FriendsScreen> {
     );
   }
 
+  Widget _buildFriendRequestsSection(BuildContext context, FriendProvider friendProvider) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.person_add, color: Colors.green),
+            const SizedBox(width: 8),
+            Text(
+              '받은 친구 요청 (${friendProvider.receivedRequests.length})',
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ...friendProvider.receivedRequests.map((request) => _buildFriendRequestCard(context, request, friendProvider)),
+      ],
+    );
+  }
+
+  Widget _buildFriendRequestCard(BuildContext context, FriendRequest request, FriendProvider friendProvider) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: Colors.green.withValues(alpha: 0.2),
+                  child: const Icon(Icons.person, color: Colors.green),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        request.fromNickname,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      Text(
+                        '친구 요청을 보냈습니다',
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () {
+                      friendProvider.declineFriendRequest(request.id);
+                    },
+                    child: const Text('거절'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () {
+                      friendProvider.acceptFriendRequest(request.id);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('수락'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSentRequestsSection(BuildContext context, FriendProvider friendProvider) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.send, color: Colors.orange),
+            const SizedBox(width: 8),
+            Text(
+              '보낸 친구 요청 (${friendProvider.sentRequests.length})',
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ...friendProvider.sentRequests.map((request) => _buildSentRequestCard(context, request, friendProvider)),
+      ],
+    );
+  }
+
+  Widget _buildSentRequestCard(BuildContext context, FriendRequest request, FriendProvider friendProvider) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: Colors.orange.withValues(alpha: 0.2),
+          child: const Icon(Icons.person, color: Colors.orange),
+        ),
+        title: Text(
+          request.toNickname,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Text(
+          '요청 대기 중...',
+          style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+        ),
+        trailing: TextButton(
+          onPressed: () {
+            friendProvider.cancelFriendRequest(request.id);
+          },
+          child: const Text('취소', style: TextStyle(color: Colors.red)),
+        ),
+      ),
+    );
+  }
+
   Widget _buildFriendsSection(BuildContext context, FriendProvider friendProvider) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -581,6 +809,43 @@ class _FriendsScreenState extends State<FriendsScreen> {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // 메시지 버튼
+            Stack(
+              children: [
+                IconButton(
+                  onPressed: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => ChatScreen(friend: friend)),
+                    );
+                    friendProvider.getUnreadCounts();
+                  },
+                  icon: Icon(
+                    Icons.chat_bubble_outline,
+                    color: Colors.blue.shade600,
+                  ),
+                  tooltip: '메시지',
+                ),
+                if (friendProvider.unreadCounts[friend.id] != null && friendProvider.unreadCounts[friend.id]! > 0)
+                  Positioned(
+                    right: 4,
+                    top: 4,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(
+                        color: Colors.red,
+                        shape: BoxShape.circle,
+                      ),
+                      constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                      child: Text(
+                        '${friendProvider.unreadCounts[friend.id]! > 99 ? '99+' : friendProvider.unreadCounts[friend.id]}',
+                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
             if (friend.isOnline)
               IconButton(
                 onPressed: () => _showInviteGameDialog(context, friend),

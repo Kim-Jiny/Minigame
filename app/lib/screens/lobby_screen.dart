@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/friend_provider.dart';
+import '../providers/auth_provider.dart';
+import '../providers/game_provider.dart';
+import '../providers/stats_provider.dart';
 import '../widgets/invitation_dialog.dart';
 import 'friends_screen.dart';
 import 'profile_screen.dart';
@@ -19,6 +22,14 @@ class _LobbyScreenState extends State<LobbyScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Provider 초기화
+      final auth = context.read<AuthProvider>();
+      context.read<FriendProvider>().initialize();
+      context.read<StatsProvider>().initialize();
+      // GameProvider도 미리 초기화 (초대 게임 이벤트를 놓치지 않도록)
+      if (auth.socketId != null) {
+        context.read<GameProvider>().initialize(auth.socketId!);
+      }
       _setupInvitationListener();
     });
   }
@@ -43,8 +54,21 @@ class _LobbyScreenState extends State<LobbyScreen> {
     };
 
     // 게임 시작 (초대 수락 후)
-    friendProvider.onGameStart = (gameType, roomId) {
+    friendProvider.onGameStart = (gameType, roomId, gameState) {
       if (mounted) {
+        // 게임 상태가 포함되어 있으면 직접 초기화 (이벤트 리스너 타이밍 문제 방지)
+        if (gameState != null) {
+          final gameProvider = context.read<GameProvider>();
+          gameProvider.initializeInvitationGame(
+            roomId: roomId,
+            players: gameState['players'] as List<dynamic>,
+            currentTurn: gameState['currentTurn'] as String,
+            board: gameState['board'] as List<dynamic>,
+            turnTimeLimit: gameState['turnTimeLimit'] as int?,
+            turnStartTime: gameState['turnStartTime'] as int?,
+          );
+        }
+
         String route = '/game/$gameType';
         if (gameType == 'infinite_tictactoe') {
           route = '/game/infinite_tictactoe';
@@ -58,40 +82,61 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_currentIndex == 0 ? '플레이메이트' : _currentIndex == 1 ? '친구' : '프로필'),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
-        elevation: 0,
-      ),
-      body: _buildBody(),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        selectedItemColor: Theme.of(context).primaryColor,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.sports_esports_outlined),
-            activeIcon: Icon(Icons.sports_esports),
-            label: '게임',
+    return Consumer<FriendProvider>(
+      builder: (context, friendProvider, child) {
+        final unreadCount = friendProvider.totalUnreadCount;
+        debugPrint('🔔 LobbyScreen build: unreadCount = $unreadCount');
+
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(_currentIndex == 0 ? '플레이메이트' : _currentIndex == 1 ? '친구' : '프로필'),
+            backgroundColor: Theme.of(context).primaryColor,
+            foregroundColor: Colors.white,
+            elevation: 0,
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.people_outline),
-            activeIcon: Icon(Icons.people),
-            label: '친구',
+          body: _buildBody(),
+          bottomNavigationBar: BottomNavigationBar(
+            currentIndex: _currentIndex,
+            onTap: (index) {
+              setState(() {
+                _currentIndex = index;
+              });
+            },
+            selectedItemColor: Theme.of(context).primaryColor,
+            items: [
+              const BottomNavigationBarItem(
+                icon: Icon(Icons.sports_esports_outlined),
+                activeIcon: Icon(Icons.sports_esports),
+                label: '게임',
+              ),
+              BottomNavigationBarItem(
+                icon: Badge(
+                  isLabelVisible: unreadCount > 0,
+                  label: Text(
+                    unreadCount > 99 ? '99+' : unreadCount.toString(),
+                    style: const TextStyle(fontSize: 10),
+                  ),
+                  child: const Icon(Icons.people_outline),
+                ),
+                activeIcon: Badge(
+                  isLabelVisible: unreadCount > 0,
+                  label: Text(
+                    unreadCount > 99 ? '99+' : unreadCount.toString(),
+                    style: const TextStyle(fontSize: 10),
+                  ),
+                  child: const Icon(Icons.people),
+                ),
+                label: '친구',
+              ),
+              const BottomNavigationBarItem(
+                icon: Icon(Icons.person_outline),
+                activeIcon: Icon(Icons.person),
+                label: '프로필',
+              ),
+            ],
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            activeIcon: Icon(Icons.person),
-            label: '프로필',
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 

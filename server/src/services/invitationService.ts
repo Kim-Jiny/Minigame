@@ -7,6 +7,7 @@ export interface Invitation {
   inviteeId: number;
   inviteeNickname: string;
   gameType: string;
+  isHardcore: boolean;
   status: 'pending' | 'accepted' | 'declined' | 'expired';
   roomId?: string;
   createdAt: Date;
@@ -14,7 +15,7 @@ export interface Invitation {
 
 export const invitationService = {
   // 초대 생성
-  async createInvitation(inviterId: number, inviteeId: number, gameType: string): Promise<Invitation> {
+  async createInvitation(inviterId: number, inviteeId: number, gameType: string, isHardcore: boolean = false): Promise<Invitation> {
     const pool = getPool();
     if (!pool) throw new Error('Database not connected');
 
@@ -26,17 +27,18 @@ export const invitationService = {
     );
 
     const result = await pool.query(
-      `INSERT INTO game_invitations (inviter_id, invitee_id, game_type, status)
-       VALUES ($1, $2, $3, 'pending')
+      `INSERT INTO game_invitations (inviter_id, invitee_id, game_type, is_hardcore, status)
+       VALUES ($1, $2, $3, $4, 'pending')
        RETURNING id, created_at`,
-      [inviterId, inviteeId, gameType]
+      [inviterId, inviteeId, gameType, isHardcore]
     );
 
     // 초대 정보와 사용자 정보 함께 조회
     const invitation = await pool.query(
       `SELECT gi.id, gi.inviter_id as "inviterId", u1.nickname as "inviterNickname",
               gi.invitee_id as "inviteeId", u2.nickname as "inviteeNickname",
-              gi.game_type as "gameType", gi.status, gi.room_id as "roomId",
+              gi.game_type as "gameType", gi.is_hardcore as "isHardcore",
+              gi.status, gi.room_id as "roomId",
               gi.created_at as "createdAt"
        FROM game_invitations gi
        JOIN users u1 ON gi.inviter_id = u1.id
@@ -56,7 +58,8 @@ export const invitationService = {
     const result = await pool.query(
       `SELECT gi.id, gi.inviter_id as "inviterId", u1.nickname as "inviterNickname",
               gi.invitee_id as "inviteeId", u2.nickname as "inviteeNickname",
-              gi.game_type as "gameType", gi.status, gi.room_id as "roomId",
+              gi.game_type as "gameType", COALESCE(gi.is_hardcore, false) as "isHardcore",
+              gi.status, gi.room_id as "roomId",
               gi.created_at as "createdAt"
        FROM game_invitations gi
        JOIN users u1 ON gi.inviter_id = u1.id
@@ -78,7 +81,8 @@ export const invitationService = {
     const result = await pool.query(
       `SELECT gi.id, gi.inviter_id as "inviterId", u1.nickname as "inviterNickname",
               gi.invitee_id as "inviteeId", u2.nickname as "inviteeNickname",
-              gi.game_type as "gameType", gi.status, gi.room_id as "roomId",
+              gi.game_type as "gameType", COALESCE(gi.is_hardcore, false) as "isHardcore",
+              gi.status, gi.room_id as "roomId",
               gi.created_at as "createdAt"
        FROM game_invitations gi
        JOIN users u1 ON gi.inviter_id = u1.id
