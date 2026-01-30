@@ -261,19 +261,20 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
 
             // 게임 목록
             Expanded(
               child: GridView.count(
-                crossAxisCount: 2,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
+                crossAxisCount: 3,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+                childAspectRatio: 0.85,
                 children: [
                   _buildGameCard(
                     context,
                     title: '틱택토',
-                    subtitle: '3개 연속 승리',
+                    subtitle: '3연속',
                     icon: Icons.grid_3x3,
                     color: const Color(0xFF6C5CE7),
                     route: '/game/tictactoe',
@@ -281,7 +282,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   _buildGameCard(
                     context,
                     title: '무한 틱택토',
-                    subtitle: '각자 3개까지!',
+                    subtitle: '3개씩!',
                     icon: Icons.all_inclusive,
                     color: const Color(0xFF00B894),
                     route: '/game/infinite_tictactoe',
@@ -289,7 +290,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   _buildGameCard(
                     context,
                     title: '오목',
-                    subtitle: '5개 연속 승리',
+                    subtitle: '5연속',
                     icon: Icons.circle_outlined,
                     color: const Color(0xFF636E72),
                     route: '/game/gomoku',
@@ -297,7 +298,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   _buildGameCard(
                     context,
                     title: '반응속도',
-                    subtitle: '빨리 눌러!',
+                    subtitle: '터치!',
                     icon: Icons.flash_on,
                     color: const Color(0xFFE17055),
                     route: '/game/reaction',
@@ -305,7 +306,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   _buildGameCard(
                     context,
                     title: '가위바위보',
-                    subtitle: '3판 2선승',
+                    subtitle: '3판2선',
                     icon: Icons.front_hand,
                     color: const Color(0xFF9B59B6),
                     route: '/game/rps',
@@ -329,10 +330,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
     bool enabled = true,
   }) {
     return Card(
-      elevation: enabled ? 8 : 1,
-      shadowColor: enabled ? color.withValues(alpha: 0.4) : Colors.transparent,
+      elevation: enabled ? 4 : 1,
+      shadowColor: enabled ? color.withValues(alpha: 0.3) : Colors.transparent,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: InkWell(
         onTap: enabled && route != null
@@ -340,16 +341,16 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 Navigator.pushNamed(context, route);
               }
             : null,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(16),
         child: Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(16),
             gradient: enabled
                 ? LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      color.withValues(alpha: 0.9),
+                      color.withValues(alpha: 0.85),
                       color,
                     ],
                   )
@@ -358,23 +359,11 @@ class _LobbyScreenState extends State<LobbyScreen> {
           ),
           child: Stack(
             children: [
-              // 배경 장식 원들
-              if (enabled) ...[
+              // 배경 장식
+              if (enabled)
                 Positioned(
-                  right: -15,
-                  top: -15,
-                  child: Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.1),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: -10,
-                  bottom: -10,
+                  right: -10,
+                  top: -10,
                   child: Container(
                     width: 40,
                     height: 40,
@@ -384,15 +373,14 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     ),
                   ),
                 ),
-              ],
               // 내용
               Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(10),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(14),
+                      padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
                         color: enabled
                             ? Colors.white.withValues(alpha: 0.25)
@@ -401,35 +389,31 @@ class _LobbyScreenState extends State<LobbyScreen> {
                       ),
                       child: Icon(
                         icon,
-                        size: 32,
+                        size: 24,
                         color: enabled ? Colors.white : Colors.grey,
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
                     Text(
                       title,
                       style: TextStyle(
-                        fontSize: 17,
+                        fontSize: 13,
                         fontWeight: FontWeight.bold,
                         color: enabled ? Colors.white : Colors.grey,
                       ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
                         color: enabled
-                            ? Colors.white.withValues(alpha: 0.2)
-                            : Colors.grey.shade200,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        subtitle,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: enabled ? Colors.white : Colors.grey,
-                        ),
+                            ? Colors.white.withValues(alpha: 0.8)
+                            : Colors.grey,
                       ),
                     ),
                   ],
