@@ -12,6 +12,8 @@ import 'screens/maintenance_screen.dart';
 import 'games/tictactoe/tictactoe_screen.dart';
 import 'games/infinite_tictactoe/infinite_tictactoe_screen.dart';
 import 'games/gomoku/gomoku_screen.dart';
+import 'games/reaction/reaction_screen.dart';
+import 'games/rps/rps_screen.dart';
 
 // 앱 테마 색상 정의
 class AppColors {
@@ -114,6 +116,8 @@ class MinigameApp extends StatelessWidget {
           '/game/tictactoe': (context) => const TicTacToeScreen(),
           '/game/infinite_tictactoe': (context) => const InfiniteTicTacToeScreen(),
           '/game/gomoku': (context) => const GomokuScreen(),
+          '/game/reaction': (context) => const ReactionScreen(),
+          '/game/rps': (context) => const RpsScreen(),
         },
       ),
     );

@@ -98,6 +98,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
           route = '/game/tictactoe';
         } else if (gameType == 'gomoku') {
           route = '/game/gomoku';
+        } else if (gameType == 'reaction') {
+          route = '/game/reaction';
+        } else if (gameType == 'rps') {
+          route = '/game/rps';
         }
         Navigator.pushNamed(context, route);
       }
@@ -259,16 +263,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
             ),
             const SizedBox(height: 24),
 
-            Text(
-              '게임 선택',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey.shade800,
-              ),
-            ),
-            const SizedBox(height: 16),
-
             // 게임 목록
             Expanded(
               child: GridView.count(
@@ -289,7 +283,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     title: '무한 틱택토',
                     subtitle: '각자 3개까지!',
                     icon: Icons.all_inclusive,
-                    color: const Color(0xFF74B9FF),
+                    color: const Color(0xFF00B894),
                     route: '/game/infinite_tictactoe',
                   ),
                   _buildGameCard(
@@ -297,17 +291,24 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     title: '오목',
                     subtitle: '5개 연속 승리',
                     icon: Icons.circle_outlined,
-                    color: const Color(0xFF2D3436),
+                    color: const Color(0xFF636E72),
                     route: '/game/gomoku',
                   ),
                   _buildGameCard(
                     context,
-                    title: '더 많은 게임',
-                    subtitle: '곧 추가 예정',
-                    icon: Icons.add,
-                    color: Colors.grey,
-                    route: null,
-                    enabled: false,
+                    title: '반응속도',
+                    subtitle: '빨리 눌러!',
+                    icon: Icons.flash_on,
+                    color: const Color(0xFFE17055),
+                    route: '/game/reaction',
+                  ),
+                  _buildGameCard(
+                    context,
+                    title: '가위바위보',
+                    subtitle: '3판 2선승',
+                    icon: Icons.front_hand,
+                    color: const Color(0xFF9B59B6),
+                    route: '/game/rps',
                   ),
                 ],
               ),
@@ -328,10 +329,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
     bool enabled = true,
   }) {
     return Card(
-      elevation: enabled ? 4 : 1,
+      elevation: enabled ? 8 : 1,
       shadowColor: enabled ? color.withValues(alpha: 0.4) : Colors.transparent,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(24),
       ),
       child: InkWell(
         onTap: enabled && route != null
@@ -339,17 +340,17 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 Navigator.pushNamed(context, route);
               }
             : null,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(24),
         child: Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(24),
             gradient: enabled
                 ? LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
+                      color.withValues(alpha: 0.9),
                       color,
-                      color.withValues(alpha: 0.8),
                     ],
                   )
                 : null,
@@ -357,33 +358,50 @@ class _LobbyScreenState extends State<LobbyScreen> {
           ),
           child: Stack(
             children: [
-              // 배경 장식
-              if (enabled)
+              // 배경 장식 원들
+              if (enabled) ...[
                 Positioned(
-                  right: -20,
-                  top: -20,
-                  child: Icon(
-                    Icons.star_rounded,
-                    size: 80,
-                    color: Colors.white.withValues(alpha: 0.2),
+                  right: -15,
+                  top: -15,
+                  child: Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withValues(alpha: 0.1),
+                    ),
                   ),
                 ),
+                Positioned(
+                  left: -10,
+                  bottom: -10,
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withValues(alpha: 0.1),
+                    ),
+                  ),
+                ),
+              ],
               // 내용
-              Center(
+              Padding(
+                padding: const EdgeInsets.all(16),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
                         color: enabled
-                            ? Colors.white.withValues(alpha: 0.2)
+                            ? Colors.white.withValues(alpha: 0.25)
                             : Colors.grey.shade200,
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
                         icon,
-                        size: 36,
+                        size: 32,
                         color: enabled ? Colors.white : Colors.grey,
                       ),
                     ),
@@ -391,17 +409,27 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     Text(
                       title,
                       style: TextStyle(
-                        fontSize: 16,
+                        fontSize: 17,
                         fontWeight: FontWeight.bold,
                         color: enabled ? Colors.white : Colors.grey,
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: enabled ? Colors.white70 : Colors.grey,
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: enabled
+                            ? Colors.white.withValues(alpha: 0.2)
+                            : Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: enabled ? Colors.white : Colors.grey,
+                        ),
                       ),
                     ),
                   ],

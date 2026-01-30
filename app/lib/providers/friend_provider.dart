@@ -119,6 +119,8 @@ class Invitation {
       'tictactoe' => '틱택토',
       'infinite_tictactoe' => '무한 틱택토',
       'gomoku' => '오목',
+      'reaction' => '반응속도',
+      'rps' => '가위바위보',
       _ => gameType,
     };
     return isHardcore ? '$name (하드코어)' : name;

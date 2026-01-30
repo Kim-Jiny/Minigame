@@ -16,6 +16,7 @@ class GameProvider extends ChangeNotifier {
   GameStatus _status = GameStatus.idle;
   String? _roomId;
   String? _opponentNickname;
+  String? _opponentAvatarUrl;
   int? _opponentUserId;
   String? _currentTurn;
   List<int?> _board = List.filled(9, null);
@@ -58,6 +59,7 @@ class GameProvider extends ChangeNotifier {
   GameStatus get status => _status;
   String? get roomId => _roomId;
   String? get opponentNickname => _opponentNickname;
+  String? get opponentAvatarUrl => _opponentAvatarUrl;
   int? get opponentUserId => _opponentUserId;
   String? get currentTurn => _currentTurn;
   List<int?> get board => _board;
@@ -126,6 +128,7 @@ class GameProvider extends ChangeNotifier {
       final players = data['players'] as List;
       final opponent = players.firstWhere((p) => p['id'] != _myId);
       _opponentNickname = opponent['nickname'];
+      _opponentAvatarUrl = opponent['avatarUrl'];
       _opponentUserId = opponent['userId'];
 
       // 내 플레이어 인덱스 저장
@@ -297,6 +300,7 @@ class GameProvider extends ChangeNotifier {
 
     final opponent = players.firstWhere((p) => p['id'] != _myId);
     _opponentNickname = opponent['nickname'];
+    _opponentAvatarUrl = opponent['avatarUrl'];
     _opponentUserId = opponent['userId'];
     _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
     _isInvitationGame = true;
@@ -366,6 +370,7 @@ class GameProvider extends ChangeNotifier {
     _status = GameStatus.idle;
     _roomId = null;
     _opponentNickname = null;
+    _opponentAvatarUrl = null;
     _opponentUserId = null;
     _currentTurn = null;
     _board = List.filled(9, null);

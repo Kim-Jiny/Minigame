@@ -255,7 +255,7 @@ export const statsService = {
       [userId]
     );
 
-    const gameTypes = ['tictactoe', 'infinite_tictactoe', 'gomoku'];
+    const gameTypes = ['tictactoe', 'infinite_tictactoe', 'gomoku', 'reaction', 'rps'];
     const statsMap = new Map<string, any>();
 
     result.rows.forEach(row => {

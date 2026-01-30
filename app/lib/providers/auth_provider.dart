@@ -55,6 +55,7 @@ class AuthProvider extends ChangeNotifier {
       _socketService.emit('join_lobby', {
         'nickname': _nickname,
         'userId': _userId,
+        'avatarUrl': _avatarUrl,
       });
       _socketId = _socketService.socket?.id;
       notifyListeners();
@@ -69,6 +70,7 @@ class AuthProvider extends ChangeNotifier {
       _socketService.emit('join_lobby', {
         'nickname': _nickname,
         'userId': _userId,
+        'avatarUrl': _avatarUrl,
       });
       _socketId = _socketService.socket?.id;
     }

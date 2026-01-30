@@ -328,66 +328,51 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
       ),
       child: Column(
         children: [
-          // 상태 표시
+          // 프로필 & 턴 표시
           Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: game.isMyTurn
-                  ? const Color(0xFFE8E0FF)
-                  : Colors.grey.shade100,
-              border: Border(
-                bottom: BorderSide(
-                  color: game.isMyTurn
-                      ? const Color(0xFF6C5CE7)
-                      : Colors.grey.shade300,
-                  width: 2,
-                ),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFFE8E0FF), Color(0xFFF5F0FF)],
               ),
             ),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    Icon(
-                      game.isMyTurn ? Icons.sports_esports : Icons.sports_esports_outlined,
-                      color: game.isMyTurn
-                          ? const Color(0xFF6C5CE7)
-                          : Colors.grey,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      game.isMyTurn ? '내 차례' : '상대 차례',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: game.isMyTurn
-                            ? const Color(0xFF6C5CE7)
-                            : Colors.grey,
-                      ),
-                    ),
-                  ],
+                // 내 프로필
+                Expanded(
+                  child: _buildPlayerProfile(
+                    auth.nickname ?? '나',
+                    auth.avatarUrl,
+                    game.isMyTurn,
+                    true,
+                  ),
                 ),
-                Row(
-                  children: [
-                    // 타이머 표시
-                    _buildTimer(game),
-                    const SizedBox(width: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
+                // VS & 타이머
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Column(
+                    children: [
+                      _buildTimer(game),
+                      const SizedBox(height: 4),
+                      Text(
+                        game.isMyTurn ? '내 차례' : '상대 차례',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: game.isMyTurn ? const Color(0xFF6C5CE7) : Colors.grey,
+                        ),
                       ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        'vs ${game.opponentNickname}',
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
+                ),
+                // 상대 프로필
+                Expanded(
+                  child: _buildPlayerProfile(
+                    game.opponentNickname ?? '상대',
+                    game.opponentAvatarUrl,
+                    !game.isMyTurn,
+                    false,
+                  ),
                 ),
               ],
             ),
@@ -423,6 +408,50 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPlayerProfile(String name, String? avatarUrl, bool isActive, bool isMe) {
+    return Column(
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: isActive ? const Color(0xFF6C5CE7) : Colors.grey.shade300,
+              width: isActive ? 3 : 2,
+            ),
+            boxShadow: isActive ? [
+              BoxShadow(
+                color: const Color(0xFF6C5CE7).withValues(alpha: 0.3),
+                blurRadius: 8,
+              ),
+            ] : null,
+          ),
+          child: CircleAvatar(
+            radius: 24,
+            backgroundColor: isMe ? const Color(0xFFE8E0FF) : Colors.grey.shade200,
+            backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
+            child: avatarUrl == null
+                ? Icon(
+                    Icons.person,
+                    size: 24,
+                    color: isMe ? const Color(0xFF6C5CE7) : Colors.grey,
+                  )
+                : null,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          name,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: isActive ? const Color(0xFF6C5CE7) : Colors.grey.shade600,
+          ),
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
     );
   }
 

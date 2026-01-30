@@ -37,6 +37,10 @@ class GameRecord {
         return '무한 틱택토';
       case 'gomoku':
         return '오목';
+      case 'reaction':
+        return '반응속도';
+      case 'rps':
+        return '가위바위보';
       default:
         return gameType;
     }
@@ -101,6 +105,10 @@ class GameStats {
         return '무한 틱택토';
       case 'gomoku':
         return '오목';
+      case 'reaction':
+        return '반응속도';
+      case 'rps':
+        return '가위바위보';
       default:
         return gameType;
     }

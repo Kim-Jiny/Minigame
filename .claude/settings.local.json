@@ -37,7 +37,8 @@
       "Bash(npm start)",
       "Bash(xxd:*)",
       "Bash(pgrep:*)",
-      "Bash(kill:*)"
+      "Bash(kill:*)",
+      "Bash(curl:*)"
     ]
   }
 }

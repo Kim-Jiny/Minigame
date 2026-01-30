@@ -336,6 +336,8 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
   }
 
   Widget _buildPlayingView(GameProvider game) {
+    final auth = context.read<AuthProvider>();
+
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -349,66 +351,53 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
       ),
       child: Column(
         children: [
-          // 상태 표시
+          // 프로필 & 턴 표시
           Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: game.isMyTurn
-                  ? const Color(0xFFE8E0FF)
-                  : Colors.grey.shade100,
-              border: Border(
-                bottom: BorderSide(
-                  color: game.isMyTurn
-                      ? const Color(0xFF74B9FF)
-                      : Colors.grey.shade300,
-                  width: 2,
-                ),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFFE0F0FF), Color(0xFFF0F8FF)],
               ),
             ),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    Icon(
-                      game.isMyTurn ? Icons.sports_esports : Icons.sports_esports_outlined,
-                      color: game.isMyTurn
-                          ? const Color(0xFF74B9FF)
-                          : Colors.grey,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      game.isMyTurn ? '내 차례' : '상대 차례',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: game.isMyTurn
-                            ? const Color(0xFF74B9FF)
-                            : Colors.grey,
-                      ),
-                    ),
-                  ],
+                // 내 프로필
+                Expanded(
+                  child: _buildPlayerProfile(
+                    auth.nickname ?? '나',
+                    auth.avatarUrl,
+                    game.myPieceCount,
+                    game.isMyTurn,
+                    true,
+                  ),
                 ),
-                Row(
-                  children: [
-                    // 타이머 표시
-                    _buildTimer(game),
-                    const SizedBox(width: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
+                // VS & 타이머
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Column(
+                    children: [
+                      _buildTimer(game),
+                      const SizedBox(height: 4),
+                      Text(
+                        game.isMyTurn ? '내 차례' : '상대 차례',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: game.isMyTurn ? const Color(0xFF00B894) : Colors.grey,
+                        ),
                       ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        'vs ${game.opponentNickname}',
-                        style: const TextStyle(fontSize: 14),
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
+                ),
+                // 상대 프로필
+                Expanded(
+                  child: _buildPlayerProfile(
+                    game.opponentNickname ?? '상대',
+                    game.opponentAvatarUrl,
+                    game.opponentPieceCount,
+                    !game.isMyTurn,
+                    false,
+                  ),
                 ),
               ],
             ),
@@ -430,18 +419,6 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
               ),
             ),
 
-          // 말 개수 표시
-          Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildPieceCounter('나', game.myPieceCount, const Color(0xFF6C5CE7)),
-                _buildPieceCounter('상대', game.opponentPieceCount, const Color(0xFFFFB74D)),
-              ],
-            ),
-          ),
-
           // 게임 보드
           Expanded(
             child: Center(
@@ -456,6 +433,67 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPlayerProfile(String name, String? avatarUrl, int pieceCount, bool isActive, bool isMe) {
+    final color = isMe ? const Color(0xFF6C5CE7) : const Color(0xFFFFB74D);
+
+    return Column(
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: isActive ? const Color(0xFF00B894) : Colors.grey.shade300,
+              width: isActive ? 3 : 2,
+            ),
+            boxShadow: isActive ? [
+              BoxShadow(
+                color: const Color(0xFF00B894).withValues(alpha: 0.3),
+                blurRadius: 8,
+              ),
+            ] : null,
+          ),
+          child: CircleAvatar(
+            radius: 24,
+            backgroundColor: isMe ? const Color(0xFFE8E0FF) : Colors.grey.shade200,
+            backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
+            child: avatarUrl == null
+                ? Icon(
+                    Icons.person,
+                    size: 24,
+                    color: isMe ? const Color(0xFF6C5CE7) : Colors.grey,
+                  )
+                : null,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          name,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: isActive ? const Color(0xFF00B894) : Colors.grey.shade600,
+          ),
+          overflow: TextOverflow.ellipsis,
+        ),
+        const SizedBox(height: 2),
+        // 말 개수 표시
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(3, (index) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 1),
+              child: Icon(
+                index < pieceCount ? Icons.circle : Icons.circle_outlined,
+                size: 12,
+                color: index < pieceCount ? color : Colors.grey.shade300,
+              ),
+            );
+          }),
+        ),
+      ],
     );
   }
 
@@ -507,44 +545,6 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
                       : Colors.grey.shade700,
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPieceCounter(String label, int count, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.2),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Text(
-            '$label: ',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade700,
-            ),
-          ),
-          ...List.generate(3, (index) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: Icon(
-                index < count ? Icons.circle : Icons.circle_outlined,
-                size: 20,
-                color: index < count ? color : Colors.grey.shade300,
-              ),
-            );
-          }),
         ],
       ),
     );

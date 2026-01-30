@@ -2,6 +2,8 @@ import { Server, Socket } from 'socket.io';
 import { TicTacToeGame } from '../games/tictactoe';
 import { InfiniteTicTacToeGame } from '../games/infinitetictactoe';
 import { GomokuGame } from '../games/gomoku';
+import { ReactionGame } from '../games/reaction';
+import { RpsGame } from '../games/rps';
 import { friendService } from '../services/friendService';
 import { invitationService } from '../services/invitationService';
 import { statsService } from '../services/statsService';
@@ -12,18 +14,20 @@ interface Player {
   socket: Socket;
   nickname: string;
   userId?: number;
+  avatarUrl?: string;
 }
 
 interface GameRoom {
   id: string;
   gameType: string;
   players: Player[];
-  game: TicTacToeGame | InfiniteTicTacToeGame | GomokuGame | null;
+  game: TicTacToeGame | InfiniteTicTacToeGame | GomokuGame | ReactionGame | RpsGame | null;
   status: 'waiting' | 'playing' | 'finished';
   rematchRequests?: Set<string>;
   turnTimer?: NodeJS.Timeout;
   turnStartTime?: number;
   isHardcore?: boolean;  // 하드코어 모드 여부
+  roundTimer?: NodeJS.Timeout;  // 반응속도 게임용 라운드 타이머
 }
 
 // 턴 시간 제한 (밀리초)
@@ -70,9 +74,237 @@ function clearTurnTimer(room: GameRoom) {
   room.turnStartTime = undefined;
 }
 
-// 시간 초과 처리 - 랜덤 위치에 두기
+// 반응속도 게임 라운드 타이머 정리
+function clearRoundTimer(room: GameRoom) {
+  if (room.roundTimer) {
+    clearTimeout(room.roundTimer);
+    room.roundTimer = undefined;
+  }
+}
+
+// 반응속도 게임 라운드 시작
+function startReactionRound(io: Server, room: GameRoom) {
+  if (room.gameType !== 'reaction' || !(room.game instanceof ReactionGame)) return;
+
+  const game = room.game;
+  const { delay } = game.startRound();
+
+  // 라운드 준비 상태 전송
+  io.to(room.id).emit('reaction_round_ready', {
+    round: game.getCurrentRound(),
+    scores: game.getScores(),
+  });
+
+  console.log(`🚦 Round ${game.getCurrentRound()} ready, go in ${delay}ms`);
+
+  // 랜덤 시간 후 GO!
+  room.roundTimer = setTimeout(() => {
+    game.setGo();
+    io.to(room.id).emit('reaction_round_go', {
+      round: game.getCurrentRound(),
+    });
+    console.log(`🟢 Round ${game.getCurrentRound()} GO!`);
+
+    // 5초 내에 아무도 안 누르면 무승부 처리
+    room.roundTimer = setTimeout(() => {
+      if (game.getRoundState() === 'go') {
+        io.to(room.id).emit('reaction_round_timeout', {
+          round: game.getCurrentRound(),
+        });
+
+        // 게임 종료 체크
+        if (game.isGameOver()) {
+          finishReactionGame(io, room);
+        } else {
+          // 다음 라운드 시작 (1초 후)
+          setTimeout(() => startReactionRound(io, room), 1000);
+        }
+      }
+    }, 5000);
+  }, delay);
+}
+
+// 반응속도 게임 종료 처리
+async function finishReactionGame(io: Server, room: GameRoom) {
+  if (!(room.game instanceof ReactionGame)) return;
+
+  room.status = 'finished';
+  clearRoundTimer(room);
+
+  const game = room.game;
+  const winnerIndex = game.getWinner();
+  const scores = game.getScores();
+
+  const winner = winnerIndex !== null ? room.players[winnerIndex] : null;
+  const winnerId = winner?.id ?? null;
+  const winnerNickname = winner?.nickname ?? null;
+  const isDraw = winnerIndex === null;
+
+  // 통계 업데이트
+  for (let i = 0; i < room.players.length; i++) {
+    const player = room.players[i];
+    const opponent = room.players[i === 0 ? 1 : 0];
+    if (player.userId) {
+      let gameResult: 'win' | 'loss' | 'draw';
+      if (isDraw) {
+        gameResult = 'draw';
+      } else if (winnerIndex === i) {
+        gameResult = 'win';
+      } else {
+        gameResult = 'loss';
+      }
+      try {
+        const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
+        player.socket.emit('stats_updated', { stats });
+        if (i === 0 && opponent.userId) {
+          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
+        }
+      } catch (err) {
+        console.error('Failed to update stats:', err);
+      }
+    }
+  }
+
+  io.to(room.id).emit('game_end', {
+    winner: winnerId,
+    winnerNickname,
+    isDraw,
+    scores,
+    roundResults: game.getRoundResults(),
+  });
+
+  console.log(`🏆 Reaction game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores[0]}-${scores[1]})`);
+}
+
+// 가위바위보 라운드 시작
+function startRpsRound(io: Server, room: GameRoom) {
+  if (room.gameType !== 'rps' || !(room.game instanceof RpsGame)) return;
+
+  const game = room.game;
+  game.startRound();
+
+  const RPS_TIME_LIMIT = 10000; // 10초
+
+  // 라운드 시작 알림
+  io.to(room.id).emit('rps_round_start', {
+    round: game.getCurrentRound(),
+    scores: game.getScores(),
+    timeLimit: RPS_TIME_LIMIT,
+  });
+
+  console.log(`✊ RPS Round ${game.getCurrentRound()} started`);
+
+  // 10초 타임아웃 (둘 다 선택 안하면)
+  room.roundTimer = setTimeout(() => {
+    if (!game.isGameOver() && (!game.hasChosen(0) || !game.hasChosen(1))) {
+      // 선택 안 한 사람은 패배 처리
+      const choices = game.getChoices();
+      if (choices[0] === null && choices[1] === null) {
+        // 둘 다 안했으면 무승부
+        io.to(room.id).emit('rps_round_timeout', {
+          round: game.getCurrentRound(),
+        });
+        // 다음 라운드 시작
+        setTimeout(() => startRpsRound(io, room), 2000);
+      } else {
+        // 한 명만 선택했으면 그 사람이 승리
+        const winnerIndex = choices[0] !== null ? 0 : 1;
+        const winner = room.players[winnerIndex];
+
+        // 안전 체크: 승자 플레이어가 존재하는지 확인
+        if (!winner) {
+          console.log('⚠️ RPS timeout: winner player not found, ending game');
+          return;
+        }
+
+        // 타임아웃 시 선택한 쪽에 점수 부여
+        game.forceWin(winnerIndex);
+
+        io.to(room.id).emit('rps_round_result', {
+          round: game.getCurrentRound(),
+          player0Choice: choices[0],
+          player1Choice: choices[1],
+          winnerIndex,
+          winnerId: winner.id,
+          winnerNickname: winner.nickname,
+          isDraw: false,
+          isTimeout: true,
+          scores: game.getScores(),
+        });
+
+        if (game.isGameOver()) {
+          finishRpsGame(io, room);
+        } else {
+          setTimeout(() => startRpsRound(io, room), 2000);
+        }
+      }
+    }
+  }, RPS_TIME_LIMIT);
+}
+
+// 가위바위보 게임 종료 처리
+async function finishRpsGame(io: Server, room: GameRoom) {
+  if (!(room.game instanceof RpsGame)) return;
+
+  room.status = 'finished';
+  clearRoundTimer(room);
+
+  const game = room.game;
+  const winnerIndex = game.getWinner();
+  const scores = game.getScores();
+
+  const winner = winnerIndex !== null ? room.players[winnerIndex] : null;
+  const winnerId = winner?.id ?? null;
+  const winnerNickname = winner?.nickname ?? null;
+  const isDraw = winnerIndex === null;
+
+  // 통계 업데이트
+  for (let i = 0; i < room.players.length; i++) {
+    const player = room.players[i];
+    const opponent = room.players[i === 0 ? 1 : 0];
+    if (player.userId) {
+      let gameResult: 'win' | 'loss' | 'draw';
+      if (isDraw) {
+        gameResult = 'draw';
+      } else if (winnerIndex === i) {
+        gameResult = 'win';
+      } else {
+        gameResult = 'loss';
+      }
+      try {
+        const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
+        player.socket.emit('stats_updated', { stats });
+        if (i === 0 && opponent.userId) {
+          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
+        }
+      } catch (err) {
+        console.error('Failed to update stats:', err);
+      }
+    }
+  }
+
+  io.to(room.id).emit('game_end', {
+    winner: winnerId,
+    winnerNickname,
+    isDraw,
+    scores,
+    roundResults: game.getRoundResults(),
+  });
+
+  console.log(`🏆 RPS game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores[0]}-${scores[1]})`);
+}
+
+// 시간 초과 처리 - 랜덤 위치에 두기 (턴제 게임 전용)
 async function handleTurnTimeout(io: Server, room: GameRoom) {
   if (room.status !== 'playing' || !room.game) return;
+
+  // 반응속도 게임은 턴 타임아웃 없음
+  if (room.gameType === 'reaction') return;
+
+  // 타입 가드: 턴제 게임만 처리
+  if (!(room.game instanceof TicTacToeGame || room.game instanceof InfiniteTicTacToeGame || room.game instanceof GomokuGame)) {
+    return;
+  }
 
   const currentPlayerIndex = room.game.getCurrentPlayer();
   const currentPlayer = room.players[currentPlayerIndex];
@@ -188,7 +420,7 @@ export function setupSocketHandlers(io: Server) {
     let currentRoomId: string | null = null;
 
     // 로비 입장
-    socket.on('join_lobby', async (data: { nickname: string; userId?: number }) => {
+    socket.on('join_lobby', async (data: { nickname: string; userId?: number; avatarUrl?: string }) => {
       console.log(`📥 join_lobby received:`, { nickname: data.nickname, userId: data.userId });
 
       currentPlayer = {
@@ -196,6 +428,7 @@ export function setupSocketHandlers(io: Server) {
         socket,
         nickname: data.nickname,
         userId: data.userId,
+        avatarUrl: data.avatarUrl,
       };
 
       // 유저 ID가 있으면 소켓 매핑
@@ -256,6 +489,10 @@ export function setupSocketHandlers(io: Server) {
           room.game = new InfiniteTicTacToeGame();
         } else if (gameType === 'gomoku') {
           room.game = new GomokuGame();
+        } else if (gameType === 'reaction') {
+          room.game = new ReactionGame();
+        } else if (gameType === 'rps') {
+          room.game = new RpsGame();
         }
 
         rooms.set(roomId, room);
@@ -271,8 +508,8 @@ export function setupSocketHandlers(io: Server) {
           gameType,
           isHardcore,
           players: [
-            { id: opponent.id, nickname: opponent.nickname, userId: opponent.userId },
-            { id: currentPlayer.id, nickname: currentPlayer.nickname, userId: currentPlayer.userId },
+            { id: opponent.id, nickname: opponent.nickname, userId: opponent.userId, avatarUrl: opponent.avatarUrl },
+            { id: currentPlayer.id, nickname: currentPlayer.nickname, userId: currentPlayer.userId, avatarUrl: currentPlayer.avatarUrl },
           ],
         });
 
@@ -280,13 +517,32 @@ export function setupSocketHandlers(io: Server) {
 
         // 게임 시작
         room.status = 'playing';
-        startTurnTimer(io, room);
-        io.to(roomId).emit('game_start', {
-          currentTurn: opponent.id, // 첫 번째 플레이어가 선공
-          board: room.game?.getBoard(),
-          turnTimeLimit: getTurnTimeLimit(room),
-          turnStartTime: room.turnStartTime,
-        });
+
+        if (gameType === 'reaction') {
+          // 반응속도 게임은 별도 시작 로직
+          io.to(roomId).emit('game_start', {
+            gameType: 'reaction',
+          });
+          // 1초 후 첫 라운드 시작
+          setTimeout(() => startReactionRound(io, room), 1000);
+        } else if (gameType === 'rps') {
+          // 가위바위보 게임
+          io.to(roomId).emit('game_start', {
+            gameType: 'rps',
+          });
+          // 1초 후 첫 라운드 시작
+          setTimeout(() => startRpsRound(io, room), 1000);
+        } else {
+          // 턴제 게임
+          startTurnTimer(io, room);
+          const turnGame = room.game as TicTacToeGame | InfiniteTicTacToeGame | GomokuGame;
+          io.to(roomId).emit('game_start', {
+            currentTurn: opponent.id, // 첫 번째 플레이어가 선공
+            board: turnGame?.getBoard(),
+            turnTimeLimit: getTurnTimeLimit(room),
+            turnStartTime: room.turnStartTime,
+          });
+        }
       } else {
         // 대기열에 추가
         queue.push(currentPlayer);
@@ -531,6 +787,96 @@ export function setupSocketHandlers(io: Server) {
             turnTimeLimit: getTurnTimeLimit(room),
             turnStartTime: room.turnStartTime,
           });
+        }
+      }
+
+      // 반응속도 게임 로직
+      if (room.gameType === 'reaction' && room.game instanceof ReactionGame) {
+        const result = room.game.playerPressed(playerIndex);
+
+        if (!result.valid) {
+          return; // 이미 눌렀거나 라운드가 진행 중이 아님
+        }
+
+        // 라운드 타이머 정리
+        clearRoundTimer(room);
+
+        // 라운드 결과 전송
+        io.to(data.roomId).emit('reaction_round_result', {
+          round: room.game.getCurrentRound(),
+          falseStart: result.falseStart,
+          winnerId: result.roundWinner !== undefined ? room.players[result.roundWinner].id : null,
+          winnerNickname: result.roundWinner !== undefined ? room.players[result.roundWinner].nickname : null,
+          reactionTime: result.reactionTime,
+          scores: room.game.getScores(),
+          pressedPlayerId: socket.id,
+          pressedPlayerNickname: currentPlayer?.nickname,
+        });
+
+        if (result.falseStart) {
+          console.log(`🔴 False start by ${currentPlayer?.nickname}!`);
+        } else {
+          console.log(`⚡ ${currentPlayer?.nickname} pressed in ${result.reactionTime}ms!`);
+        }
+
+        // 게임 종료 체크
+        if (result.gameOver) {
+          await finishReactionGame(io, room);
+        } else {
+          // 다음 라운드 시작 (2초 후)
+          setTimeout(() => startReactionRound(io, room), 2000);
+        }
+      }
+
+      // 가위바위보 게임 로직
+      if (room.gameType === 'rps' && room.game instanceof RpsGame) {
+        const choice = data.action.choice; // 'rock', 'paper', 'scissors'
+        const result = room.game.makeChoice(playerIndex, choice);
+
+        if (!result.valid) {
+          return; // 이미 선택했거나 게임 종료
+        }
+
+        // 상대에게 내가 선택했다고 알림 (선택 내용은 안 보여줌)
+        io.to(data.roomId).emit('rps_player_chosen', {
+          playerId: socket.id,
+          playerNickname: currentPlayer?.nickname,
+        });
+
+        console.log(`✊ ${currentPlayer?.nickname} chose ${choice}`);
+
+        // 둘 다 선택했으면 결과 계산
+        if (result.bothChosen) {
+          // 라운드 타이머 정리
+          clearRoundTimer(room);
+
+          const roundResult = room.game.calculateRoundResult();
+
+          // 라운드 결과 전송
+          io.to(data.roomId).emit('rps_round_result', {
+            round: room.game.getCurrentRound(),
+            player0Choice: roundResult.player0Choice,
+            player1Choice: roundResult.player1Choice,
+            winnerIndex: roundResult.roundWinner,
+            winnerId: roundResult.roundWinner !== null ? room.players[roundResult.roundWinner].id : null,
+            winnerNickname: roundResult.roundWinner !== null ? room.players[roundResult.roundWinner].nickname : null,
+            isDraw: roundResult.isDraw,
+            scores: room.game.getScores(),
+          });
+
+          if (roundResult.isDraw) {
+            console.log(`🤝 Round ${room.game.getCurrentRound()} is a draw!`);
+          } else {
+            console.log(`✊ Round ${room.game.getCurrentRound()}: ${room.players[roundResult.roundWinner!].nickname} wins!`);
+          }
+
+          // 게임 종료 체크
+          if (roundResult.gameOver) {
+            await finishRpsGame(io, room);
+          } else {
+            // 다음 라운드 시작 (2초 후)
+            setTimeout(() => startRpsRound(io, room), 2000);
+          }
         }
       }
     });
@@ -886,11 +1232,12 @@ export function setupSocketHandlers(io: Server) {
 
         // 초대한 사람 찾기
         const inviterSocket = userSockets.get(invitation.inviterId);
-        const inviterPlayer = inviterSocket ? {
+        const inviterPlayer: Player | null = inviterSocket ? {
           id: inviterSocket.id,
           socket: inviterSocket,
           nickname: invitation.inviterNickname,
-          userId: invitation.inviterId
+          userId: invitation.inviterId,
+          avatarUrl: undefined  // TODO: 초대자 아바타 URL 저장 필요
         } : null;
 
         if (!inviterPlayer) {
@@ -915,6 +1262,10 @@ export function setupSocketHandlers(io: Server) {
           room.game = new InfiniteTicTacToeGame();
         } else if (invitation.gameType === 'gomoku') {
           room.game = new GomokuGame();
+        } else if (invitation.gameType === 'reaction') {
+          room.game = new ReactionGame();
+        } else if (invitation.gameType === 'rps') {
+          room.game = new RpsGame();
         }
 
         rooms.set(roomId, room);
@@ -925,64 +1276,138 @@ export function setupSocketHandlers(io: Server) {
         currentRoomId = roomId;
 
         room.status = 'playing';
-        startTurnTimer(io, room);
-        const gameBoard = room.game?.getBoard();
-        const currentTurn = inviterPlayer.id;
-        const turnStartTime = room.turnStartTime;
+
         const players = [
-          { id: inviterPlayer.id, nickname: inviterPlayer.nickname, userId: inviterPlayer.userId },
-          { id: currentPlayer.id, nickname: currentPlayer.nickname, userId: currentPlayer.userId }
+          { id: inviterPlayer.id, nickname: inviterPlayer.nickname, userId: inviterPlayer.userId, avatarUrl: inviterPlayer.avatarUrl },
+          { id: currentPlayer.id, nickname: currentPlayer.nickname, userId: currentPlayer.userId, avatarUrl: currentPlayer.avatarUrl }
         ];
 
-        // 초대 받은 사람에게 게임 상태 포함해서 전송
-        socket.emit('accept_invitation_result', {
-          success: true,
-          roomId,
-          gameType: invitation.gameType,
-          // 게임 상태 포함
-          gameState: {
-            players,
+        if (invitation.gameType === 'reaction') {
+          // 반응속도 게임
+          socket.emit('accept_invitation_result', {
+            success: true,
+            roomId,
+            gameType: invitation.gameType,
+            gameState: {
+              players,
+              isInvitation: true,
+            }
+          });
+
+          inviterSocket!.emit('invitation_accepted', {
+            roomId,
+            gameType: invitation.gameType,
+            acceptedBy: currentPlayer.nickname,
+            gameState: {
+              players,
+              isInvitation: true,
+            }
+          });
+
+          io.to(roomId).emit('match_found', {
+            roomId,
+            gameType: invitation.gameType,
+            isInvitation: true,
+            players
+          });
+
+          io.to(roomId).emit('game_start', {
+            gameType: 'reaction',
+          });
+
+          setTimeout(() => startReactionRound(io, room), 1000);
+        } else if (invitation.gameType === 'rps') {
+          // 가위바위보 게임
+          socket.emit('accept_invitation_result', {
+            success: true,
+            roomId,
+            gameType: invitation.gameType,
+            gameState: {
+              players,
+              isInvitation: true,
+            }
+          });
+
+          inviterSocket!.emit('invitation_accepted', {
+            roomId,
+            gameType: invitation.gameType,
+            acceptedBy: currentPlayer.nickname,
+            gameState: {
+              players,
+              isInvitation: true,
+            }
+          });
+
+          io.to(roomId).emit('match_found', {
+            roomId,
+            gameType: invitation.gameType,
+            isInvitation: true,
+            players
+          });
+
+          io.to(roomId).emit('game_start', {
+            gameType: 'rps',
+          });
+
+          setTimeout(() => startRpsRound(io, room), 1000);
+        } else {
+          // 턴제 게임
+          startTurnTimer(io, room);
+          const turnGame = room.game as TicTacToeGame | InfiniteTicTacToeGame | GomokuGame;
+          const gameBoard = turnGame?.getBoard();
+          const currentTurn = inviterPlayer.id;
+          const turnStartTime = room.turnStartTime;
+
+          // 초대 받은 사람에게 게임 상태 포함해서 전송
+          socket.emit('accept_invitation_result', {
+            success: true,
+            roomId,
+            gameType: invitation.gameType,
+            // 게임 상태 포함
+            gameState: {
+              players,
+              currentTurn,
+              board: gameBoard,
+              isInvitation: true,
+              turnTimeLimit: getTurnTimeLimit(room),
+              turnStartTime,
+            }
+          });
+
+          // 초대자에게 수락 알림 (게임 상태 포함)
+          inviterSocket!.emit('invitation_accepted', {
+            roomId,
+            gameType: invitation.gameType,
+            acceptedBy: currentPlayer.nickname,
+            // 게임 상태 포함
+            gameState: {
+              players,
+              currentTurn,
+              board: gameBoard,
+              isInvitation: true,
+              turnTimeLimit: getTurnTimeLimit(room),
+              turnStartTime,
+            }
+          });
+
+          // 양쪽에 매칭 성공 알림 (기존 리스너용)
+          io.to(roomId).emit('match_found', {
+            roomId,
+            gameType: invitation.gameType,
+            isInvitation: true,
+            players
+          });
+
+          // 게임 시작 (기존 리스너용)
+          io.to(roomId).emit('game_start', {
             currentTurn,
             board: gameBoard,
-            isInvitation: true,
             turnTimeLimit: getTurnTimeLimit(room),
             turnStartTime,
-          }
-        });
+          });
 
-        // 초대자에게 수락 알림 (게임 상태 포함)
-        inviterSocket!.emit('invitation_accepted', {
-          roomId,
-          gameType: invitation.gameType,
-          acceptedBy: currentPlayer.nickname,
-          // 게임 상태 포함
-          gameState: {
-            players,
-            currentTurn,
-            board: gameBoard,
-            isInvitation: true,
-            turnTimeLimit: getTurnTimeLimit(room),
-            turnStartTime,
-          }
-        });
-
-        // 양쪽에 매칭 성공 알림 (기존 리스너용)
-        io.to(roomId).emit('match_found', {
-          roomId,
-          gameType: invitation.gameType,
-          isInvitation: true,
-          players
-        });
-
-        // 게임 시작 (기존 리스너용)
-        io.to(roomId).emit('game_start', {
-          currentTurn,
-          board: gameBoard,
-          turnTimeLimit: getTurnTimeLimit(room),
-          turnStartTime,
-        });
-
-        console.log(`🎮 Invitation game started: ${inviterPlayer.nickname} vs ${currentPlayer.nickname}`);
+          console.log(`🎮 Invitation game started: ${inviterPlayer.nickname} vs ${currentPlayer.nickname}`);
+        }
       } catch (error) {
         socket.emit('accept_invitation_result', { success: false, message: '초대 수락 실패' });
       }
@@ -1164,6 +1589,10 @@ export function setupSocketHandlers(io: Server) {
             room.game = new InfiniteTicTacToeGame();
           } else if (room.gameType === 'gomoku') {
             room.game = new GomokuGame();
+          } else if (room.gameType === 'reaction') {
+            room.game = new ReactionGame();
+          } else if (room.gameType === 'rps') {
+            room.game = new RpsGame();
           }
           room.status = 'playing';
           room.rematchRequests.clear();
@@ -1171,16 +1600,29 @@ export function setupSocketHandlers(io: Server) {
           // 플레이어 순서 교체 (선공/후공 바꾸기)
           room.players.reverse();
 
-          // 턴 타이머 시작
-          startTurnTimer(io, room);
-
-          // 게임 시작 (항상 players[0]이 선공)
-          io.to(data.roomId).emit('game_start', {
-            currentTurn: room.players[0].id,
-            board: room.game?.getBoard(),
-            turnTimeLimit: getTurnTimeLimit(room),
-            turnStartTime: room.turnStartTime,
-          });
+          if (room.gameType === 'reaction') {
+            // 반응속도 게임 재대결
+            io.to(data.roomId).emit('game_start', {
+              gameType: 'reaction',
+            });
+            setTimeout(() => startReactionRound(io, room), 1000);
+          } else if (room.gameType === 'rps') {
+            // 가위바위보 게임 재대결
+            io.to(data.roomId).emit('game_start', {
+              gameType: 'rps',
+            });
+            setTimeout(() => startRpsRound(io, room), 1000);
+          } else {
+            // 턴제 게임
+            startTurnTimer(io, room);
+            const turnGame = room.game as TicTacToeGame | InfiniteTicTacToeGame | GomokuGame;
+            io.to(data.roomId).emit('game_start', {
+              currentTurn: room.players[0].id,
+              board: turnGame?.getBoard(),
+              turnTimeLimit: getTurnTimeLimit(room),
+              turnStartTime: room.turnStartTime,
+            });
+          }
           console.log(`🎮 Rematch started: ${room.players[0].nickname} vs ${room.players[1].nickname}`);
         }
       }

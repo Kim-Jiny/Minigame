@@ -210,6 +210,22 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   'gomoku',
                   Icons.circle_outlined,
                 ),
+                const SizedBox(height: 8),
+                _buildGameOption(
+                  context,
+                  friend,
+                  '반응속도',
+                  'reaction',
+                  Icons.flash_on,
+                ),
+                const SizedBox(height: 8),
+                _buildGameOption(
+                  context,
+                  friend,
+                  '가위바위보',
+                  'rps',
+                  Icons.front_hand,
+                ),
               ],
             );
           },

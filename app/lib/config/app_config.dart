@@ -14,4 +14,6 @@ class AppConfig {
   static const String gameTypeTicTacToe = 'tictactoe';
   static const String gameTypeInfiniteTicTacToe = 'infinite_tictactoe';
   static const String gameTypeGomoku = 'gomoku';
+  static const String gameTypeReaction = 'reaction';
+  static const String gameTypeRps = 'rps';
 }

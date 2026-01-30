@@ -101,6 +101,8 @@ class _RecentRecordsScreenState extends State<RecentRecordsScreen> {
       'tictactoe' => const Color(0xFF6C5CE7),
       'infinite_tictactoe' => const Color(0xFF74B9FF),
       'gomoku' => const Color(0xFF2D3436),
+      'reaction' => const Color(0xFFE17055),
+      'rps' => const Color(0xFF9B59B6),
       _ => const Color(0xFF74B9FF),
     };
 
@@ -130,6 +132,8 @@ class _RecentRecordsScreenState extends State<RecentRecordsScreen> {
                     'tictactoe' => Icons.grid_3x3,
                     'infinite_tictactoe' => Icons.all_inclusive,
                     'gomoku' => Icons.circle_outlined,
+                    'reaction' => Icons.flash_on,
+                    'rps' => Icons.front_hand,
                     _ => Icons.sports_esports,
                   },
                   color: gameColor,
