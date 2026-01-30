@@ -36,7 +36,8 @@
       "Bash(flutter clean:*)",
       "Bash(npm start)",
       "Bash(xxd:*)",
-      "Bash(pgrep:*)"
+      "Bash(pgrep:*)",
+      "Bash(kill:*)"
     ]
   }
 }

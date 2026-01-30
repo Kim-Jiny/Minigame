@@ -2,7 +2,7 @@
     "api_base_url": "http://172.30.1.66:3000",
     "web_base_url": "http://172.30.1.66:3000",
     "maintenance": {
-        "enabled": false,
+        "enabled": true,
         "end_time": "2025-01-30T18:00:00+09:00",
         "message": "서버 점검 중입니다."
     },
