@@ -4,6 +4,8 @@ import '../providers/friend_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/game_provider.dart';
 import '../providers/stats_provider.dart';
+import '../services/remote_config_service.dart';
+import '../services/socket_service.dart';
 import '../widgets/invitation_dialog.dart';
 import 'friends_screen.dart';
 import 'profile_screen.dart';
@@ -31,7 +33,26 @@ class _LobbyScreenState extends State<LobbyScreen> {
         context.read<GameProvider>().initialize(auth.socketId!);
       }
       _setupInvitationListener();
+      _setupConfigChangeListener();
     });
+  }
+
+  void _setupConfigChangeListener() {
+    // 원격 설정 변경 감지하여 소켓 재연결
+    final configService = context.read<RemoteConfigService>();
+    configService.addListener(_onConfigChanged);
+  }
+
+  void _onConfigChanged() {
+    // 서버 URL 변경 시 소켓 재연결
+    SocketService().checkAndReconnect();
+  }
+
+  @override
+  void dispose() {
+    // 설정 변경 리스너 제거
+    context.read<RemoteConfigService>().removeListener(_onConfigChanged);
+    super.dispose();
   }
 
   void _setupInvitationListener() {

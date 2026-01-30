@@ -1,7 +1,14 @@
+import '../services/remote_config_service.dart';
+
 class AppConfig {
-  // 개발 환경: 맥의 로컬 IP (같은 WiFi 네트워크에서 접근 가능)
-  // 실제 배포시 맥미니 서버 IP로 변경
-  static const String serverUrl = 'http://172.30.1.66:3000';
+  // 기본 서버 URL (원격 설정을 가져오기 전에 사용)
+  static const String _defaultServerUrl = 'http://172.30.1.66:3000';
+
+  // 원격 설정에서 서버 URL 가져오기
+  static String get serverUrl {
+    final remoteConfig = RemoteConfigService();
+    return remoteConfig.config?.apiBaseUrl ?? _defaultServerUrl;
+  }
 
   // 게임 타입 상수
   static const String gameTypeTicTacToe = 'tictactoe';

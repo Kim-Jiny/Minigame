@@ -5,8 +5,10 @@ import 'providers/auth_provider.dart';
 import 'providers/game_provider.dart';
 import 'providers/friend_provider.dart';
 import 'providers/stats_provider.dart';
+import 'services/remote_config_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/lobby_screen.dart';
+import 'screens/maintenance_screen.dart';
 import 'games/tictactoe/tictactoe_screen.dart';
 import 'games/infinite_tictactoe/infinite_tictactoe_screen.dart';
 
@@ -20,11 +22,14 @@ class AppColors {
   static const coral = Color(0xFFFF7675);         // 코랄
 }
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Kakao SDK 초기화
   KakaoSdk.init(nativeAppKey: 'd690b18448f3f27fb7b2025b484b223a');
+
+  // 원격 설정 초기화
+  await RemoteConfigService().initialize();
 
   runApp(const MinigameApp());
 }
@@ -36,6 +41,7 @@ class MinigameApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        ChangeNotifierProvider.value(value: RemoteConfigService()),
         ChangeNotifierProvider(create: (_) => AuthProvider()..init()),
         ChangeNotifierProvider(create: (_) => GameProvider()),
         ChangeNotifierProvider(create: (_) => FriendProvider()),
@@ -117,8 +123,16 @@ class AuthWrapper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<AuthProvider>(
-      builder: (context, auth, child) {
+    return Consumer2<RemoteConfigService, AuthProvider>(
+      builder: (context, configService, auth, child) {
+        // 점검 모드 확인
+        if (configService.isUnderMaintenance) {
+          return MaintenanceScreen(
+            configService: configService,
+            onRetry: () => configService.refresh(),
+          );
+        }
+
         if (auth.isLoggedIn) {
           // FriendProvider, StatsProvider 초기화
           WidgetsBinding.instance.addPostFrameCallback((_) {
