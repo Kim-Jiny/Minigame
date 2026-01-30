@@ -13,4 +13,5 @@ class AppConfig {
   // 게임 타입 상수
   static const String gameTypeTicTacToe = 'tictactoe';
   static const String gameTypeInfiniteTicTacToe = 'infinite_tictactoe';
+  static const String gameTypeGomoku = 'gomoku';
 }

@@ -710,8 +710,8 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
                           ),
                         ),
                       ),
-                    // 친구 요청 버튼 (랜덤 매칭이고 상대가 나가지 않았을 때)
-                    if (!game.isInvitationGame && !game.opponentLeft && game.opponentUserId != null)
+                    // 친구 요청 버튼 (랜덤 매칭이고 상대가 나가지 않았고 이미 친구가 아닐 때)
+                    if (!game.isInvitationGame && !game.opponentLeft && game.opponentUserId != null && !context.read<FriendProvider>().isFriend(game.opponentUserId!))
                       OutlinedButton.icon(
                         onPressed: () {
                           context.read<FriendProvider>().sendFriendRequestByUserId(game.opponentUserId!);

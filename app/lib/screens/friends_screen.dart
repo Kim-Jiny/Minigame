@@ -202,6 +202,14 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   'infinite_tictactoe',
                   Icons.all_inclusive,
                 ),
+                const SizedBox(height: 8),
+                _buildGameOption(
+                  context,
+                  friend,
+                  '오목',
+                  'gomoku',
+                  Icons.circle_outlined,
+                ),
               ],
             );
           },

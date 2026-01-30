@@ -29,6 +29,9 @@ class GameProvider extends ChangeNotifier {
   List<Map<String, dynamic>> _moveHistory = [];
   int? _removedPosition;
 
+  // 마지막 수 위치
+  int? _lastMovePosition;
+
   // 재경기 관련
   bool _rematchWaiting = false;
   bool _opponentWantsRematch = false;
@@ -72,6 +75,7 @@ class GameProvider extends ChangeNotifier {
   String? get timeoutPlayerNickname => _timeoutPlayerNickname;
   bool get isHardcore => _isHardcore;
   bool get isHardcoreGame => _isHardcoreGame;
+  int? get lastMovePosition => _lastMovePosition;
 
   // 하드코어 모드 설정
   void setHardcoreMode(bool value) {
@@ -163,6 +167,11 @@ class GameProvider extends ChangeNotifier {
       _currentTurn = data['currentTurn'];
       _timeoutPlayerNickname = null;  // 타임아웃 알림 초기화
 
+      // 마지막 수 위치 저장
+      if (data['lastMove'] != null) {
+        _lastMovePosition = data['lastMove'];
+      }
+
       // 무한 틱택토용 데이터
       if (data['moveHistory'] != null) {
         _moveHistory = List<Map<String, dynamic>>.from(
@@ -234,15 +243,25 @@ class GameProvider extends ChangeNotifier {
   void _startCountdownTimer() {
     _stopCountdownTimer();
 
-    if (_turnTimeLimit == null || _turnStartTime == null) return;
+    if (_turnTimeLimit == null) return;
 
-    // 서버 시간과의 차이 계산
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final elapsed = now - _turnStartTime!;
-    final remaining = _turnTimeLimit! - elapsed;
+    // 턴 시작 시간을 현재 시간으로 설정 (서버-클라이언트 시간 차이 문제 해결)
+    // 서버에서 turnStartTime이 오면 그 시점부터 경과 시간을 계산하되,
+    // 네트워크 지연으로 인해 이미 시간이 많이 지났다면 현재 시간 기준으로 시작
+    int remaining;
+    if (_turnStartTime != null) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final elapsed = now - _turnStartTime!;
+      remaining = _turnTimeLimit! - elapsed;
+      // 네트워크 지연 등으로 이미 음수이면 전체 시간으로 시작
+      if (remaining < 0 || remaining > _turnTimeLimit!) {
+        remaining = _turnTimeLimit!;
+      }
+    } else {
+      remaining = _turnTimeLimit!;
+    }
 
     _remainingTime = (remaining / 1000).ceil();
-    if (_remainingTime < 0) _remainingTime = 0;
 
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_remainingTime > 0) {
@@ -356,6 +375,7 @@ class GameProvider extends ChangeNotifier {
     _myPlayerIndex = null;
     _moveHistory = [];
     _removedPosition = null;
+    _lastMovePosition = null;
     _rematchWaiting = false;
     _opponentWantsRematch = false;
     _opponentLeft = false;

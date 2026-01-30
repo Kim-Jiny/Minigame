@@ -1,6 +1,7 @@
 import { Server, Socket } from 'socket.io';
 import { TicTacToeGame } from '../games/tictactoe';
 import { InfiniteTicTacToeGame } from '../games/infinitetictactoe';
+import { GomokuGame } from '../games/gomoku';
 import { friendService } from '../services/friendService';
 import { invitationService } from '../services/invitationService';
 import { statsService } from '../services/statsService';
@@ -17,7 +18,7 @@ interface GameRoom {
   id: string;
   gameType: string;
   players: Player[];
-  game: TicTacToeGame | InfiniteTicTacToeGame | null;
+  game: TicTacToeGame | InfiniteTicTacToeGame | GomokuGame | null;
   status: 'waiting' | 'playing' | 'finished';
   rematchRequests?: Set<string>;
   turnTimer?: NodeJS.Timeout;
@@ -253,6 +254,8 @@ export function setupSocketHandlers(io: Server) {
           room.game = new TicTacToeGame();
         } else if (gameType === 'infinite_tictactoe') {
           room.game = new InfiniteTicTacToeGame();
+        } else if (gameType === 'gomoku') {
+          room.game = new GomokuGame();
         }
 
         rooms.set(roomId, room);
@@ -454,6 +457,77 @@ export function setupSocketHandlers(io: Server) {
             lastMove: data.action.position,
             removedPosition: result.removedPosition,
             moveHistory: room.game.getMoveHistory(),
+            turnTimeLimit: getTurnTimeLimit(room),
+            turnStartTime: room.turnStartTime,
+          });
+        }
+      }
+
+      // 오목 게임 로직
+      if (room.gameType === 'gomoku' && room.game instanceof GomokuGame) {
+        const result = room.game.makeMove(data.action.position, playerIndex);
+
+        if (!result.valid) {
+          socket.emit('error', { message: result.message });
+          return;
+        }
+
+        // 타이머 정리 및 재시작
+        clearTurnTimer(room);
+
+        // 게임 종료 체크
+        if (result.gameOver) {
+          room.status = 'finished';
+          const winnerId = result.winner !== undefined && result.winner !== null
+            ? room.players[result.winner].id
+            : null;
+          const winnerNickname = result.winner !== undefined && result.winner !== null
+            ? room.players[result.winner].nickname
+            : null;
+
+          // 통계 업데이트 및 기록 저장
+          for (let i = 0; i < room.players.length; i++) {
+            const player = room.players[i];
+            const opponent = room.players[i === 0 ? 1 : 0];
+            if (player.userId) {
+              let gameResult: 'win' | 'loss' | 'draw';
+              if (result.isDraw) {
+                gameResult = 'draw';
+              } else if (result.winner === i) {
+                gameResult = 'win';
+              } else {
+                gameResult = 'loss';
+              }
+              try {
+                const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
+                player.socket.emit('stats_updated', { stats });
+
+                // 게임 기록 저장 (첫 번째 플레이어만 저장하면 됨)
+                if (i === 0 && opponent.userId) {
+                  await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
+                }
+              } catch (err) {
+                console.error('Failed to update stats:', err);
+              }
+            }
+          }
+
+          io.to(data.roomId).emit('game_end', {
+            winner: winnerId,
+            winnerNickname: winnerNickname,
+            isDraw: result.isDraw,
+            board: room.game.getBoard(),
+          });
+          console.log(`🏆 Gomoku ended: ${result.isDraw ? 'Draw' : winnerNickname + ' wins'}`);
+        } else {
+          // 게임 계속 - 다음 턴 타이머 시작
+          startTurnTimer(io, room);
+
+          // 게임 상태 업데이트 브로드캐스트
+          io.to(data.roomId).emit('game_update', {
+            board: room.game.getBoard(),
+            currentTurn: room.players[room.game.getCurrentPlayer()].id,
+            lastMove: data.action.position,
             turnTimeLimit: getTurnTimeLimit(room),
             turnStartTime: room.turnStartTime,
           });
@@ -839,6 +913,8 @@ export function setupSocketHandlers(io: Server) {
           room.game = new TicTacToeGame();
         } else if (invitation.gameType === 'infinite_tictactoe') {
           room.game = new InfiniteTicTacToeGame();
+        } else if (invitation.gameType === 'gomoku') {
+          room.game = new GomokuGame();
         }
 
         rooms.set(roomId, room);
@@ -1086,6 +1162,8 @@ export function setupSocketHandlers(io: Server) {
             room.game = new TicTacToeGame();
           } else if (room.gameType === 'infinite_tictactoe') {
             room.game = new InfiniteTicTacToeGame();
+          } else if (room.gameType === 'gomoku') {
+            room.game = new GomokuGame();
           }
           room.status = 'playing';
           room.rematchRequests.clear();
@@ -1160,6 +1238,9 @@ export function setupSocketHandlers(io: Server) {
           const remainingPlayer = room.players.find(p => p.id !== socket.id);
 
           if (leavingPlayer && remainingPlayer) {
+            // 먼저 상태를 finished로 변경 (두 번째 나가는 사람이 중복 기록 안 되게)
+            room.status = 'finished';
+
             try {
               // 탈주자: 패배 기록 (경험치 없음)
               if (leavingPlayer.userId) {

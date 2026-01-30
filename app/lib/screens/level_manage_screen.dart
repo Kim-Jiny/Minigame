@@ -158,9 +158,12 @@ class LevelManageScreen extends StatelessWidget {
   }
 
   Widget _buildGameStatsCard(BuildContext context, GameStats stats) {
-    final Color gameColor = stats.gameType == 'tictactoe'
-        ? const Color(0xFF6C5CE7)
-        : const Color(0xFF74B9FF);
+    final Color gameColor = switch (stats.gameType) {
+      'tictactoe' => const Color(0xFF6C5CE7),
+      'infinite_tictactoe' => const Color(0xFF74B9FF),
+      'gomoku' => const Color(0xFF2D3436),
+      _ => const Color(0xFF74B9FF),
+    };
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
@@ -180,7 +183,12 @@ class LevelManageScreen extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
-                    stats.gameType == 'tictactoe' ? Icons.grid_3x3 : Icons.all_inclusive,
+                    switch (stats.gameType) {
+                      'tictactoe' => Icons.grid_3x3,
+                      'infinite_tictactoe' => Icons.all_inclusive,
+                      'gomoku' => Icons.circle_outlined,
+                      _ => Icons.sports_esports,
+                    },
                     color: gameColor,
                     size: 28,
                   ),

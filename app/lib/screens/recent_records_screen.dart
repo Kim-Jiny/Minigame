@@ -97,9 +97,12 @@ class _RecentRecordsScreenState extends State<RecentRecordsScreen> {
         resultBgColor = Colors.grey.shade100;
     }
 
-    final gameColor = record.gameType == 'tictactoe'
-        ? const Color(0xFF6C5CE7)
-        : const Color(0xFF74B9FF);
+    final gameColor = switch (record.gameType) {
+      'tictactoe' => const Color(0xFF6C5CE7),
+      'infinite_tictactoe' => const Color(0xFF74B9FF),
+      'gomoku' => const Color(0xFF2D3436),
+      _ => const Color(0xFF74B9FF),
+    };
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -123,9 +126,12 @@ class _RecentRecordsScreenState extends State<RecentRecordsScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
-                  record.gameType == 'tictactoe'
-                      ? Icons.grid_3x3
-                      : Icons.all_inclusive,
+                  switch (record.gameType) {
+                    'tictactoe' => Icons.grid_3x3,
+                    'infinite_tictactoe' => Icons.all_inclusive,
+                    'gomoku' => Icons.circle_outlined,
+                    _ => Icons.sports_esports,
+                  },
                   color: gameColor,
                   size: 28,
                 ),

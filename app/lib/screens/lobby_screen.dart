@@ -96,6 +96,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
           route = '/game/infinite_tictactoe';
         } else if (gameType == 'tictactoe') {
           route = '/game/tictactoe';
+        } else if (gameType == 'gomoku') {
+          route = '/game/gomoku';
         }
         Navigator.pushNamed(context, route);
       }
@@ -293,11 +295,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   _buildGameCard(
                     context,
                     title: '오목',
-                    subtitle: '준비 중',
+                    subtitle: '5개 연속 승리',
                     icon: Icons.circle_outlined,
-                    color: Colors.grey,
-                    route: null,
-                    enabled: false,
+                    color: const Color(0xFF2D3436),
+                    route: '/game/gomoku',
                   ),
                   _buildGameCard(
                     context,

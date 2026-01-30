@@ -118,6 +118,7 @@ class Invitation {
     final name = switch (gameType) {
       'tictactoe' => '틱택토',
       'infinite_tictactoe' => '무한 틱택토',
+      'gomoku' => '오목',
       _ => gameType,
     };
     return isHardcore ? '$name (하드코어)' : name;
@@ -156,6 +157,11 @@ class FriendProvider extends ChangeNotifier {
   Map<int, int> get unreadCounts => _unreadCounts;
   int get totalUnreadCount => _unreadCounts.values.fold(0, (sum, count) => sum + count);
   int get pendingRequestCount => _receivedRequests.length;
+
+  // 특정 userId가 이미 친구인지 확인
+  bool isFriend(int userId) {
+    return _friends.any((f) => f.id == userId);
+  }
 
   void initialize() {
     debugPrint('🔧 FriendProvider.initialize() called, _listenersInitialized=$_listenersInitialized, isConnected=${_socketService.isConnected}');

@@ -35,6 +35,8 @@ class GameRecord {
         return '틱택토';
       case 'infinite_tictactoe':
         return '무한 틱택토';
+      case 'gomoku':
+        return '오목';
       default:
         return gameType;
     }
@@ -97,6 +99,8 @@ class GameStats {
         return '틱택토';
       case 'infinite_tictactoe':
         return '무한 틱택토';
+      case 'gomoku':
+        return '오목';
       default:
         return gameType;
     }
