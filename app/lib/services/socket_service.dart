@@ -1,5 +1,6 @@
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../config/app_config.dart';
+import 'remote_config_service.dart';
 
 class SocketService {
   static final SocketService _instance = SocketService._internal();
@@ -9,6 +10,7 @@ class SocketService {
   io.Socket? _socket;
   bool _isConnected = false;
   String? _currentServerUrl;
+  int _connectionErrorCount = 0;
 
   // 소켓 연결 전에 등록된 리스너들을 버퍼링
   final Map<String, List<Function(dynamic)>> _pendingListeners = {};
@@ -57,7 +59,19 @@ class SocketService {
 
     _socket!.onConnectError((error) {
       print('Connection error: $error');
+      _handleConnectionError();
     });
+  }
+
+  /// 연결 오류 발생 시 처리
+  void _handleConnectionError() {
+    _connectionErrorCount++;
+    // 연결 오류가 발생하면 원격 설정 다시 확인 (점검 모드인지)
+    if (_connectionErrorCount >= 2) {
+      print('🔄 Multiple connection errors, refreshing remote config...');
+      RemoteConfigService().refresh();
+      _connectionErrorCount = 0;
+    }
   }
 
   void _registerPendingListeners() {
@@ -116,6 +130,7 @@ class SocketService {
 
     _socket!.onConnectError((error) {
       print('Connection error: $error');
+      _handleConnectionError();
     });
   }
 

@@ -112,7 +112,11 @@ class RemoteConfigService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final response = await http.get(Uri.parse(_configUrl))
+      // 캐시 우회를 위해 타임스탬프 추가
+      final cacheBuster = DateTime.now().millisecondsSinceEpoch;
+      final urlWithCacheBuster = '$_configUrl?t=$cacheBuster';
+
+      final response = await http.get(Uri.parse(urlWithCacheBuster))
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {

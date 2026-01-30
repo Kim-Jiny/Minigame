@@ -9,6 +9,7 @@ import '../services/socket_service.dart';
 import '../widgets/invitation_dialog.dart';
 import 'friends_screen.dart';
 import 'profile_screen.dart';
+import 'maintenance_screen.dart';
 
 class LobbyScreen extends StatefulWidget {
   const LobbyScreen({super.key});
@@ -103,8 +104,16 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<FriendProvider>(
-      builder: (context, friendProvider, child) {
+    return Consumer2<RemoteConfigService, FriendProvider>(
+      builder: (context, configService, friendProvider, child) {
+        // 점검 모드 확인
+        if (configService.isUnderMaintenance) {
+          return MaintenanceScreen(
+            configService: configService,
+            onRetry: () => configService.refresh(),
+          );
+        }
+
         final unreadCount = friendProvider.totalUnreadCount;
         debugPrint('🔔 LobbyScreen build: unreadCount = $unreadCount');
 
