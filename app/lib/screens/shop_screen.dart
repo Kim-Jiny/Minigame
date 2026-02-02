@@ -476,7 +476,7 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
         leading: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: ticket.ticketEffect == 'change_nickname' ? Colors.blue.shade100 : Colors.amber.shade100,
+            color: Colors.amber.shade100,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text(ticket.ticketIcon ?? '', style: const TextStyle(fontSize: 24)),
@@ -494,7 +494,7 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
           icon: const Icon(Icons.monetization_on, size: 16),
           label: Text('${ticket.price}'),
           style: OutlinedButton.styleFrom(
-            foregroundColor: ticket.ticketEffect == 'change_nickname' ? Colors.blue.shade700 : Colors.amber.shade700,
+            foregroundColor: Colors.amber.shade700,
           ),
         ),
       ),
@@ -796,7 +796,7 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
               shopProvider.changeNickname(newNickname);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue.shade600,
+              backgroundColor: Colors.amber.shade600,
               foregroundColor: Colors.white,
             ),
             child: const Text('변경'),
