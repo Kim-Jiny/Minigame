@@ -2,7 +2,7 @@ import '../services/remote_config_service.dart';
 
 class AppConfig {
   // 기본 서버 URL (원격 설정을 가져오기 전에 사용)
-  static const String _defaultServerUrl = 'http://172.30.1.66:3000';
+  static const String _defaultServerUrl = 'https://minigame-server-jfep.onrender.com';
 
   // 원격 설정에서 서버 URL 가져오기
   static String get serverUrl {

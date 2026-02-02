@@ -63,8 +63,8 @@ class RemoteConfig {
 
   factory RemoteConfig.fromJson(Map<String, dynamic> json) {
     return RemoteConfig(
-      apiBaseUrl: json['api_base_url'] ?? 'http://172.30.1.66:3000',
-      webBaseUrl: json['web_base_url'] ?? 'http://172.30.1.66:3000',
+      apiBaseUrl: json['api_base_url'] ?? 'https://minigame-server-jfep.onrender.com',
+      webBaseUrl: json['web_base_url'] ?? 'https://minigame-server-jfep.onrender.com',
       maintenance: MaintenanceInfo.fromJson(json['maintenance'] ?? {}),
       ad: AdConfig.fromJson(json['ad'] ?? {}),
     );
@@ -92,7 +92,7 @@ class RemoteConfigService extends ChangeNotifier {
   String? get error => _error;
   bool get fetchFailed => _fetchFailed;
 
-  String get serverUrl => _config?.apiBaseUrl ?? 'http://172.30.1.66:3000';
+  String get serverUrl => _config?.apiBaseUrl ?? 'https://minigame-server-jfep.onrender.com';
   bool get isUnderMaintenance => _config?.maintenance.enabled ?? false;
   MaintenanceInfo? get maintenanceInfo => _config?.maintenance;
   AdConfig? get adConfig => _config?.ad;
