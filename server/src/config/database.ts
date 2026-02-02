@@ -203,6 +203,41 @@ export async function setupDatabase() {
       CREATE INDEX IF NOT EXISTS idx_user_items_user_id ON user_items(user_id);
       CREATE INDEX IF NOT EXISTS idx_user_items_expires_at ON user_items(expires_at);
       CREATE INDEX IF NOT EXISTS idx_shop_items_category ON shop_items(category);
+
+      -- 랭크 통계 테이블
+      CREATE TABLE IF NOT EXISTS user_ranked_stats (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER UNIQUE REFERENCES users(id),
+        elo INTEGER DEFAULT 1200,
+        tier VARCHAR(20) DEFAULT 'Gold',
+        wins INTEGER DEFAULT 0,
+        losses INTEGER DEFAULT 0,
+        win_streak INTEGER DEFAULT 0,
+        max_win_streak INTEGER DEFAULT 0,
+        season INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- 랭크 매치 기록 테이블
+      CREATE TABLE IF NOT EXISTS ranked_matches (
+        id SERIAL PRIMARY KEY,
+        player1_id INTEGER REFERENCES users(id),
+        player2_id INTEGER REFERENCES users(id),
+        winner_id INTEGER REFERENCES users(id),
+        games_played JSONB,
+        player1_elo_before INTEGER,
+        player2_elo_before INTEGER,
+        player1_elo_after INTEGER,
+        player2_elo_after INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- 랭크 통계 인덱스
+      CREATE INDEX IF NOT EXISTS idx_user_ranked_stats_elo ON user_ranked_stats(elo DESC);
+      CREATE INDEX IF NOT EXISTS idx_user_ranked_stats_user_id ON user_ranked_stats(user_id);
+      CREATE INDEX IF NOT EXISTS idx_ranked_matches_player1 ON ranked_matches(player1_id);
+      CREATE INDEX IF NOT EXISTS idx_ranked_matches_player2 ON ranked_matches(player2_id);
     `);
 
     console.log('✅ Database tables ready');

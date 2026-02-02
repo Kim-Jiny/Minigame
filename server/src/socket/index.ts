@@ -13,6 +13,7 @@ import { statsService } from '../services/statsService';
 import { messageService } from '../services/messageService';
 import { coinService } from '../services/coinService';
 import { shopService } from '../services/shopService';
+import { rankedService, RANKED_GAMES, HARDCORE_GAMES } from '../services/rankedService';
 
 interface Player {
   id: string;
@@ -33,7 +34,18 @@ interface GameRoom {
   turnStartTime?: number;
   isHardcore?: boolean;  // 하드코어 모드 여부
   roundTimer?: NodeJS.Timeout;  // 반응속도/스피드탭 게임용 라운드 타이머
+  isRanked?: boolean;  // 랭크전 여부
+  rankedGames?: string[];  // 랭크전 게임 목록 (3개)
+  rankedResults?: { gameType: string; winnerId: number | null }[];  // 랭크전 각 게임 결과
+  rankedCurrentIndex?: number;  // 랭크전 현재 게임 인덱스
 }
+
+// 랭크 매칭 대기열
+interface RankedQueuePlayer extends Player {
+  elo: number;
+  joinedAt: number;
+}
+const rankedQueue: RankedQueuePlayer[] = [];
 
 // 턴 시간 제한 (밀리초)
 const TURN_TIME_LIMIT_NORMAL = 30000; // 30초
@@ -195,6 +207,11 @@ async function finishReactionGame(io: Server, room: GameRoom) {
   });
 
   console.log(`🏆 Reaction game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores[0]}-${scores[1]})`);
+
+  // 랭크전인 경우 추가 처리
+  if (room.isRanked) {
+    await handleRankedGameEnd(io, room, winnerIndex);
+  }
 }
 
 // 가위바위보 라운드 시작
@@ -321,6 +338,11 @@ async function finishRpsGame(io: Server, room: GameRoom) {
   });
 
   console.log(`🏆 RPS game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores[0]}-${scores[1]})`);
+
+  // 랭크전인 경우 추가 처리
+  if (room.isRanked) {
+    await handleRankedGameEnd(io, room, winnerIndex);
+  }
 }
 
 // 스피드탭 라운드 시작 (3초 카운트다운 후)
@@ -459,6 +481,11 @@ async function finishSpeedTapGame(io: Server, room: GameRoom) {
   });
 
   console.log(`🏆 SpeedTap game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${roundScores[0]}-${roundScores[1]})`);
+
+  // 랭크전인 경우 추가 처리
+  if (room.isRanked) {
+    await handleRankedGameEnd(io, room, winnerIndex);
+  }
 }
 
 // 순서 기억하기 라운드 시작
@@ -583,6 +610,11 @@ async function finishSequenceGame(io: Server, room: GameRoom) {
   });
 
   console.log(`🏆 Sequence game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (Levels: ${maxLevels[0]} vs ${maxLevels[1]})`);
+
+  // 랭크전인 경우 추가 처리
+  if (room.isRanked) {
+    await handleRankedGameEnd(io, room, winnerIndex);
+  }
 }
 
 // 스트룹 게임 라운드 시작
@@ -700,6 +732,11 @@ async function finishStroopGame(io: Server, room: GameRoom) {
   });
 
   console.log(`🏆 Stroop game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores[0]}-${scores[1]})`);
+
+  // 랭크전인 경우 추가 처리
+  if (room.isRanked) {
+    await handleRankedGameEnd(io, room, winnerIndex);
+  }
 }
 
 // 시간 초과 처리 - 랜덤 위치에 두기 (턴제 게임 전용)
@@ -817,6 +854,269 @@ async function handleTurnTimeout(io: Server, room: GameRoom) {
     // 다음 턴 타이머 시작
     startTurnTimer(io, room);
   }
+}
+
+// 랭크 매칭 시도
+async function tryRankedMatch(io: Server, player: RankedQueuePlayer) {
+  // 대기열에서 본인 제외하고 매칭 가능한 상대 찾기
+  const playerIndex = rankedQueue.findIndex(p => p.id === player.id);
+  if (playerIndex === -1) return; // 이미 대기열에서 나감
+
+  const now = Date.now();
+  const waitTime = now - player.joinedAt;
+
+  // ELO 범위 계산 (대기 시간에 따라 확장)
+  // 처음: ±100, 10초마다 ±50씩 확장, 최대 ±400
+  const baseRange = 100;
+  const extraRange = Math.min(300, Math.floor(waitTime / 10000) * 50);
+  const eloRange = baseRange + extraRange;
+
+  for (let i = 0; i < rankedQueue.length; i++) {
+    if (i === playerIndex) continue;
+
+    const opponent = rankedQueue[i];
+    const eloDiff = Math.abs(player.elo - opponent.elo);
+
+    if (eloDiff <= eloRange) {
+      // 매칭 성공! 대기열에서 제거
+      rankedQueue.splice(Math.max(playerIndex, i), 1);
+      rankedQueue.splice(Math.min(playerIndex, i), 1);
+
+      // 랭크 게임 시작
+      await startRankedMatch(io, player, opponent);
+      return;
+    }
+  }
+
+  // 매칭 못 찾으면 5초 후 재시도
+  setTimeout(() => tryRankedMatch(io, player), 5000);
+}
+
+// 랭크 매치 시작
+async function startRankedMatch(io: Server, player1: RankedQueuePlayer, player2: RankedQueuePlayer) {
+  // 랜덤 3개 게임 선택
+  const games = rankedService.selectRandomGames();
+
+  // 방 생성
+  const roomId = `ranked_${Date.now()}`;
+  const room: GameRoom = {
+    id: roomId,
+    gameType: games[0], // 첫 번째 게임으로 시작
+    players: [player1, player2],
+    game: null,
+    status: 'waiting',
+    isRanked: true,
+    rankedGames: games,
+    rankedResults: [],
+    rankedCurrentIndex: 0,
+    isHardcore: rankedService.isHardcoreGame(games[0]),
+  };
+
+  rooms.set(roomId, room);
+
+  // 방 참가
+  player1.socket.join(roomId);
+  player2.socket.join(roomId);
+
+  // 랭크 통계 조회
+  const player1Stats = await rankedService.getRankedStats(player1.userId!);
+  const player2Stats = await rankedService.getRankedStats(player2.userId!);
+
+  // 매칭 성공 알림
+  io.to(roomId).emit('ranked_match_found', {
+    roomId,
+    games,
+    currentGameIndex: 0,
+    currentGame: games[0],
+    isHardcore: room.isHardcore,
+    players: [
+      {
+        id: player1.id,
+        nickname: player1.nickname,
+        userId: player1.userId,
+        elo: player1Stats.elo,
+        tier: player1Stats.tier,
+        tierColor: player1Stats.tierColor,
+      },
+      {
+        id: player2.id,
+        nickname: player2.nickname,
+        userId: player2.userId,
+        elo: player2Stats.elo,
+        tier: player2Stats.tier,
+        tierColor: player2Stats.tierColor,
+      },
+    ],
+  });
+
+  console.log(`🏆 Ranked match found: ${player1.nickname} (${player1Stats.elo}) vs ${player2.nickname} (${player2Stats.elo})`);
+  console.log(`🎮 Games: ${games.join(', ')}`);
+
+  // 2초 후 첫 게임 시작
+  setTimeout(() => startRankedGame(io, room), 2000);
+}
+
+// 랭크전 개별 게임 시작
+function startRankedGame(io: Server, room: GameRoom) {
+  const gameType = room.rankedGames![room.rankedCurrentIndex!];
+  const isHardcore = rankedService.isHardcoreGame(gameType);
+
+  room.gameType = gameType;
+  room.isHardcore = isHardcore;
+  room.status = 'playing';
+
+  // 게임 인스턴스 생성
+  if (gameType === 'tictactoe') {
+    room.game = new TicTacToeGame();
+  } else if (gameType === 'infinite_tictactoe') {
+    room.game = new InfiniteTicTacToeGame();
+  } else if (gameType === 'gomoku') {
+    room.game = new GomokuGame();
+  } else if (gameType === 'reaction') {
+    room.game = new ReactionGame();
+  } else if (gameType === 'rps') {
+    room.game = new RpsGame();
+  } else if (gameType === 'speedtap') {
+    room.game = new SpeedTapGame();
+  } else if (gameType === 'sequence') {
+    room.game = new SequenceGame(isHardcore);
+  } else if (gameType === 'stroop') {
+    room.game = new StroopGame(isHardcore);
+  }
+
+  // 게임 시작 알림
+  io.to(room.id).emit('ranked_game_start', {
+    gameIndex: room.rankedCurrentIndex,
+    gameType,
+    isHardcore,
+    results: room.rankedResults,
+  });
+
+  // 게임 타입별 시작
+  if (gameType === 'reaction') {
+    io.to(room.id).emit('game_start', { gameType: 'reaction' });
+    setTimeout(() => startReactionRound(io, room), 1000);
+  } else if (gameType === 'rps') {
+    io.to(room.id).emit('game_start', { gameType: 'rps' });
+    setTimeout(() => startRpsRound(io, room), 1000);
+  } else if (gameType === 'speedtap') {
+    io.to(room.id).emit('game_start', { gameType: 'speedtap' });
+    setTimeout(() => startSpeedTapRound(io, room), 1000);
+  } else if (gameType === 'sequence') {
+    const seqGame = room.game as SequenceGame;
+    io.to(room.id).emit('game_start', {
+      gameType: 'sequence',
+      gridSize: seqGame.getGridSize(),
+      sequence: seqGame.getSequence(),
+      level: seqGame.getCurrentLevel(),
+      showDelay: seqGame.getShowDelay(),
+      isHardcore: seqGame.getIsHardcore(),
+      timeLimit: seqGame.getTimeLimit(),
+    });
+  } else if (gameType === 'stroop') {
+    const stroopGame = room.game as StroopGame;
+    io.to(room.id).emit('game_start', {
+      gameType: 'stroop',
+      isHardcore: stroopGame.getIsHardcore(),
+      colors: stroopGame.getColors(),
+    });
+    setTimeout(() => startStroopRound(io, room), 1000);
+  } else {
+    // 턴제 게임
+    startTurnTimer(io, room);
+    const turnGame = room.game as TicTacToeGame | InfiniteTicTacToeGame | GomokuGame;
+    io.to(room.id).emit('game_start', {
+      currentTurn: room.players[0].id,
+      board: turnGame?.getBoard(),
+      turnTimeLimit: getTurnTimeLimit(room),
+      turnStartTime: room.turnStartTime,
+    });
+  }
+
+  console.log(`🎮 Ranked game ${room.rankedCurrentIndex! + 1}/3 started: ${gameType} ${isHardcore ? '(하드코어)' : ''}`);
+}
+
+// 랭크전 개별 게임 종료 처리
+async function handleRankedGameEnd(io: Server, room: GameRoom, winnerIndex: number | null) {
+  if (!room.isRanked) return;
+
+  const winnerId = winnerIndex !== null ? room.players[winnerIndex].userId : null;
+
+  // 결과 기록
+  room.rankedResults!.push({
+    gameType: room.gameType,
+    winnerId: winnerId ?? null,
+  });
+
+  // 현재 스코어 계산
+  const player1Wins = room.rankedResults!.filter(r => r.winnerId === room.players[0].userId).length;
+  const player2Wins = room.rankedResults!.filter(r => r.winnerId === room.players[1].userId).length;
+
+  // 게임 결과 알림
+  io.to(room.id).emit('ranked_game_end', {
+    gameIndex: room.rankedCurrentIndex,
+    gameType: room.gameType,
+    winnerId: winnerId,
+    winnerNickname: winnerIndex !== null ? room.players[winnerIndex].nickname : null,
+    results: room.rankedResults,
+    score: [player1Wins, player2Wins],
+  });
+
+  console.log(`🏆 Ranked game ${room.rankedCurrentIndex! + 1}/3 ended: ${room.gameType} - Score: ${player1Wins}-${player2Wins}`);
+
+  // 2승 달성 체크
+  if (player1Wins >= 2 || player2Wins >= 2) {
+    // Bo3 종료
+    await finishRankedMatch(io, room, player1Wins >= 2 ? 0 : 1);
+  } else {
+    // 다음 게임
+    room.rankedCurrentIndex!++;
+    room.status = 'finished'; // 잠시 finished로 설정
+
+    // 3초 후 다음 게임 시작
+    setTimeout(() => startRankedGame(io, room), 3000);
+  }
+}
+
+// 랭크 매치 최종 종료
+async function finishRankedMatch(io: Server, room: GameRoom, winnerIndex: number) {
+  room.status = 'finished';
+  clearTurnTimer(room);
+  clearRoundTimer(room);
+
+  const winner = room.players[winnerIndex];
+  const loser = room.players[winnerIndex === 0 ? 1 : 0];
+
+  if (!winner.userId || !loser.userId) {
+    console.error('Ranked match finished but players missing userId');
+    return;
+  }
+
+  // ELO 업데이트
+  const result = await rankedService.updateRankedResult(
+    winner.userId,
+    loser.userId,
+    room.rankedResults!.map(r => ({
+      gameType: r.gameType,
+      winnerId: r.winnerId!,
+    }))
+  );
+
+  // 결과 알림
+  io.to(room.id).emit('ranked_match_end', {
+    winnerId: winner.userId,
+    winnerNickname: winner.nickname,
+    loserId: loser.userId,
+    loserNickname: loser.nickname,
+    results: room.rankedResults,
+    winnerStats: result.winnerStats,
+    loserStats: result.loserStats,
+    winnerEloChange: result.winnerEloChange,
+    loserEloChange: result.loserEloChange,
+  });
+
+  console.log(`🏆 Ranked match ended: ${winner.nickname} wins! (+${result.winnerEloChange} ELO)`);
+  console.log(`   ${loser.nickname} loses (${result.loserEloChange} ELO)`);
 }
 
 export function setupSocketHandlers(io: Server) {
@@ -1110,6 +1410,11 @@ export function setupSocketHandlers(io: Server) {
             rewards: rewardResults,
           });
           console.log(`🏆 Game ended: ${result.isDraw ? 'Draw' : winnerNickname + ' wins'}`);
+
+          // 랭크전인 경우 추가 처리
+          if (room.isRanked) {
+            await handleRankedGameEnd(io, room, result.isDraw ? null : result.winner ?? null);
+          }
         } else {
           // 게임 계속 - 다음 턴 타이머 시작
           startTurnTimer(io, room);
@@ -1190,6 +1495,11 @@ export function setupSocketHandlers(io: Server) {
             rewards: rewardResults,
           });
           console.log(`🏆 Infinite TicTacToe ended: ${winnerNickname} wins`);
+
+          // 랭크전인 경우 추가 처리
+          if (room.isRanked) {
+            await handleRankedGameEnd(io, room, result.winner ?? null);
+          }
         } else {
           // 게임 계속 - 다음 턴 타이머 시작
           startTurnTimer(io, room);
@@ -1279,6 +1589,11 @@ export function setupSocketHandlers(io: Server) {
             rewards: rewardResults,
           });
           console.log(`🏆 Gomoku ended: ${result.isDraw ? 'Draw' : winnerNickname + ' wins'}`);
+
+          // 랭크전인 경우 추가 처리
+          if (room.isRanked) {
+            await handleRankedGameEnd(io, room, result.isDraw ? null : result.winner ?? null);
+          }
         } else {
           // 게임 계속 - 다음 턴 타이머 시작
           startTurnTimer(io, room);
@@ -2158,6 +2473,96 @@ export function setupSocketHandlers(io: Server) {
       }
     });
 
+    // ====== 랭크 시스템 ======
+
+    // 랭크 매칭 찾기
+    socket.on('find_ranked_match', async () => {
+      if (!currentPlayer?.userId) {
+        socket.emit('error', { message: '로그인이 필요합니다.' });
+        return;
+      }
+
+      // 이미 대기열에 있는지 확인
+      const existingIndex = rankedQueue.findIndex(p => p.id === socket.id);
+      if (existingIndex !== -1) {
+        socket.emit('waiting_for_ranked_match', { message: '이미 매칭 대기 중입니다.' });
+        return;
+      }
+
+      // 랭크 통계 조회
+      const stats = await rankedService.getRankedStats(currentPlayer.userId);
+
+      // 대기열에 추가
+      const queuePlayer: RankedQueuePlayer = {
+        ...currentPlayer,
+        elo: stats.elo,
+        joinedAt: Date.now(),
+      };
+      rankedQueue.push(queuePlayer);
+
+      socket.emit('waiting_for_ranked_match', {
+        elo: stats.elo,
+        tier: stats.tier,
+      });
+      console.log(`⏳ ${currentPlayer.nickname} (ELO: ${stats.elo}) waiting for ranked match`);
+
+      // 매칭 시도
+      tryRankedMatch(io, queuePlayer);
+    });
+
+    // 랭크 매칭 취소
+    socket.on('cancel_ranked_match', () => {
+      const index = rankedQueue.findIndex(p => p.id === socket.id);
+      if (index !== -1) {
+        rankedQueue.splice(index, 1);
+        socket.emit('ranked_match_cancelled');
+        console.log(`❌ ${currentPlayer?.nickname} cancelled ranked match`);
+      }
+    });
+
+    // 랭크 통계 조회
+    socket.on('get_ranked_stats', async () => {
+      if (!currentPlayer?.userId) {
+        socket.emit('ranked_stats', { stats: null });
+        return;
+      }
+
+      try {
+        const stats = await rankedService.getRankedStats(currentPlayer.userId);
+        socket.emit('ranked_stats', { stats });
+      } catch (error) {
+        socket.emit('ranked_stats', { stats: null });
+      }
+    });
+
+    // 리더보드 조회
+    socket.on('get_leaderboard', async (data?: { limit?: number; offset?: number }) => {
+      try {
+        const leaderboard = await rankedService.getLeaderboard(
+          data?.limit || 100,
+          data?.offset || 0
+        );
+        socket.emit('leaderboard', { leaderboard });
+      } catch (error) {
+        socket.emit('leaderboard', { leaderboard: [] });
+      }
+    });
+
+    // 내 순위 조회
+    socket.on('get_my_rank', async () => {
+      if (!currentPlayer?.userId) {
+        socket.emit('my_rank', { rank: null });
+        return;
+      }
+
+      try {
+        const rank = await rankedService.getUserRank(currentPlayer.userId);
+        socket.emit('my_rank', { rank });
+      } catch (error) {
+        socket.emit('my_rank', { rank: null });
+      }
+    });
+
     // ====== 통계 시스템 ======
 
     // 모든 게임 통계 조회
@@ -2572,6 +2977,12 @@ export function setupSocketHandlers(io: Server) {
           queue.splice(index, 1);
         }
       });
+
+      // 랭크 대기열에서 제거
+      const rankedIndex = rankedQueue.findIndex(p => p.id === socket.id);
+      if (rankedIndex !== -1) {
+        rankedQueue.splice(rankedIndex, 1);
+      }
 
       // 진행 중인 게임에서 제거
       if (currentRoomId) {

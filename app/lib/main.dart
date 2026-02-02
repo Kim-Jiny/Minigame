@@ -6,6 +6,7 @@ import 'providers/game_provider.dart';
 import 'providers/friend_provider.dart';
 import 'providers/stats_provider.dart';
 import 'providers/shop_provider.dart';
+import 'providers/ranked_provider.dart';
 import 'services/remote_config_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/lobby_screen.dart';
@@ -54,6 +55,7 @@ class MinigameApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => FriendProvider()),
         ChangeNotifierProvider(create: (_) => StatsProvider()),
         ChangeNotifierProvider(create: (_) => ShopProvider()),
+        ChangeNotifierProvider(create: (_) => RankedProvider()),
       ],
       child: MaterialApp(
         title: '우리만의 게임',

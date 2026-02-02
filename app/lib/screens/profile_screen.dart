@@ -6,6 +6,7 @@ import '../providers/shop_provider.dart';
 import 'shop_screen.dart';
 import 'level_manage_screen.dart';
 import 'recent_records_screen.dart';
+import 'leaderboard_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -96,6 +97,19 @@ class ProfileScreen extends StatelessWidget {
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const RecentRecordsScreen()),
+                  );
+                },
+              ),
+              _buildMenuItem(
+                context,
+                icon: Icons.leaderboard,
+                iconColor: const Color(0xFFFF4500),
+                title: '랭킹 보기',
+                subtitle: '랭크전 리더보드',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LeaderboardScreen()),
                   );
                 },
               ),
