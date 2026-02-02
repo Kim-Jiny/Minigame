@@ -44,6 +44,7 @@ class _SequenceScreenState extends State<SequenceScreen>
   int _currentLevel = 0;
   int _showingIndex = -1; // 현재 보여주고 있는 시퀀스 인덱스
   int _showDelay = 600;
+  bool _isHardcore = false; // 하드코어 모드
 
   List<int> _myInputs = [];
   bool _myFailed = false;
@@ -57,6 +58,11 @@ class _SequenceScreenState extends State<SequenceScreen>
   bool _opponentLeft = false;
   bool _rematchWaiting = false;
   bool _opponentWantsRematch = false;
+
+  // 타이머
+  int _timeLimit = 0; // ms
+  int _remainingSeconds = 0;
+  Timer? _countdownTimer;
 
   // 애니메이션
   Timer? _showTimer;
@@ -87,9 +93,26 @@ class _SequenceScreenState extends State<SequenceScreen>
   void dispose() {
     _showTimer?.cancel();
     _feedbackTimer?.cancel();
+    _countdownTimer?.cancel();
     _animController.dispose();
     _removeSocketListeners();
     super.dispose();
+  }
+
+  void _startCountdown() {
+    _countdownTimer?.cancel();
+    _remainingSeconds = (_timeLimit / 1000).ceil();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_remainingSeconds > 0) {
+        setState(() => _remainingSeconds--);
+      } else {
+        timer.cancel();
+      }
+    });
+  }
+
+  void _stopCountdown() {
+    _countdownTimer?.cancel();
   }
 
   void _setupSocketListeners() {
@@ -127,6 +150,9 @@ class _SequenceScreenState extends State<SequenceScreen>
           _sequence = List<int>.from(data['sequence'] ?? []);
           _currentLevel = data['level'] ?? _sequence.length;
           _showDelay = data['showDelay'] ?? 600;
+          _timeLimit = data['timeLimit'] ?? 9000;
+          _remainingSeconds = (_timeLimit / 1000).ceil();
+          _isHardcore = data['isHardcore'] ?? false;
           _myInputs = [];
           _myFailed = false;
           _opponentFailed = false;
@@ -147,9 +173,24 @@ class _SequenceScreenState extends State<SequenceScreen>
         _sequence = List<int>.from(data['sequence']);
         _currentLevel = data['level'];
         _showDelay = data['showDelay'] ?? 600;
+        _timeLimit = data['timeLimit'] ?? 9000;
+        _remainingSeconds = (_timeLimit / 1000).ceil();
         _myInputs = [];
       });
       _showSequence();
+    });
+
+    _socketService.on('sequence_timeout', (data) {
+      final playerIndex = data['playerIndex'] as int;
+      if (playerIndex == _myPlayerIndex) {
+        _stopCountdown();
+        setState(() {
+          _myFailed = true;
+          _status = SequenceGameStatus.waiting;
+        });
+      } else {
+        setState(() => _opponentFailed = true);
+      }
     });
 
     _socketService.on('sequence_input', (data) {
@@ -174,6 +215,7 @@ class _SequenceScreenState extends State<SequenceScreen>
 
     _socketService.on('game_end', (data) {
       _showTimer?.cancel();
+      _stopCountdown();
       setState(() {
         _status = SequenceGameStatus.finished;
         _winnerId = data['winner'];
@@ -216,6 +258,7 @@ class _SequenceScreenState extends State<SequenceScreen>
     _socketService.off('game_start');
     _socketService.off('sequence_show');
     _socketService.off('sequence_input');
+    _socketService.off('sequence_timeout');
     _socketService.off('sequence_round_complete');
     _socketService.off('game_end');
     _socketService.off('opponent_left');
@@ -233,13 +276,28 @@ class _SequenceScreenState extends State<SequenceScreen>
     debugPrint('🎮 Status changed to showing');
 
     int index = 0;
+    final int gapDuration = _isHardcore ? 100 : 180; // 하드코어는 gap도 짧게
     _showTimer?.cancel();
-    _showTimer = Timer.periodic(Duration(milliseconds: _showDelay), (timer) {
+
+    void showNext() {
+      if (!mounted) return;
+
       if (index < _sequence.length) {
+        // 칸 켜기
         setState(() => _showingIndex = index);
-        index++;
+
+        // showDelay 후 칸 끄기
+        Future.delayed(Duration(milliseconds: _showDelay), () {
+          if (!mounted) return;
+          setState(() => _showingIndex = -1);
+
+          // gap 후 다음 칸
+          Future.delayed(Duration(milliseconds: gapDuration), () {
+            index++;
+            showNext();
+          });
+        });
       } else {
-        timer.cancel();
         // 시퀀스 다 보여준 후 입력 모드
         Future.delayed(const Duration(milliseconds: 300), () {
           if (mounted) {
@@ -247,16 +305,20 @@ class _SequenceScreenState extends State<SequenceScreen>
               _showingIndex = -1;
               _status = SequenceGameStatus.playing;
             });
+            _startCountdown();
           }
         });
       }
-    });
+    }
+
+    // 첫 번째 시작
+    Future.delayed(const Duration(milliseconds: 500), showNext);
   }
 
   void _findMatch() {
     _socketService.emit('find_match', {
       'gameType': AppConfig.gameTypeSequence,
-      'isHardcore': false,
+      'isHardcore': _isHardcore,
     });
     setState(() => _status = SequenceGameStatus.searching);
   }
@@ -264,7 +326,7 @@ class _SequenceScreenState extends State<SequenceScreen>
   void _cancelMatch() {
     _socketService.emit('cancel_match', {
       'gameType': AppConfig.gameTypeSequence,
-      'isHardcore': false,
+      'isHardcore': _isHardcore,
     });
     setState(() => _status = SequenceGameStatus.idle);
   }
@@ -301,6 +363,7 @@ class _SequenceScreenState extends State<SequenceScreen>
     });
 
     if (!isCorrect) {
+      _stopCountdown();
       setState(() {
         _myFailed = true;
         _myMaxLevel = _currentLevel - 1;
@@ -308,6 +371,7 @@ class _SequenceScreenState extends State<SequenceScreen>
       });
     } else if (_myInputs.length == _sequence.length) {
       // 현재 레벨 완료
+      _stopCountdown();
       setState(() {
         _myMaxLevel = _currentLevel;
         _status = SequenceGameStatus.waiting;
@@ -450,13 +514,64 @@ class _SequenceScreenState extends State<SequenceScreen>
                 color: Colors.grey.shade500,
               ),
             ),
-            const SizedBox(height: 48),
+            const SizedBox(height: 32),
+            // 하드코어 모드 토글
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: _isHardcore
+                    ? Colors.red.shade50
+                    : Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: _isHardcore ? Colors.red.shade300 : Colors.grey.shade300,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.local_fire_department,
+                    color: _isHardcore ? Colors.red : Colors.grey,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '하드코어',
+                    style: TextStyle(
+                      color: _isHardcore ? Colors.red : Colors.grey.shade700,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Switch(
+                    value: _isHardcore,
+                    onChanged: (value) => setState(() => _isHardcore = value),
+                    activeColor: Colors.red,
+                    activeTrackColor: Colors.red.shade200,
+                  ),
+                ],
+              ),
+            ),
+            if (_isHardcore)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  '2배 빠른 속도!',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.red.shade400,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            const SizedBox(height: 24),
             ElevatedButton.icon(
               onPressed: _findMatch,
               icon: const Icon(Icons.search),
               label: const Text('상대 찾기'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF9B59B6),
+                backgroundColor: _isHardcore ? Colors.red : const Color(0xFF9B59B6),
                 foregroundColor: Colors.white,
                 padding:
                     const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
@@ -563,6 +678,7 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   Widget _buildShowingView() {
+    final totalSeconds = (_timeLimit / 1000).ceil();
     return Column(
       children: [
         _buildHeader(),
@@ -581,6 +697,35 @@ class _SequenceScreenState extends State<SequenceScreen>
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                // 타이머 미리보기 (카운트다운 전)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.timer,
+                        size: 20,
+                        color: Colors.grey.shade600,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '$totalSeconds초',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
                 const Text(
                   '순서를 기억하세요!',
                   style: TextStyle(
@@ -600,6 +745,7 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   Widget _buildPlayingView() {
+    final isLowTime = _remainingSeconds <= 3;
     return Column(
       children: [
         _buildHeader(),
@@ -618,6 +764,37 @@ class _SequenceScreenState extends State<SequenceScreen>
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                // 타이머 표시
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isLowTime ? Colors.red.shade50 : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: isLowTime ? Colors.red : Colors.grey.shade300,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.timer,
+                        size: 20,
+                        color: isLowTime ? Colors.red : Colors.grey.shade600,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '$_remainingSeconds초',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: isLowTime ? Colors.red : Colors.grey.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
                 Text(
                   '순서대로 터치! (${_myInputs.length}/${_sequence.length})',
                   style: const TextStyle(
@@ -807,8 +984,9 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   Widget _buildGrid({required bool enabled}) {
-    final gridDimension = _gridSize == 9 ? 3 : 2;
-    final cellSize = MediaQuery.of(context).size.width / (gridDimension + 1);
+    // gridSize: 9 = 3x3, 16 = 4x4
+    final gridDimension = _gridSize == 16 ? 4 : 3;
+    final cellSize = MediaQuery.of(context).size.width / (gridDimension + 1.5);
 
     return Center(
       child: Container(

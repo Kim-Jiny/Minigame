@@ -416,15 +416,53 @@ function startSequenceRound(io: Server, room: GameRoom) {
 
   const game = room.game;
   const { sequence, level } = game.startNewRound();
+  const timeLimit = game.getTimeLimit();
+  const showDelay = game.getShowDelay();
+  const gapDuration = game.getIsHardcore() ? 100 : 180;
+
+  // 시퀀스 보여주는 데 걸리는 시간 계산
+  const showDuration = sequence.length * (showDelay + gapDuration) + 500; // 시작 딜레이 포함
 
   // 시퀀스 보여주기 이벤트
   io.to(room.id).emit('sequence_show', {
     sequence,
     level,
-    showDelay: SequenceGame.SHOW_DELAY,
+    showDelay,
+    timeLimit,
   });
 
-  console.log(`🧠 Sequence Level ${level} started (length: ${sequence.length})`);
+  console.log(`🧠 Sequence Level ${level} started (length: ${sequence.length}, timeLimit: ${timeLimit}ms)`);
+
+  // 시퀀스 표시 후 + 제한시간 후 타임아웃 체크
+  clearRoundTimer(room);
+  room.roundTimer = setTimeout(async () => {
+    // 완료하지 못한 플레이어들 타임아웃 처리
+    for (let i = 0; i < 2; i++) {
+      const inputs = game.getPlayerInputs()[i];
+      const failed = game.getPlayerFailed()[i];
+      if (!failed && inputs.length < sequence.length) {
+        game.handleTimeout(i);
+        io.to(room.id).emit('sequence_timeout', {
+          playerIndex: i,
+        });
+        console.log(`⏰ Player ${i} timed out on level ${level}`);
+      }
+    }
+
+    // 라운드 결과 확인
+    if (game.bothPlayersCompleted()) {
+      const roundResult = game.checkRoundResult();
+      if (roundResult.gameOver) {
+        await finishSequenceGame(io, room);
+      } else if (roundResult.bothPassed) {
+        io.to(room.id).emit('sequence_round_complete', {
+          success: true,
+          nextLevel: game.getCurrentLevel() + 1,
+        });
+        setTimeout(() => startSequenceRound(io, room), 2000);
+      }
+    }
+  }, showDuration + timeLimit);
 }
 
 // 순서 기억하기 게임 종료 처리
@@ -682,7 +720,7 @@ export function setupSocketHandlers(io: Server) {
         } else if (gameType === 'speedtap') {
           room.game = new SpeedTapGame();
         } else if (gameType === 'sequence') {
-          room.game = new SequenceGame();
+          room.game = new SequenceGame(isHardcore);
         }
 
         rooms.set(roomId, room);
@@ -738,7 +776,9 @@ export function setupSocketHandlers(io: Server) {
             gridSize: seqGame.getGridSize(),
             sequence: seqGame.getSequence(),
             level: seqGame.getCurrentLevel(),
-            showDelay: SequenceGame.SHOW_DELAY,
+            showDelay: seqGame.getShowDelay(),
+            isHardcore: seqGame.getIsHardcore(),
+            timeLimit: seqGame.getTimeLimit(),
           });
         } else {
           // 턴제 게임
@@ -1528,7 +1568,7 @@ export function setupSocketHandlers(io: Server) {
         } else if (invitation.gameType === 'speedtap') {
           room.game = new SpeedTapGame();
         } else if (invitation.gameType === 'sequence') {
-          room.game = new SequenceGame();
+          room.game = new SequenceGame(isHardcore);
         }
 
         rooms.set(roomId, room);
@@ -1682,7 +1722,9 @@ export function setupSocketHandlers(io: Server) {
             gridSize: seqGame.getGridSize(),
             sequence: seqGame.getSequence(),
             level: seqGame.getCurrentLevel(),
-            showDelay: SequenceGame.SHOW_DELAY,
+            showDelay: seqGame.getShowDelay(),
+            isHardcore: seqGame.getIsHardcore(),
+            timeLimit: seqGame.getTimeLimit(),
           });
         } else {
           // 턴제 게임
@@ -1930,7 +1972,7 @@ export function setupSocketHandlers(io: Server) {
           } else if (room.gameType === 'speedtap') {
             room.game = new SpeedTapGame();
           } else if (room.gameType === 'sequence') {
-            room.game = new SequenceGame();
+            room.game = new SequenceGame(room.isHardcore);
           }
           room.status = 'playing';
           room.rematchRequests.clear();
@@ -1964,7 +2006,9 @@ export function setupSocketHandlers(io: Server) {
               gridSize: seqGame.getGridSize(),
               sequence: seqGame.getSequence(),
               level: seqGame.getCurrentLevel(),
-              showDelay: SequenceGame.SHOW_DELAY,
+              showDelay: seqGame.getShowDelay(),
+              isHardcore: seqGame.getIsHardcore(),
+              timeLimit: seqGame.getTimeLimit(),
             });
           } else {
             // 턴제 게임

@@ -2,12 +2,12 @@
  * 순서 기억하기 게임
  *
  * 규칙:
- * - 4개(2x2) 또는 9개(3x3) 버튼
- * - 시퀀스가 순서대로 깜빡임
+ * - 9개(3x3) 버튼
+ * - 매 라운드 새로운 시퀀스가 순서대로 깜빡임
  * - 플레이어가 같은 순서로 터치
- * - 성공하면 시퀀스에 1개 추가
+ * - 성공하면 다음 레벨 (시퀀스 길이 +1)
  * - 실패하면 게임 오버
- * - 두 플레이어 중 더 긴 시퀀스를 기억한 사람이 승리
+ * - 두 플레이어 중 더 높은 레벨에 도달한 사람이 승리
  */
 
 export class SequenceGame {
@@ -18,13 +18,24 @@ export class SequenceGame {
   private currentLevel: number = 0;
   private gridSize: number = 9; // 3x3 그리드
   private gameOver: boolean = false;
+  private isHardcore: boolean = false;
 
-  static readonly INITIAL_SEQUENCE_LENGTH = 3;
-  static readonly SHOW_DELAY = 600; // 각 버튼 표시 시간 (ms)
+  static readonly INITIAL_SEQUENCE_LENGTH = 4; // 4개부터 시작
+  static readonly SHOW_DELAY_NORMAL = 500; // 각 버튼 표시 시간 (ms)
+  static readonly SHOW_DELAY_HARDCORE = 280; // 하드코어: 더 빠름
 
-  constructor(gridSize: number = 9) {
-    this.gridSize = gridSize;
+  constructor(isHardcore: boolean = false) {
+    this.isHardcore = isHardcore;
+    this.gridSize = isHardcore ? 16 : 9; // 하드코어: 4x4, 일반: 3x3
     this.reset();
+  }
+
+  getShowDelay(): number {
+    return this.isHardcore ? SequenceGame.SHOW_DELAY_HARDCORE : SequenceGame.SHOW_DELAY_NORMAL;
+  }
+
+  getIsHardcore(): boolean {
+    return this.isHardcore;
   }
 
   getSequence(): number[] {
@@ -55,13 +66,29 @@ export class SequenceGame {
     return this.gameOver;
   }
 
-  // 새 라운드 시작 - 시퀀스에 하나 추가
+  // 입력 제한 시간 (시퀀스 길이 + 5초)
+  getTimeLimit(): number {
+    return (this.sequence.length + 5) * 1000; // ms
+  }
+
+  // 타임아웃으로 실패 처리
+  handleTimeout(playerIndex: number): void {
+    if (!this.playerFailed[playerIndex]) {
+      this.playerFailed[playerIndex] = true;
+      this.playerMaxLevel[playerIndex] = this.currentLevel - 1;
+    }
+  }
+
+  // 새 라운드 시작 - 완전히 새로운 시퀀스 생성
   startNewRound(): { sequence: number[]; level: number } {
     this.currentLevel++;
 
-    // 새로운 랜덤 위치 추가
-    const newPosition = Math.floor(Math.random() * this.gridSize);
-    this.sequence.push(newPosition);
+    // 새로운 시퀀스 생성 (레벨 + 3개)
+    const sequenceLength = this.currentLevel + 3;
+    this.sequence = [];
+    for (let i = 0; i < sequenceLength; i++) {
+      this.sequence.push(Math.floor(Math.random() * this.gridSize));
+    }
 
     // 플레이어 입력 초기화
     this.playerInputs = [[], []];
@@ -187,13 +214,12 @@ export class SequenceGame {
     this.playerInputs = [[], []];
     this.playerFailed = [false, false];
     this.playerMaxLevel = [0, 0];
-    this.currentLevel = 0;
+    this.currentLevel = 1; // 레벨 1부터 시작
     this.gameOver = false;
 
-    // 초기 시퀀스 생성
+    // 초기 시퀀스 생성 (4개)
     for (let i = 0; i < SequenceGame.INITIAL_SEQUENCE_LENGTH; i++) {
       this.sequence.push(Math.floor(Math.random() * this.gridSize));
     }
-    this.currentLevel = SequenceGame.INITIAL_SEQUENCE_LENGTH;
   }
 }
