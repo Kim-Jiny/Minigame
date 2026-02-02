@@ -102,6 +102,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
           route = '/game/reaction';
         } else if (gameType == 'rps') {
           route = '/game/rps';
+        } else if (gameType == 'speedtap') {
+          route = '/game/speedtap';
+        } else if (gameType == 'sequence') {
+          route = '/game/sequence';
+        } else if (gameType == 'stroop') {
+          route = '/game/stroop';
         }
         Navigator.pushNamed(context, route);
       }
@@ -326,6 +332,14 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     icon: Icons.psychology,
                     color: const Color(0xFFE056FD),
                     route: '/game/sequence',
+                  ),
+                  _buildGameCard(
+                    context,
+                    title: '스트룹',
+                    subtitle: '색깔!',
+                    icon: Icons.palette,
+                    color: const Color(0xFF00CEC9),
+                    route: '/game/stroop',
                   ),
                 ],
               ),

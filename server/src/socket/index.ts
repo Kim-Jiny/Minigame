@@ -6,6 +6,7 @@ import { ReactionGame } from '../games/reaction';
 import { RpsGame } from '../games/rps';
 import { SpeedTapGame } from '../games/speedtap';
 import { SequenceGame } from '../games/sequence';
+import { StroopGame } from '../games/stroop';
 import { friendService } from '../services/friendService';
 import { invitationService } from '../services/invitationService';
 import { statsService } from '../services/statsService';
@@ -23,7 +24,7 @@ interface GameRoom {
   id: string;
   gameType: string;
   players: Player[];
-  game: TicTacToeGame | InfiniteTicTacToeGame | GomokuGame | ReactionGame | RpsGame | SpeedTapGame | SequenceGame | null;
+  game: TicTacToeGame | InfiniteTicTacToeGame | GomokuGame | ReactionGame | RpsGame | SpeedTapGame | SequenceGame | StroopGame | null;
   status: 'waiting' | 'playing' | 'finished';
   rematchRequests?: Set<string>;
   turnTimer?: NodeJS.Timeout;
@@ -518,6 +519,107 @@ async function finishSequenceGame(io: Server, room: GameRoom) {
   console.log(`🏆 Sequence game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (Levels: ${maxLevels[0]} vs ${maxLevels[1]})`);
 }
 
+// 스트룹 게임 라운드 시작
+function startStroopRound(io: Server, room: GameRoom) {
+  if (room.gameType !== 'stroop' || !(room.game instanceof StroopGame)) return;
+
+  const game = room.game;
+  const { word, color, round } = game.startRound();
+
+  // 라운드 시작 알림
+  io.to(room.id).emit('stroop_show', {
+    word,
+    color,
+    round,
+    scores: game.getScores(),
+    isHardcore: game.getIsHardcore(),
+    colors: game.getColors(),
+  });
+
+  console.log(`🎨 Stroop Round ${round}: "${word}" displayed in ${color}`);
+
+  // 하드코어 모드: 시간 제한
+  if (game.getIsHardcore()) {
+    room.roundTimer = setTimeout(() => {
+      if (game.getRoundState() === 'showing') {
+        const timeoutResult = game.handleTimeout();
+
+        const roundWinner = timeoutResult.roundWinner !== null ? room.players[timeoutResult.roundWinner] : null;
+
+        io.to(room.id).emit('stroop_result', {
+          round: game.getCurrentRound(),
+          winnerId: roundWinner?.id ?? null,
+          winnerNickname: roundWinner?.nickname ?? null,
+          scores: game.getScores(),
+          correctAnswer: game.getCurrentColor(),
+          isTimeout: true,
+        });
+
+        console.log(`⏰ Stroop Round ${game.getCurrentRound()} timeout`);
+
+        if (timeoutResult.gameOver) {
+          finishStroopGame(io, room);
+        } else {
+          // 다음 라운드 시작 (2초 후)
+          setTimeout(() => startStroopRound(io, room), 2000);
+        }
+      }
+    }, StroopGame.TIME_LIMIT_HARDCORE);
+  }
+}
+
+// 스트룹 게임 종료 처리
+async function finishStroopGame(io: Server, room: GameRoom) {
+  if (!(room.game instanceof StroopGame)) return;
+
+  room.status = 'finished';
+  clearRoundTimer(room);
+
+  const game = room.game;
+  const winnerIndex = game.getWinner();
+  const scores = game.getScores();
+
+  const winner = winnerIndex !== null ? room.players[winnerIndex] : null;
+  const winnerId = winner?.id ?? null;
+  const winnerNickname = winner?.nickname ?? null;
+  const isDraw = winnerIndex === null;
+
+  // 통계 업데이트
+  for (let i = 0; i < room.players.length; i++) {
+    const player = room.players[i];
+    const opponent = room.players[i === 0 ? 1 : 0];
+    if (player.userId) {
+      let gameResult: 'win' | 'loss' | 'draw';
+      if (isDraw) {
+        gameResult = 'draw';
+      } else if (winnerIndex === i) {
+        gameResult = 'win';
+      } else {
+        gameResult = 'loss';
+      }
+      try {
+        const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
+        player.socket.emit('stats_updated', { stats });
+        if (i === 0 && opponent.userId) {
+          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
+        }
+      } catch (err) {
+        console.error('Failed to update stats:', err);
+      }
+    }
+  }
+
+  io.to(room.id).emit('game_end', {
+    winner: winnerId,
+    winnerNickname,
+    isDraw,
+    scores,
+    roundResults: game.getRoundResults(),
+  });
+
+  console.log(`🏆 Stroop game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores[0]}-${scores[1]})`);
+}
+
 // 시간 초과 처리 - 랜덤 위치에 두기 (턴제 게임 전용)
 async function handleTurnTimeout(io: Server, room: GameRoom) {
   if (room.status !== 'playing' || !room.game) return;
@@ -721,6 +823,8 @@ export function setupSocketHandlers(io: Server) {
           room.game = new SpeedTapGame();
         } else if (gameType === 'sequence') {
           room.game = new SequenceGame(isHardcore);
+        } else if (gameType === 'stroop') {
+          room.game = new StroopGame(isHardcore);
         }
 
         rooms.set(roomId, room);
@@ -780,6 +884,16 @@ export function setupSocketHandlers(io: Server) {
             isHardcore: seqGame.getIsHardcore(),
             timeLimit: seqGame.getTimeLimit(),
           });
+        } else if (gameType === 'stroop') {
+          // 스트룹 게임
+          const stroopGame = room.game as StroopGame;
+          io.to(roomId).emit('game_start', {
+            gameType: 'stroop',
+            isHardcore: stroopGame.getIsHardcore(),
+            colors: stroopGame.getColors(),
+          });
+          // 1초 후 첫 라운드 시작
+          setTimeout(() => startStroopRound(io, room), 1000);
         } else {
           // 턴제 게임
           startTurnTimer(io, room);
@@ -1178,6 +1292,52 @@ export function setupSocketHandlers(io: Server) {
           }
         }
       }
+
+      // 스트룹 게임 로직
+      if (room.gameType === 'stroop' && room.game instanceof StroopGame) {
+        const selectedColor = data.action.selectedColor as string;
+        const result = room.game.playerAnswer(playerIndex, selectedColor);
+
+        if (!result.valid) {
+          return; // 이미 답변했거나 라운드가 진행 중이 아님
+        }
+
+        // 타이머 정리 (하드코어 모드)
+        if (room.game.getIsHardcore()) {
+          clearRoundTimer(room);
+        }
+
+        // 라운드 종료 시
+        if (result.roundOver) {
+          const roundWinner = result.roundWinner !== null ? room.players[result.roundWinner] : null;
+
+          io.to(data.roomId).emit('stroop_result', {
+            round: room.game.getCurrentRound(),
+            winnerId: roundWinner?.id ?? null,
+            winnerNickname: roundWinner?.nickname ?? null,
+            correct: result.correct,
+            first: result.first,
+            scores: room.game.getScores(),
+            correctAnswer: room.game.getCurrentColor(),
+            pressedPlayerId: socket.id,
+            pressedPlayerNickname: currentPlayer?.nickname,
+          });
+
+          if (result.correct && result.first) {
+            console.log(`🎨 ${currentPlayer?.nickname} got it right first!`);
+          } else if (!result.correct) {
+            console.log(`🎨 ${currentPlayer?.nickname} got it wrong!`);
+          }
+
+          // 게임 종료 체크
+          if (result.gameOver) {
+            await finishStroopGame(io, room);
+          } else {
+            // 다음 라운드 시작 (2초 후)
+            setTimeout(() => startStroopRound(io, room), 2000);
+          }
+        }
+      }
     });
 
     // ====== 친구 시스템 ======
@@ -1569,6 +1729,8 @@ export function setupSocketHandlers(io: Server) {
           room.game = new SpeedTapGame();
         } else if (invitation.gameType === 'sequence') {
           room.game = new SequenceGame(isHardcore);
+        } else if (invitation.gameType === 'stroop') {
+          room.game = new StroopGame(isHardcore);
         }
 
         rooms.set(roomId, room);
@@ -1726,6 +1888,44 @@ export function setupSocketHandlers(io: Server) {
             isHardcore: seqGame.getIsHardcore(),
             timeLimit: seqGame.getTimeLimit(),
           });
+        } else if (invitation.gameType === 'stroop') {
+          // 스트룹 게임
+          const stroopGame = room.game as StroopGame;
+          socket.emit('accept_invitation_result', {
+            success: true,
+            roomId,
+            gameType: invitation.gameType,
+            gameState: {
+              players,
+              isInvitation: true,
+            }
+          });
+
+          inviterSocket!.emit('invitation_accepted', {
+            roomId,
+            gameType: invitation.gameType,
+            acceptedBy: currentPlayer.nickname,
+            gameState: {
+              players,
+              isInvitation: true,
+            }
+          });
+
+          io.to(roomId).emit('match_found', {
+            roomId,
+            gameType: invitation.gameType,
+            isInvitation: true,
+            isHardcore,
+            players
+          });
+
+          io.to(roomId).emit('game_start', {
+            gameType: 'stroop',
+            isHardcore: stroopGame.getIsHardcore(),
+            colors: stroopGame.getColors(),
+          });
+
+          setTimeout(() => startStroopRound(io, room), 1000);
         } else {
           // 턴제 게임
           startTurnTimer(io, room);
@@ -1973,6 +2173,8 @@ export function setupSocketHandlers(io: Server) {
             room.game = new SpeedTapGame();
           } else if (room.gameType === 'sequence') {
             room.game = new SequenceGame(room.isHardcore);
+          } else if (room.gameType === 'stroop') {
+            room.game = new StroopGame(room.isHardcore);
           }
           room.status = 'playing';
           room.rematchRequests.clear();
@@ -2010,6 +2212,15 @@ export function setupSocketHandlers(io: Server) {
               isHardcore: seqGame.getIsHardcore(),
               timeLimit: seqGame.getTimeLimit(),
             });
+          } else if (room.gameType === 'stroop') {
+            // 스트룹 게임 재대결
+            const stroopGame = room.game as StroopGame;
+            io.to(data.roomId).emit('game_start', {
+              gameType: 'stroop',
+              isHardcore: stroopGame.getIsHardcore(),
+              colors: stroopGame.getColors(),
+            });
+            setTimeout(() => startStroopRound(io, room), 1000);
           } else {
             // 턴제 게임
             startTurnTimer(io, room);

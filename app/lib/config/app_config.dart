@@ -27,4 +27,5 @@ class AppConfig {
   static const String gameTypeRps = 'rps';
   static const String gameTypeSpeedTap = 'speedtap';
   static const String gameTypeSequence = 'sequence';
+  static const String gameTypeStroop = 'stroop';
 }
