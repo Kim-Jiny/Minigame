@@ -297,6 +297,8 @@ class _ReactionScreenState extends State<ReactionScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('반응속도'),
+          backgroundColor: theme.primary,
+          foregroundColor: Colors.white,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: _showExitDialog,

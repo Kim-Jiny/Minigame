@@ -45,33 +45,35 @@ class _GomokuScreenState extends State<GomokuScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        _showExitDialog(context);
-      },
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('오목'),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => _showExitDialog(context),
-          ),
-        ),
-        body: Consumer2<GameProvider, ShopProvider>(
-          builder: (context, game, shop, child) {
-            final theme = GameTheme.fromProfileSettings(shop.profileSettings);
-            return switch (game.status) {
+    return Consumer2<GameProvider, ShopProvider>(
+      builder: (context, game, shop, child) {
+        final theme = GameTheme.fromProfileSettings(shop.profileSettings);
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop) return;
+            _showExitDialog(context);
+          },
+          child: Scaffold(
+            appBar: AppBar(
+              title: const Text('오목'),
+              backgroundColor: theme.primary,
+              foregroundColor: Colors.white,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => _showExitDialog(context),
+              ),
+            ),
+            body: switch (game.status) {
               GameStatus.idle => _buildIdleView(game, theme),
               GameStatus.searching => _buildSearchingView(game, theme),
               GameStatus.matched => _buildMatchedView(game, theme),
               GameStatus.playing => _buildPlayingView(game, theme),
               GameStatus.finished => _buildFinishedView(game, theme),
-            };
-          },
-        ),
-      ),
+            },
+          ),
+        );
+      },
     );
   }
 
