@@ -219,13 +219,7 @@ export async function setupDatabase() {
 
 // 상점 아이템 초기 데이터
 async function seedShopItems(client: any) {
-  // 이미 데이터가 있으면 스킵
-  const existing = await client.query('SELECT COUNT(*) FROM shop_items');
-  if (parseInt(existing.rows[0].count) > 0) {
-    console.log('✅ Shop items already seeded');
-    return;
-  }
-
+  // ON CONFLICT DO NOTHING을 사용하므로 항상 실행 (새 아이템만 추가됨)
   const items = [
     // === 프레임 ===
     // 기본 (무료)
