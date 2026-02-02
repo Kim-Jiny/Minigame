@@ -2514,9 +2514,9 @@ export function setupSocketHandlers(io: Server) {
             streakBonus: false,
           });
 
-          // 통계도 업데이트
+          // 통계도 업데이트 (stats 키로 감싸서 전송)
           if (result.stats) {
-            socket.emit('stats_updated', result.stats);
+            socket.emit('stats_updated', { stats: result.stats });
           }
         }
       } catch (error) {
