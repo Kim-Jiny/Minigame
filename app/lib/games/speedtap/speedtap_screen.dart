@@ -57,7 +57,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
   // 타이머
   Timer? _countdownTimer;
   int _remainingSeconds = 10;
-  int _startCountdown = 0; // 3-2-1 카운트다운
+  int _preRoundCountdown = 0; // 3-2-1 카운트다운
   Timer? _startCountdownTimer;
 
   late AnimationController _animController;
@@ -110,13 +110,13 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
 
   void _runStartCountdown(int from) {
     _startCountdownTimer?.cancel();
-    _startCountdown = from;
+    _preRoundCountdown = from;
     _startCountdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_startCountdown > 1) {
-        setState(() => _startCountdown--);
+      if (_preRoundCountdown > 1) {
+        setState(() => _preRoundCountdown--);
       } else {
         timer.cancel();
-        setState(() => _startCountdown = 0);
+        setState(() => _preRoundCountdown = 0);
       }
     });
   }
@@ -193,7 +193,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
         _roundScores = List<int>.from(data['roundScores']);
         _taps = [0, 0];
         _roundInProgress = true;
-        _startCountdown = 0; // 카운트다운 종료
+        _preRoundCountdown = 0; // 카운트다운 종료
       });
       _startCountdown(duration ~/ 1000);
     });
@@ -601,7 +601,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
 
         // 게임 영역
         Expanded(
-          child: _startCountdown > 0
+          child: _preRoundCountdown > 0
               ? _buildCountdownView()
               : (showResult ? _buildResultView() : _buildTapView()),
         ),
@@ -726,7 +726,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
               ),
               child: Center(
                 child: Text(
-                  '$_startCountdown',
+                  '$_preRoundCountdown',
                   style: const TextStyle(
                     fontSize: 64,
                     fontWeight: FontWeight.bold,
