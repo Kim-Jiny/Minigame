@@ -358,18 +358,13 @@ export const shopService = {
     try {
       await client.query('BEGIN');
 
-      // 1. 현재 코인 확인
+      // 1. 현재 코인(마일리지) 확인
       const coinResult = await client.query(
-        'SELECT coins FROM users WHERE id = $1',
+        'SELECT mileage FROM user_mileage WHERE user_id = $1',
         [userId]
       );
 
-      if (coinResult.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return { success: false, message: '사용자를 찾을 수 없습니다.' };
-      }
-
-      const currentCoins = coinResult.rows[0].coins || 0;
+      const currentCoins = coinResult.rows.length > 0 ? (coinResult.rows[0].mileage || 0) : 0;
       if (currentCoins < TICKET_PRICE) {
         await client.query('ROLLBACK');
         return { success: false, message: `코인이 부족합니다. (현재: ${currentCoins}, 필요: ${TICKET_PRICE})` };
@@ -386,9 +381,9 @@ export const shopService = {
         return { success: false, message: '삭제할 패배 기록이 없습니다.' };
       }
 
-      // 3. 코인 차감
+      // 3. 코인(마일리지) 차감
       await client.query(
-        'UPDATE users SET coins = coins - $1 WHERE id = $2',
+        'UPDATE user_mileage SET mileage = mileage - $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
         [TICKET_PRICE, userId]
       );
 
@@ -410,7 +405,7 @@ export const shopService = {
 
       // 업데이트된 코인 조회
       const updatedCoins = await pool.query(
-        'SELECT coins FROM users WHERE id = $1',
+        'SELECT mileage FROM user_mileage WHERE user_id = $1',
         [userId]
       );
 
@@ -421,7 +416,7 @@ export const shopService = {
       return {
         success: true,
         message: '패배 1회가 삭제되었습니다!',
-        coins: updatedCoins.rows[0]?.coins || 0,
+        coins: updatedCoins.rows[0]?.mileage || 0,
         stats: {
           gameType: stats.game_type,
           wins: stats.wins,
