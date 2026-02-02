@@ -2525,6 +2525,37 @@ export function setupSocketHandlers(io: Server) {
       }
     });
 
+    // 닉네임 변경권 사용
+    socket.on('change_nickname', async (data: { nickname: string }) => {
+      if (!currentPlayer?.userId) {
+        socket.emit('change_nickname_result', { success: false, message: '로그인이 필요합니다.' });
+        return;
+      }
+
+      try {
+        const result = await shopService.changeNickname(currentPlayer.userId, data.nickname);
+        socket.emit('change_nickname_result', result);
+
+        // 성공 시 코인 업데이트 및 닉네임 변경
+        if (result.success && result.coins !== undefined) {
+          socket.emit('coins_updated', {
+            coins: result.coins,
+            earned: -100, // 차감된 코인
+            streak: 0,
+            streakBonus: false,
+          });
+
+          // 현재 플레이어 닉네임도 업데이트
+          if (currentPlayer && result.nickname) {
+            currentPlayer.nickname = result.nickname;
+          }
+        }
+      } catch (error) {
+        console.error('Change nickname error:', error);
+        socket.emit('change_nickname_result', { success: false, message: '닉네임 변경 중 오류가 발생했습니다.' });
+      }
+    });
+
     // 연결 해제
     socket.on('disconnect', () => {
       console.log(`👋 Player disconnected: ${socket.id}`);

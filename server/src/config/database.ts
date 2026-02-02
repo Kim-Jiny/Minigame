@@ -275,6 +275,7 @@ async function seedShopItems(client: any) {
 
     // === 티켓 ===
     { category: 'ticket', item_key: 'ticket_delete_loss', name: '1패 삭제권', description: '선택한 게임에서 패배 1회 삭제', price: 50, rarity: 'common', sort_order: 0, preview_data: { icon: '🎫', effect: 'delete_loss' } },
+    { category: 'ticket', item_key: 'ticket_change_nickname', name: '닉네임 변경권', description: '닉네임을 변경합니다', price: 100, rarity: 'rare', sort_order: 1, preview_data: { icon: '✏️', effect: 'change_nickname' } },
 
     // === 아바타 ===
     // 기본 (무료)

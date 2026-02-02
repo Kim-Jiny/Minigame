@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/stats_provider.dart';
 import '../providers/shop_provider.dart';
-import '../models/shop_item.dart';
 import 'shop_screen.dart';
 import 'level_manage_screen.dart';
 import 'recent_records_screen.dart';
@@ -106,15 +105,6 @@ class ProfileScreen extends StatelessWidget {
               const SizedBox(height: 8),
 
               // 계정 관련
-              _buildMenuItem(
-                context,
-                icon: Icons.edit,
-                iconColor: Colors.grey,
-                title: '닉네임 변경',
-                onTap: () {
-                  _showChangeNicknameDialog(context, auth);
-                },
-              ),
               _buildMenuItem(
                 context,
                 icon: Icons.logout,
@@ -355,55 +345,6 @@ class ProfileScreen extends StatelessWidget {
             ? Text(subtitle, style: TextStyle(color: Colors.grey.shade600, fontSize: 13))
             : null,
         trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-      ),
-    );
-  }
-
-  void _showChangeNicknameDialog(BuildContext context, AuthProvider auth) {
-    final controller = TextEditingController(text: auth.nickname);
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('닉네임 변경'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: '새 닉네임',
-            hintText: '2-20자 입력',
-            border: OutlineInputBorder(),
-          ),
-          maxLength: 20,
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final newNickname = controller.text.trim();
-              if (newNickname.length < 2) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('닉네임은 2자 이상이어야 합니다')),
-                );
-                return;
-              }
-
-              Navigator.pop(context);
-              final success = await auth.updateNickname(newNickname);
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(success ? '닉네임이 변경되었습니다' : '닉네임 변경에 실패했습니다'),
-                  ),
-                );
-              }
-            },
-            child: const Text('변경'),
-          ),
-        ],
       ),
     );
   }

@@ -437,6 +437,69 @@ export const shopService = {
     }
   },
 
+  // 닉네임 변경 (코인 차감 포함)
+  async changeNickname(userId: number, newNickname: string): Promise<{ success: boolean; message: string; nickname?: string; coins?: number }> {
+    const pool = getPool();
+    if (!pool) return { success: false, message: '데이터베이스 연결 실패' };
+
+    const TICKET_PRICE = 100; // 닉네임 변경권 가격
+
+    // 닉네임 유효성 검사
+    if (!newNickname || newNickname.length < 2 || newNickname.length > 20) {
+      return { success: false, message: '닉네임은 2-20자여야 합니다.' };
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // 1. 현재 코인(마일리지) 확인
+      const coinResult = await client.query(
+        'SELECT mileage FROM user_mileage WHERE user_id = $1',
+        [userId]
+      );
+
+      const currentCoins = coinResult.rows.length > 0 ? (coinResult.rows[0].mileage || 0) : 0;
+      if (currentCoins < TICKET_PRICE) {
+        await client.query('ROLLBACK');
+        return { success: false, message: `코인이 부족합니다. (현재: ${currentCoins}, 필요: ${TICKET_PRICE})` };
+      }
+
+      // 2. 코인(마일리지) 차감
+      await client.query(
+        'UPDATE user_mileage SET mileage = mileage - $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
+        [TICKET_PRICE, userId]
+      );
+
+      // 3. 닉네임 변경
+      await client.query(
+        'UPDATE users SET nickname = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        [newNickname, userId]
+      );
+
+      await client.query('COMMIT');
+
+      // 업데이트된 코인 조회
+      const updatedCoins = await pool.query(
+        'SELECT mileage FROM user_mileage WHERE user_id = $1',
+        [userId]
+      );
+
+      return {
+        success: true,
+        message: '닉네임이 변경되었습니다!',
+        nickname: newNickname,
+        coins: updatedCoins.rows[0]?.mileage || 0,
+      };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Change nickname error:', error);
+      return { success: false, message: '닉네임 변경 중 오류가 발생했습니다.' };
+    } finally {
+      client.release();
+    }
+  },
+
   // 신규 유저 기본 아이템 지급
   async grantDefaultItems(userId: number): Promise<void> {
     const pool = getPool();

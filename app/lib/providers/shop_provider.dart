@@ -12,6 +12,7 @@ class ShopProvider extends ChangeNotifier {
   String? _error;
   String? _successMessage;
   bool _listenersInitialized = false;
+  String? _lastChangedNickname;
 
   List<ShopItem> get shopItems => _shopItems;
   List<UserItem> get userItems => _userItems;
@@ -19,6 +20,7 @@ class ShopProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
   String? get successMessage => _successMessage;
+  String? get lastChangedNickname => _lastChangedNickname;
 
   // 카테고리별 필터링
   List<ShopItem> getItemsByCategory(ShopCategory category) {
@@ -146,6 +148,21 @@ class ShopProvider extends ChangeNotifier {
       }
       notifyListeners();
     });
+
+    // 닉네임 변경 결과
+    _socketService.on('change_nickname_result', (data) {
+      _isLoading = false;
+      if (data['success'] == true) {
+        _successMessage = data['message'];
+        _error = null;
+        _lastChangedNickname = data['nickname'];
+      } else {
+        _error = data['message'];
+        _successMessage = null;
+        _lastChangedNickname = null;
+      }
+      notifyListeners();
+    });
   }
 
   // 상점 아이템 조회
@@ -201,9 +218,20 @@ class ShopProvider extends ChangeNotifier {
     _socketService.emit('delete_loss', {'gameType': gameType});
   }
 
+  // 닉네임 변경권 사용
+  void changeNickname(String nickname) {
+    _isLoading = true;
+    _error = null;
+    _successMessage = null;
+    _lastChangedNickname = null;
+    notifyListeners();
+    _socketService.emit('change_nickname', {'nickname': nickname});
+  }
+
   void clearMessages() {
     _error = null;
     _successMessage = null;
+    _lastChangedNickname = null;
     notifyListeners();
   }
 
@@ -216,6 +244,7 @@ class ShopProvider extends ChangeNotifier {
     _socketService.off('equip_result');
     _socketService.off('unequip_result');
     _socketService.off('delete_loss_result');
+    _socketService.off('change_nickname_result');
     super.dispose();
   }
 }

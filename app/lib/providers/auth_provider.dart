@@ -223,7 +223,7 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // 닉네임 변경
+  // 닉네임 변경 (API 호출)
   Future<bool> updateNickname(String newNickname) async {
     try {
       _isLoading = true;
@@ -247,6 +247,14 @@ class AuthProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  // 닉네임 로컬 업데이트 (상점에서 구매 후 사용)
+  Future<void> setNickname(String newNickname) async {
+    _nickname = newNickname;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('nickname', newNickname);
+    notifyListeners();
   }
 
   Future<void> logout() async {

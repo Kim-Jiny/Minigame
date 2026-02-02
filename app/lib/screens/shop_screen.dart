@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/shop_provider.dart';
 import '../providers/stats_provider.dart';
+import '../providers/auth_provider.dart';
 import '../models/shop_item.dart';
 
 class ShopScreen extends StatefulWidget {
@@ -61,6 +62,10 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text(shopProvider.successMessage!), backgroundColor: Colors.green),
               );
+              // 닉네임 변경 성공 시 AuthProvider 업데이트
+              if (shopProvider.lastChangedNickname != null) {
+                context.read<AuthProvider>().setNickname(shopProvider.lastChangedNickname!);
+              }
               shopProvider.clearMessages();
               // 마일리지 새로고침
               statsProvider.getMileage();
@@ -471,7 +476,7 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
         leading: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: Colors.amber.shade100,
+            color: ticket.ticketEffect == 'change_nickname' ? Colors.blue.shade100 : Colors.amber.shade100,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text(ticket.ticketIcon ?? '', style: const TextStyle(fontSize: 24)),
@@ -479,11 +484,17 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
         title: Text(ticket.name, style: const TextStyle(fontWeight: FontWeight.bold)),
         subtitle: Text(ticket.description),
         trailing: OutlinedButton.icon(
-          onPressed: () => _showDeleteLossDialog(shopProvider, statsProvider, ticket),
+          onPressed: () {
+            if (ticket.ticketEffect == 'change_nickname') {
+              _showChangeNicknameDialog(shopProvider, ticket);
+            } else {
+              _showDeleteLossDialog(shopProvider, statsProvider, ticket);
+            }
+          },
           icon: const Icon(Icons.monetization_on, size: 16),
           label: Text('${ticket.price}'),
           style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.amber.shade700,
+            foregroundColor: ticket.ticketEffect == 'change_nickname' ? Colors.blue.shade700 : Colors.amber.shade700,
           ),
         ),
       ),
@@ -728,6 +739,67 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
               foregroundColor: Colors.white,
             ),
             child: const Text('사용'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showChangeNicknameDialog(ShopProvider shopProvider, ShopItem ticket) {
+    final controller = TextEditingController();
+    final statsProvider = context.read<StatsProvider>();
+    final currentCoins = statsProvider.coins;
+
+    if (currentCoins < ticket.price) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('코인이 부족합니다. (현재: $currentCoins, 필요: ${ticket.price})')),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('닉네임 변경'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('새 닉네임을 입력하세요.\n(${ticket.price} 코인 차감)'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: '새 닉네임',
+                hintText: '2-20자 입력',
+                border: OutlineInputBorder(),
+              ),
+              maxLength: 20,
+              autofocus: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('취소'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final newNickname = controller.text.trim();
+              if (newNickname.length < 2) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('닉네임은 2자 이상이어야 합니다')),
+                );
+                return;
+              }
+              Navigator.pop(context);
+              shopProvider.changeNickname(newNickname);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue.shade600,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('변경'),
           ),
         ],
       ),
