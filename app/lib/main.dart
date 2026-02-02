@@ -5,6 +5,7 @@ import 'providers/auth_provider.dart';
 import 'providers/game_provider.dart';
 import 'providers/friend_provider.dart';
 import 'providers/stats_provider.dart';
+import 'providers/shop_provider.dart';
 import 'services/remote_config_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/lobby_screen.dart';
@@ -52,6 +53,7 @@ class MinigameApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => GameProvider()),
         ChangeNotifierProvider(create: (_) => FriendProvider()),
         ChangeNotifierProvider(create: (_) => StatsProvider()),
+        ChangeNotifierProvider(create: (_) => ShopProvider()),
       ],
       child: MaterialApp(
         title: '우리만의 게임',
@@ -146,10 +148,11 @@ class AuthWrapper extends StatelessWidget {
         }
 
         if (auth.isLoggedIn) {
-          // FriendProvider, StatsProvider 초기화
+          // FriendProvider, StatsProvider, ShopProvider 초기화
           WidgetsBinding.instance.addPostFrameCallback((_) {
             context.read<FriendProvider>().initialize();
             context.read<StatsProvider>().initialize();
+            context.read<ShopProvider>().initialize();
           });
           return const LobbyScreen();
         }

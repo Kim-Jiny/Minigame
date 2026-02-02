@@ -3,8 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
+import '../../providers/shop_provider.dart';
 import '../../services/socket_service.dart';
 import '../../config/app_config.dart';
+import '../../models/shop_item.dart';
+import '../../utils/game_theme.dart';
+import '../../widgets/game_player_profile.dart';
 
 enum RpsGameStatus {
   idle,
@@ -41,6 +45,8 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
   int? _opponentUserId;
   bool _isInvitationGame = false;
   final bool _isHardcore = false;
+  UserProfileSettings? _myProfileSettings;
+  UserProfileSettings? _opponentProfileSettings;
 
   int _currentRound = 0;
   List<int> _scores = [0, 0]; // [player0, player1]
@@ -123,6 +129,7 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
     _socketService.on('match_found', (data) {
       final players = data['players'] as List;
       final opponent = players.firstWhere((p) => p['id'] != _myId);
+      final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
       _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
 
       setState(() {
@@ -132,6 +139,13 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
         _opponentAvatarUrl = opponent['avatarUrl'];
         _opponentUserId = opponent['userId'];
         _isInvitationGame = data['isInvitation'] == true;
+        // 프로필 설정 파싱
+        if (opponent['profileSettings'] != null) {
+          _opponentProfileSettings = UserProfileSettings.fromJson(opponent['profileSettings']);
+        }
+        if (me != null && me['profileSettings'] != null) {
+          _myProfileSettings = UserProfileSettings.fromJson(me['profileSettings']);
+        }
       });
     });
 
@@ -326,38 +340,43 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        _showExitDialog();
-      },
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('가위바위보'),
-          backgroundColor: const Color(0xFF9B59B6),
-          foregroundColor: Colors.white,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: _showExitDialog,
+    return Consumer<ShopProvider>(
+      builder: (context, shop, child) {
+        final theme = GameTheme.fromProfileSettings(shop.profileSettings);
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop) return;
+            _showExitDialog(theme);
+          },
+          child: Scaffold(
+            appBar: AppBar(
+              title: const Text('가위바위보'),
+              backgroundColor: theme.primary,
+              foregroundColor: Colors.white,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => _showExitDialog(theme),
+              ),
+            ),
+            body: _buildBody(theme),
           ),
-        ),
-        body: _buildBody(),
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(GameTheme theme) {
     return switch (_status) {
-      RpsGameStatus.idle => _buildIdleView(),
-      RpsGameStatus.searching => _buildSearchingView(),
-      RpsGameStatus.matched => _buildMatchedView(),
-      RpsGameStatus.playing => _buildPlayingView(),
-      RpsGameStatus.finished => _buildFinishedView(),
+      RpsGameStatus.idle => _buildIdleView(theme),
+      RpsGameStatus.searching => _buildSearchingView(theme),
+      RpsGameStatus.matched => _buildMatchedView(theme),
+      RpsGameStatus.playing => _buildPlayingView(theme),
+      RpsGameStatus.finished => _buildFinishedView(theme),
     };
   }
 
-  Widget _buildIdleView() {
+  Widget _buildIdleView(GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -428,7 +447,7 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
     );
   }
 
-  Widget _buildSearchingView() {
+  Widget _buildSearchingView(GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -471,7 +490,7 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
     );
   }
 
-  Widget _buildMatchedView() {
+  Widget _buildMatchedView(GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -519,7 +538,7 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
     );
   }
 
-  Widget _buildPlayingView() {
+  Widget _buildPlayingView(GameTheme theme) {
     final bool showResult = _lastPlayer0Choice != null && _lastPlayer1Choice != null;
 
     return Column(
@@ -536,11 +555,14 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
             children: [
               // 내 프로필
               Expanded(
-                child: _buildPlayerProfile(
-                  _myNickname ?? '나',
-                  _myAvatarUrl,
-                  _scores[_myPlayerIndex],
-                  true,
+                child: GamePlayerProfile(
+                  name: _myNickname ?? '나',
+                  avatarUrl: _myAvatarUrl,
+                  isActive: true,
+                  isMe: true,
+                  profileSettings: _myProfileSettings,
+                  activeColor: const Color(0xFF9B59B6),
+                  extraWidget: _buildScoreWidget(_scores[_myPlayerIndex], true),
                 ),
               ),
               // VS & 라운드
@@ -577,11 +599,14 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
               ),
               // 상대 프로필
               Expanded(
-                child: _buildPlayerProfile(
-                  _opponentNickname ?? '상대',
-                  _opponentAvatarUrl,
-                  _scores[1 - _myPlayerIndex],
-                  false,
+                child: GamePlayerProfile(
+                  name: _opponentNickname ?? '상대',
+                  avatarUrl: _opponentAvatarUrl,
+                  isActive: false,
+                  isMe: false,
+                  profileSettings: _opponentProfileSettings,
+                  activeColor: const Color(0xFF9B59B6),
+                  extraWidget: _buildScoreWidget(_scores[1 - _myPlayerIndex], false),
                 ),
               ),
             ],
@@ -598,66 +623,21 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
     );
   }
 
-  Widget _buildPlayerProfile(String name, String? avatarUrl, int score, bool isMe) {
-    return Column(
-      children: [
-        // 아바타
-        Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: isMe ? const Color(0xFF9B59B6) : Colors.grey.shade400,
-              width: 3,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: (isMe ? const Color(0xFF9B59B6) : Colors.grey).withValues(alpha: 0.3),
-                blurRadius: 8,
-              ),
-            ],
-          ),
-          child: CircleAvatar(
-            radius: 28,
-            backgroundColor: isMe ? const Color(0xFFE8DAEF) : Colors.grey.shade200,
-            backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-            child: avatarUrl == null
-                ? Icon(
-                    Icons.person,
-                    size: 28,
-                    color: isMe ? const Color(0xFF9B59B6) : Colors.grey,
-                  )
-                : null,
-          ),
+  Widget _buildScoreWidget(int score, bool isMe) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: isMe ? const Color(0xFF9B59B6) : Colors.grey,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        '$score',
+        style: const TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
         ),
-        const SizedBox(height: 6),
-        // 이름
-        Text(
-          name,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.bold,
-            color: isMe ? const Color(0xFF9B59B6) : Colors.grey.shade700,
-          ),
-          overflow: TextOverflow.ellipsis,
-        ),
-        const SizedBox(height: 4),
-        // 점수
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          decoration: BoxDecoration(
-            color: isMe ? const Color(0xFF9B59B6) : Colors.grey,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            '$score',
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
@@ -990,7 +970,7 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
     );
   }
 
-  Widget _buildFinishedView() {
+  Widget _buildFinishedView(GameTheme theme) {
     final isWinner = _winnerId == _myId;
 
     String resultText;
@@ -1184,7 +1164,7 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
     );
   }
 
-  void _showExitDialog() {
+  void _showExitDialog(GameTheme theme) {
     if (_status == RpsGameStatus.idle) {
       Navigator.pop(context);
       return;

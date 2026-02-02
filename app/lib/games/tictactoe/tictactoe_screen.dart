@@ -3,7 +3,10 @@ import 'package:provider/provider.dart';
 import '../../providers/game_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
+import '../../providers/shop_provider.dart';
 import '../../config/app_config.dart';
+import '../../widgets/game_player_profile.dart';
+import '../../utils/game_theme.dart';
 
 class TicTacToeScreen extends StatefulWidget {
   const TicTacToeScreen({super.key});
@@ -42,14 +45,15 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
             onPressed: () => _showExitDialog(context),
           ),
         ),
-        body: Consumer<GameProvider>(
-          builder: (context, game, child) {
+        body: Consumer2<GameProvider, ShopProvider>(
+          builder: (context, game, shop, child) {
+            final theme = GameTheme.fromProfileSettings(shop.profileSettings);
             return switch (game.status) {
-              GameStatus.idle => _buildIdleView(game),
-              GameStatus.searching => _buildSearchingView(game),
-              GameStatus.matched => _buildMatchedView(game),
-              GameStatus.playing => _buildPlayingView(game),
-              GameStatus.finished => _buildFinishedView(game),
+              GameStatus.idle => _buildIdleView(game, theme),
+              GameStatus.searching => _buildSearchingView(game, theme),
+              GameStatus.matched => _buildMatchedView(game, theme),
+              GameStatus.playing => _buildPlayingView(game, theme),
+              GameStatus.finished => _buildFinishedView(game, theme),
             };
           },
         ),
@@ -57,17 +61,10 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
     );
   }
 
-  Widget _buildIdleView(GameProvider game) {
+  Widget _buildIdleView(GameProvider game, GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF6C5CE7).withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
+        gradient: theme.backgroundGradient,
       ),
       child: Center(
         child: Column(
@@ -77,22 +74,22 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: const Color(0xFF6C5CE7).withValues(alpha: 0.1),
+                color: theme.primary.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.grid_3x3,
                 size: 80,
-                color: Color(0xFF6C5CE7),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 24),
-            const Text(
+            Text(
               '틱택토',
               style: TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF6C5CE7),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 8),
@@ -154,7 +151,7 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
               icon: const Icon(Icons.search),
               label: Text(game.isHardcore ? '하드코어 상대 찾기' : '상대 찾기'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: game.isHardcore ? Colors.red : const Color(0xFF6C5CE7),
+                backgroundColor: game.isHardcore ? Colors.red : theme.primary,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 32,
@@ -171,27 +168,20 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
     );
   }
 
-  Widget _buildSearchingView(GameProvider game) {
+  Widget _buildSearchingView(GameProvider game, GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF6C5CE7).withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
+        gradient: theme.backgroundGradient,
       ),
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const SizedBox(
+            SizedBox(
               width: 60,
               height: 60,
               child: CircularProgressIndicator(
-                color: Color(0xFF6C5CE7),
+                color: theme.primary,
                 strokeWidth: 4,
               ),
             ),
@@ -250,8 +240,8 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
                 game.cancelMatch(AppConfig.gameTypeTicTacToe);
               },
               style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF6C5CE7),
-                side: const BorderSide(color: Color(0xFF6C5CE7)),
+                foregroundColor: theme.primary,
+                side: BorderSide(color: theme.primary),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(30),
                 ),
@@ -264,17 +254,10 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
     );
   }
 
-  Widget _buildMatchedView(GameProvider game) {
+  Widget _buildMatchedView(GameProvider game, GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF6C5CE7).withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
+        gradient: theme.backgroundGradient,
       ),
       child: Center(
         child: Column(
@@ -282,23 +265,23 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
           children: [
             Container(
               padding: const EdgeInsets.all(16),
-              decoration: const BoxDecoration(
-                color: Color(0xFFE8E0FF),
+              decoration: BoxDecoration(
+                color: theme.background1,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.sports_esports,
                 size: 64,
-                color: Color(0xFF6C5CE7),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 16),
             Text(
               '${game.opponentNickname}님과 매칭!',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF6C5CE7),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 8),
@@ -312,39 +295,31 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
     );
   }
 
-  Widget _buildPlayingView(GameProvider game) {
+  Widget _buildPlayingView(GameProvider game, GameTheme theme) {
     final auth = context.read<AuthProvider>();
 
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF6C5CE7).withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
+        gradient: theme.backgroundGradient,
       ),
       child: Column(
         children: [
           // 프로필 & 턴 표시
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFFE8E0FF), Color(0xFFF5F0FF)],
-              ),
+            decoration: BoxDecoration(
+              gradient: theme.cardGradient,
             ),
             child: Row(
               children: [
                 // 내 프로필
                 Expanded(
-                  child: _buildPlayerProfile(
-                    auth.nickname ?? '나',
-                    auth.avatarUrl,
-                    game.isMyTurn,
-                    true,
+                  child: GamePlayerProfile(
+                    name: auth.nickname ?? '나',
+                    avatarUrl: auth.avatarUrl,
+                    isActive: game.isMyTurn,
+                    isMe: true,
+                    profileSettings: game.myProfileSettings ?? context.read<ShopProvider>().profileSettings,
                   ),
                 ),
                 // VS & 타이머
@@ -359,7 +334,7 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
-                          color: game.isMyTurn ? const Color(0xFF6C5CE7) : Colors.grey,
+                          color: game.isMyTurn ? theme.primary : Colors.grey,
                         ),
                       ),
                     ],
@@ -367,11 +342,12 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
                 ),
                 // 상대 프로필
                 Expanded(
-                  child: _buildPlayerProfile(
-                    game.opponentNickname ?? '상대',
-                    game.opponentAvatarUrl,
-                    !game.isMyTurn,
-                    false,
+                  child: GamePlayerProfile(
+                    name: game.opponentNickname ?? '상대',
+                    avatarUrl: game.opponentAvatarUrl,
+                    isActive: !game.isMyTurn,
+                    isMe: false,
+                    profileSettings: game.opponentProfileSettings,
                   ),
                 ),
               ],
@@ -401,57 +377,13 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
                 aspectRatio: 1,
                 child: Container(
                   margin: const EdgeInsets.all(24),
-                  child: _buildBoard(game, auth.socketId),
+                  child: _buildBoard(game, auth.socketId, theme),
                 ),
               ),
             ),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildPlayerProfile(String name, String? avatarUrl, bool isActive, bool isMe) {
-    return Column(
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: isActive ? const Color(0xFF6C5CE7) : Colors.grey.shade300,
-              width: isActive ? 3 : 2,
-            ),
-            boxShadow: isActive ? [
-              BoxShadow(
-                color: const Color(0xFF6C5CE7).withValues(alpha: 0.3),
-                blurRadius: 8,
-              ),
-            ] : null,
-          ),
-          child: CircleAvatar(
-            radius: 24,
-            backgroundColor: isMe ? const Color(0xFFE8E0FF) : Colors.grey.shade200,
-            backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-            child: avatarUrl == null
-                ? Icon(
-                    Icons.person,
-                    size: 24,
-                    color: isMe ? const Color(0xFF6C5CE7) : Colors.grey,
-                  )
-                : null,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          name,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            color: isActive ? const Color(0xFF6C5CE7) : Colors.grey.shade600,
-          ),
-          overflow: TextOverflow.ellipsis,
-        ),
-      ],
     );
   }
 
@@ -508,7 +440,7 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
     );
   }
 
-  Widget _buildBoard(GameProvider game, String? myId) {
+  Widget _buildBoard(GameProvider game, String? myId, GameTheme theme) {
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -533,19 +465,19 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: const Color(0xFF74B9FF),
+                color: theme.secondary,
                 width: 2,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF6C5CE7).withValues(alpha: 0.1),
+                  color: theme.primary.withValues(alpha: 0.1),
                   blurRadius: 8,
                   offset: const Offset(0, 4),
                 ),
               ],
             ),
             child: Center(
-              child: _buildCellContent(cell),
+              child: _buildCellContent(cell, theme),
             ),
           ),
         );
@@ -553,28 +485,28 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
     );
   }
 
-  Widget _buildCellContent(int? cell) {
+  Widget _buildCellContent(int? cell, GameTheme theme) {
     if (cell == null) {
       return const SizedBox.shrink();
     }
 
     // 0 = 동그라미 (첫 번째 플레이어), 1 = 세모 (두 번째 플레이어)
     if (cell == 0) {
-      return const Icon(
+      return Icon(
         Icons.circle_outlined,
         size: 48,
-        color: Color(0xFF6C5CE7),
+        color: theme.primary,
       );
     } else {
-      return const Icon(
+      return Icon(
         Icons.change_history,
         size: 48,
-        color: Color(0xFF00CEC9),
+        color: theme.secondary,
       );
     }
   }
 
-  Widget _buildFinishedView(GameProvider game) {
+  Widget _buildFinishedView(GameProvider game, GameTheme theme) {
     debugPrint('🎮 _buildFinishedView - isInvitationGame: ${game.isInvitationGame}');
 
     String resultText;
@@ -587,7 +519,7 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
       resultIcon = Icons.handshake;
     } else if (game.isWinner) {
       resultText = '승리!';
-      resultColor = const Color(0xFF6C5CE7);
+      resultColor = theme.primary;
       resultIcon = Icons.emoji_events;
     } else {
       resultText = '아쉬워요...';
@@ -615,7 +547,7 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
                 aspectRatio: 1,
                 child: Container(
                   margin: const EdgeInsets.all(24),
-                  child: _buildBoard(game, null),
+                  child: _buildBoard(game, null, theme),
                 ),
               ),
             ),
@@ -715,7 +647,7 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: game.rematchWaiting
                               ? Colors.orange
-                              : const Color(0xFF6C5CE7),
+                              : theme.primary,
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(30),
@@ -732,8 +664,8 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
                         icon: const Icon(Icons.search),
                         label: const Text('다시 찾기'),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFF6C5CE7),
-                          side: const BorderSide(color: Color(0xFF6C5CE7)),
+                          foregroundColor: theme.primary,
+                          side: BorderSide(color: theme.primary),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(30),
                           ),
@@ -795,15 +727,18 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
       return;
     }
 
+    final shop = context.read<ShopProvider>();
+    final theme = GameTheme.fromProfileSettings(shop.profileSettings);
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.exit_to_app, color: Color(0xFF6C5CE7)),
-            SizedBox(width: 8),
-            Text('게임 나가기'),
+            Icon(Icons.exit_to_app, color: theme.primary),
+            const SizedBox(width: 8),
+            const Text('게임 나가기'),
           ],
         ),
         content: const Text('정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.'),
@@ -819,7 +754,7 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
               Navigator.pop(context);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF6C5CE7),
+              backgroundColor: theme.primary,
               foregroundColor: Colors.white,
             ),
             child: const Text('나가기'),

@@ -3,8 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
+import '../../providers/shop_provider.dart';
 import '../../services/socket_service.dart';
 import '../../config/app_config.dart';
+import '../../models/shop_item.dart';
+import '../../utils/game_theme.dart';
+import '../../widgets/game_player_profile.dart';
 
 enum StroopGameStatus {
   idle,
@@ -37,6 +41,8 @@ class _StroopScreenState extends State<StroopScreen>
   int? _opponentUserId;
   bool _isInvitationGame = false;
   int _myPlayerIndex = 0;
+  UserProfileSettings? _myProfileSettings;
+  UserProfileSettings? _opponentProfileSettings;
 
   // 게임 상태
   String _currentWord = '';
@@ -52,6 +58,10 @@ class _StroopScreenState extends State<StroopScreen>
   bool _opponentLeft = false;
   bool _rematchWaiting = false;
   bool _opponentWantsRematch = false;
+
+  // 연승 정보
+  int _myStreak = 0;
+  int _opponentStreak = 0;
 
   // 하드코어 타이머
   Timer? _hardcoreTimer;
@@ -115,6 +125,7 @@ class _StroopScreenState extends State<StroopScreen>
     _socketService.on('match_found', (data) {
       final players = data['players'] as List;
       final opponent = players.firstWhere((p) => p['id'] != _myId);
+      final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
       _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
 
       setState(() {
@@ -125,6 +136,16 @@ class _StroopScreenState extends State<StroopScreen>
         _opponentUserId = opponent['userId'];
         _isInvitationGame = data['isInvitation'] == true;
         _isHardcore = data['isHardcore'] == true;
+        // 연승 정보
+        _myStreak = me != null ? (me['streak'] ?? 0) : 0;
+        _opponentStreak = opponent['streak'] ?? 0;
+        // 프로필 설정 파싱
+        if (opponent['profileSettings'] != null) {
+          _opponentProfileSettings = UserProfileSettings.fromJson(opponent['profileSettings']);
+        }
+        if (me != null && me['profileSettings'] != null) {
+          _myProfileSettings = UserProfileSettings.fromJson(me['profileSettings']);
+        }
       });
     });
 
@@ -188,6 +209,8 @@ class _StroopScreenState extends State<StroopScreen>
       _hardcoreTimer?.cancel();
       final winnerId = data['winnerId'];
       final scores = List<int>.from(data['scores'] ?? [0, 0]);
+      final pressedPlayerId = data['pressedPlayerId'];
+      final isCorrect = data['correct'] as bool? ?? false;
 
       setState(() {
         _scores = scores;
@@ -199,16 +222,38 @@ class _StroopScreenState extends State<StroopScreen>
       // 결과 스낵바 표시
       if (mounted) {
         final isMyWin = winnerId == _myId;
+        final iMadeAction = pressedPlayerId == _myId;
         final correctAnswer = data['correctAnswer'] as String;
+
+        String message;
+        Color bgColor;
+
+        if (isMyWin) {
+          if (iMadeAction && isCorrect) {
+            // 내가 정답을 맞춰서 점수 획득
+            message = '정답! 점수 획득';
+            bgColor = Colors.green;
+          } else {
+            // 상대가 틀려서 내가 점수 획득
+            message = '상대 오답! 점수 획득';
+            bgColor = Colors.teal;
+          }
+        } else {
+          if (iMadeAction) {
+            // 내가 틀림
+            message = '오답... 정답: ${colorNames[correctAnswer] ?? correctAnswer}';
+            bgColor = Colors.red;
+          } else {
+            // 상대가 정답을 맞춤
+            message = '상대 정답! 정답: ${colorNames[correctAnswer] ?? correctAnswer}';
+            bgColor = Colors.orange;
+          }
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              isMyWin
-                  ? '정답! 점수 획득'
-                  : '정답: ${colorNames[correctAnswer] ?? correctAnswer}',
-              textAlign: TextAlign.center,
-            ),
-            backgroundColor: isMyWin ? Colors.green : Colors.orange,
+            content: Text(message, textAlign: TextAlign.center),
+            backgroundColor: bgColor,
             duration: const Duration(seconds: 1),
           ),
         );
@@ -341,49 +386,47 @@ class _StroopScreenState extends State<StroopScreen>
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        _showExitDialog();
-      },
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('스트룹 테스트'),
-          backgroundColor: const Color(0xFF00CEC9),
-          foregroundColor: Colors.white,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: _showExitDialog,
+    return Consumer<ShopProvider>(
+      builder: (context, shop, child) {
+        final theme = GameTheme.fromProfileSettings(shop.profileSettings);
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop) return;
+            _showExitDialog(theme);
+          },
+          child: Scaffold(
+            appBar: AppBar(
+              title: const Text('스트룹 테스트'),
+              backgroundColor: theme.primary,
+              foregroundColor: Colors.white,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => _showExitDialog(theme),
+              ),
+            ),
+            body: _buildBody(theme),
           ),
-        ),
-        body: _buildBody(),
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(GameTheme theme) {
     return switch (_status) {
-      StroopGameStatus.idle => _buildIdleView(),
-      StroopGameStatus.searching => _buildSearchingView(),
-      StroopGameStatus.matched => _buildMatchedView(),
-      StroopGameStatus.playing => _buildPlayingView(),
-      StroopGameStatus.waiting => _buildWaitingView(),
-      StroopGameStatus.finished => _buildFinishedView(),
+      StroopGameStatus.idle => _buildIdleView(theme),
+      StroopGameStatus.searching => _buildSearchingView(theme),
+      StroopGameStatus.matched => _buildMatchedView(theme),
+      StroopGameStatus.playing => _buildPlayingView(theme),
+      StroopGameStatus.waiting => _buildWaitingView(theme),
+      StroopGameStatus.finished => _buildFinishedView(theme),
     };
   }
 
-  Widget _buildIdleView() {
+  Widget _buildIdleView(GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF00CEC9).withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
+        gradient: theme.backgroundGradient,
       ),
       child: Center(
         child: Column(
@@ -396,24 +439,24 @@ class _StroopScreenState extends State<StroopScreen>
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF00CEC9).withValues(alpha: 0.3),
+                    color: theme.primary.withValues(alpha: 0.3),
                     blurRadius: 20,
                   ),
                 ],
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.palette,
                 size: 64,
-                color: Color(0xFF00CEC9),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 32),
-            const Text(
+            Text(
               '스트룹 테스트',
               style: TextStyle(
                 fontSize: 28,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF00CEC9),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 8),
@@ -516,7 +559,7 @@ class _StroopScreenState extends State<StroopScreen>
               icon: const Icon(Icons.search),
               label: const Text('상대 찾기'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: _isHardcore ? Colors.red : const Color(0xFF00CEC9),
+                backgroundColor: _isHardcore ? Colors.red : theme.primary,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
                 shape: RoundedRectangleBorder(
@@ -530,7 +573,7 @@ class _StroopScreenState extends State<StroopScreen>
     );
   }
 
-  Widget _buildSearchingView() {
+  Widget _buildSearchingView(GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -573,7 +616,7 @@ class _StroopScreenState extends State<StroopScreen>
     );
   }
 
-  Widget _buildMatchedView() {
+  Widget _buildMatchedView(GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -610,7 +653,26 @@ class _StroopScreenState extends State<StroopScreen>
                 color: Color(0xFF00CEC9),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 16),
+            // 연승 정보 표시
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildStreakBadge('나', _myStreak, true),
+                const SizedBox(width: 24),
+                const Text(
+                  'VS',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey,
+                  ),
+                ),
+                const SizedBox(width: 24),
+                _buildStreakBadge(_opponentNickname ?? '상대', _opponentStreak, false),
+              ],
+            ),
+            const SizedBox(height: 16),
             Text(
               '게임이 곧 시작됩니다...',
               style: TextStyle(color: Colors.grey.shade600),
@@ -621,7 +683,63 @@ class _StroopScreenState extends State<StroopScreen>
     );
   }
 
-  Widget _buildPlayingView() {
+  Widget _buildStreakBadge(String name, int streak, bool isMe) {
+    final color = isMe ? const Color(0xFF00CEC9) : Colors.orange;
+    return Column(
+      children: [
+        Text(
+          name.length > 6 ? '${name.substring(0, 6)}...' : name,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.grey.shade700,
+          ),
+        ),
+        const SizedBox(height: 4),
+        if (streak > 0)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: color),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.local_fire_department, size: 16, color: color),
+                const SizedBox(width: 4),
+                Text(
+                  '$streak연승 중',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              '연승 없음',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade500,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildPlayingView(GameTheme theme) {
     final wordKorean = colorNames[_currentWord] ?? _currentWord;
     final displayColor = colorValues[_currentColor] ?? Colors.black;
 
@@ -774,7 +892,7 @@ class _StroopScreenState extends State<StroopScreen>
     );
   }
 
-  Widget _buildWaitingView() {
+  Widget _buildWaitingView(GameTheme theme) {
     return Column(
       children: [
         _buildHeader(),
@@ -823,11 +941,14 @@ class _StroopScreenState extends State<StroopScreen>
       child: Row(
         children: [
           Expanded(
-            child: _buildPlayerScore(
-              _myNickname ?? '나',
-              _myAvatarUrl,
-              _scores.isNotEmpty ? _scores[_myPlayerIndex] : 0,
-              true,
+            child: GamePlayerProfile(
+              name: _myNickname ?? '나',
+              avatarUrl: _myAvatarUrl,
+              isActive: true,
+              isMe: true,
+              profileSettings: _myProfileSettings,
+              activeColor: const Color(0xFF00CEC9),
+              extraWidget: _buildScoreWidget(_scores.isNotEmpty ? _scores[_myPlayerIndex] : 0, true),
             ),
           ),
           Padding(
@@ -862,11 +983,14 @@ class _StroopScreenState extends State<StroopScreen>
             ),
           ),
           Expanded(
-            child: _buildPlayerScore(
-              _opponentNickname ?? '상대',
-              _opponentAvatarUrl,
-              _scores.length > 1 ? _scores[1 - _myPlayerIndex] : 0,
-              false,
+            child: GamePlayerProfile(
+              name: _opponentNickname ?? '상대',
+              avatarUrl: _opponentAvatarUrl,
+              isActive: false,
+              isMe: false,
+              profileSettings: _opponentProfileSettings,
+              activeColor: const Color(0xFF00CEC9),
+              extraWidget: _buildScoreWidget(_scores.length > 1 ? _scores[1 - _myPlayerIndex] : 0, false),
             ),
           ),
         ],
@@ -874,61 +998,26 @@ class _StroopScreenState extends State<StroopScreen>
     );
   }
 
-  Widget _buildPlayerScore(String name, String? avatarUrl, int score, bool isMe) {
-    return Column(
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: isMe ? const Color(0xFF00CEC9) : Colors.grey.shade400,
-              width: 3,
-            ),
-          ),
-          child: CircleAvatar(
-            radius: 20,
-            backgroundColor: isMe ? const Color(0xFFE0F7FA) : Colors.grey.shade200,
-            backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-            child: avatarUrl == null
-                ? Icon(
-                    Icons.person,
-                    size: 20,
-                    color: isMe ? const Color(0xFF00CEC9) : Colors.grey,
-                  )
-                : null,
-          ),
+  Widget _buildScoreWidget(int score, bool isMe) {
+    return Container(
+      margin: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      decoration: BoxDecoration(
+        color: isMe ? const Color(0xFF00CEC9) : Colors.grey,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        '$score',
+        style: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
         ),
-        const SizedBox(height: 4),
-        Text(
-          name,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            color: isMe ? const Color(0xFF00CEC9) : Colors.grey.shade700,
-          ),
-          overflow: TextOverflow.ellipsis,
-        ),
-        Container(
-          margin: const EdgeInsets.only(top: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-          decoration: BoxDecoration(
-            color: isMe ? const Color(0xFF00CEC9) : Colors.grey,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(
-            '$score',
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
-  Widget _buildFinishedView() {
+  Widget _buildFinishedView(GameTheme theme) {
     final isWinner = _winnerId == _myId;
 
     String resultText;
@@ -1160,7 +1249,7 @@ class _StroopScreenState extends State<StroopScreen>
     );
   }
 
-  void _showExitDialog() {
+  void _showExitDialog(GameTheme theme) {
     if (_status == StroopGameStatus.idle) {
       Navigator.pop(context);
       return;

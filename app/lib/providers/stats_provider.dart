@@ -127,6 +127,9 @@ class StatsProvider extends ChangeNotifier {
   List<GameStats> _allStats = [];
   List<GameRecord> _recentRecords = [];
   int _mileage = 0;
+  int _currentStreak = 0;
+  int _lastCoinsEarned = 0;
+  bool _lastStreakBonus = false;
   bool _isLoading = false;
   String? _error;
   String? _successMessage;
@@ -135,6 +138,10 @@ class StatsProvider extends ChangeNotifier {
   List<GameStats> get allStats => _allStats;
   List<GameRecord> get recentRecords => _recentRecords;
   int get mileage => _mileage;
+  int get coins => _mileage; // alias for mileage
+  int get currentStreak => _currentStreak;
+  int get lastCoinsEarned => _lastCoinsEarned;
+  bool get lastStreakBonus => _lastStreakBonus;
   bool get isLoading => _isLoading;
   String? get error => _error;
   String? get successMessage => _successMessage;
@@ -199,6 +206,15 @@ class StatsProvider extends ChangeNotifier {
     // 마일리지 응답
     _socketService.on('mileage', (data) {
       _mileage = data['mileage'] ?? 0;
+      notifyListeners();
+    });
+
+    // 코인/연승 업데이트 (게임 종료 시)
+    _socketService.on('coins_updated', (data) {
+      _mileage = data['coins'] ?? _mileage;
+      _lastCoinsEarned = data['earned'] ?? 0;
+      _currentStreak = data['streak'] ?? 0;
+      _lastStreakBonus = data['streakBonus'] ?? false;
       notifyListeners();
     });
 
@@ -295,6 +311,7 @@ class StatsProvider extends ChangeNotifier {
     _socketService.off('stats_updated');
     _socketService.off('recent_records');
     _socketService.off('mileage');
+    _socketService.off('coins_updated');
     _socketService.off('ad_reward_result');
     _socketService.off('reset_stats_result');
     super.dispose();

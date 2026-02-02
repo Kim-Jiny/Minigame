@@ -3,7 +3,10 @@ import 'package:provider/provider.dart';
 import '../../providers/game_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
+import '../../providers/shop_provider.dart';
 import '../../config/app_config.dart';
+import '../../widgets/game_player_profile.dart';
+import '../../utils/game_theme.dart';
 
 class InfiniteTicTacToeScreen extends StatefulWidget {
   const InfiniteTicTacToeScreen({super.key});
@@ -42,14 +45,15 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
             onPressed: () => _showExitDialog(context),
           ),
         ),
-        body: Consumer<GameProvider>(
-          builder: (context, game, child) {
+        body: Consumer2<GameProvider, ShopProvider>(
+          builder: (context, game, shop, child) {
+            final theme = GameTheme.fromProfileSettings(shop.profileSettings);
             return switch (game.status) {
-              GameStatus.idle => _buildIdleView(game),
-              GameStatus.searching => _buildSearchingView(game),
-              GameStatus.matched => _buildMatchedView(game),
-              GameStatus.playing => _buildPlayingView(game),
-              GameStatus.finished => _buildFinishedView(game),
+              GameStatus.idle => _buildIdleView(game, theme),
+              GameStatus.searching => _buildSearchingView(game, theme),
+              GameStatus.matched => _buildMatchedView(game, theme),
+              GameStatus.playing => _buildPlayingView(game, theme),
+              GameStatus.finished => _buildFinishedView(game, theme),
             };
           },
         ),
@@ -57,17 +61,10 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
     );
   }
 
-  Widget _buildIdleView(GameProvider game) {
+  Widget _buildIdleView(GameProvider game, GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF74B9FF).withValues(alpha: 0.15),
-            Colors.white,
-          ],
-        ),
+        gradient: theme.backgroundGradient,
       ),
       child: Center(
         child: Column(
@@ -76,22 +73,22 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: const Color(0xFF74B9FF).withValues(alpha: 0.15),
+                color: theme.primary.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.all_inclusive,
                 size: 80,
-                color: Color(0xFF74B9FF),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 24),
-            const Text(
+            Text(
               '무한 틱택토',
               style: TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF6C5CE7),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 8),
@@ -107,20 +104,20 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: const Color(0xFFE8E0FF),
+                color: theme.background1,
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: const Row(
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.all_inclusive, size: 16, color: Color(0xFF6C5CE7)),
-                  SizedBox(width: 4),
+                  Icon(Icons.all_inclusive, size: 16, color: theme.primary),
+                  const SizedBox(width: 4),
                   Text(
                     '무승부 없음!',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF6C5CE7),
+                      color: theme.primary,
                     ),
                   ),
                 ],
@@ -177,7 +174,7 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
               icon: const Icon(Icons.search),
               label: Text(game.isHardcore ? '하드코어 상대 찾기' : '상대 찾기'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: game.isHardcore ? Colors.red : const Color(0xFF74B9FF),
+                backgroundColor: game.isHardcore ? Colors.red : theme.primary,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 32,
@@ -194,27 +191,20 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
     );
   }
 
-  Widget _buildSearchingView(GameProvider game) {
+  Widget _buildSearchingView(GameProvider game, GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF74B9FF).withValues(alpha: 0.15),
-            Colors.white,
-          ],
-        ),
+        gradient: theme.backgroundGradient,
       ),
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const SizedBox(
+            SizedBox(
               width: 60,
               height: 60,
               child: CircularProgressIndicator(
-                color: Color(0xFF74B9FF),
+                color: theme.primary,
                 strokeWidth: 4,
               ),
             ),
@@ -254,7 +244,7 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.auto_awesome, size: 16, color: Color(0xFFFDCB6E)),
+                  Icon(Icons.auto_awesome, size: 16, color: const Color(0xFFFDCB6E)),
                   const SizedBox(width: 4),
                   Text(
                     '상대를 기다리는 중',
@@ -264,7 +254,7 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
                     ),
                   ),
                   const SizedBox(width: 4),
-                  Icon(Icons.auto_awesome, size: 16, color: Color(0xFFFDCB6E)),
+                  Icon(Icons.auto_awesome, size: 16, color: const Color(0xFFFDCB6E)),
                 ],
               ),
             const SizedBox(height: 48),
@@ -273,8 +263,8 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
                 game.cancelMatch(AppConfig.gameTypeInfiniteTicTacToe);
               },
               style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF74B9FF),
-                side: const BorderSide(color: Color(0xFF74B9FF)),
+                foregroundColor: theme.primary,
+                side: BorderSide(color: theme.primary),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(30),
                 ),
@@ -287,17 +277,10 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
     );
   }
 
-  Widget _buildMatchedView(GameProvider game) {
+  Widget _buildMatchedView(GameProvider game, GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF74B9FF).withValues(alpha: 0.15),
-            Colors.white,
-          ],
-        ),
+        gradient: theme.backgroundGradient,
       ),
       child: Center(
         child: Column(
@@ -305,23 +288,23 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
           children: [
             Container(
               padding: const EdgeInsets.all(16),
-              decoration: const BoxDecoration(
-                color: Color(0xFFE8E0FF),
+              decoration: BoxDecoration(
+                color: theme.background1,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.sports_esports,
                 size: 64,
-                color: Color(0xFF74B9FF),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 16),
             Text(
               '${game.opponentNickname}님과 매칭!',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF6C5CE7),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 8),
@@ -335,7 +318,7 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
     );
   }
 
-  Widget _buildPlayingView(GameProvider game) {
+  Widget _buildPlayingView(GameProvider game, GameTheme theme) {
     final auth = context.read<AuthProvider>();
 
     return Container(
@@ -363,12 +346,14 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
               children: [
                 // 내 프로필
                 Expanded(
-                  child: _buildPlayerProfile(
-                    auth.nickname ?? '나',
-                    auth.avatarUrl,
-                    game.myPieceCount,
-                    game.isMyTurn,
-                    true,
+                  child: GamePlayerProfile(
+                    name: auth.nickname ?? '나',
+                    avatarUrl: auth.avatarUrl,
+                    isActive: game.isMyTurn,
+                    isMe: true,
+                    profileSettings: game.myProfileSettings ?? context.read<ShopProvider>().profileSettings,
+                    activeColor: const Color(0xFF00B894),
+                    extraWidget: _buildPieceCount(game.myPieceCount, true),
                   ),
                 ),
                 // VS & 타이머
@@ -391,12 +376,14 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
                 ),
                 // 상대 프로필
                 Expanded(
-                  child: _buildPlayerProfile(
-                    game.opponentNickname ?? '상대',
-                    game.opponentAvatarUrl,
-                    game.opponentPieceCount,
-                    !game.isMyTurn,
-                    false,
+                  child: GamePlayerProfile(
+                    name: game.opponentNickname ?? '상대',
+                    avatarUrl: game.opponentAvatarUrl,
+                    isActive: !game.isMyTurn,
+                    isMe: false,
+                    profileSettings: game.opponentProfileSettings,
+                    activeColor: const Color(0xFF00B894),
+                    extraWidget: _buildPieceCount(game.opponentPieceCount, false),
                   ),
                 ),
               ],
@@ -436,64 +423,23 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
     );
   }
 
-  Widget _buildPlayerProfile(String name, String? avatarUrl, int pieceCount, bool isActive, bool isMe) {
+  Widget _buildPieceCount(int pieceCount, bool isMe) {
     final color = isMe ? const Color(0xFF6C5CE7) : const Color(0xFFFFB74D);
-
-    return Column(
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: isActive ? const Color(0xFF00B894) : Colors.grey.shade300,
-              width: isActive ? 3 : 2,
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: List.generate(3, (index) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 1),
+            child: Icon(
+              index < pieceCount ? Icons.circle : Icons.circle_outlined,
+              size: 12,
+              color: index < pieceCount ? color : Colors.grey.shade300,
             ),
-            boxShadow: isActive ? [
-              BoxShadow(
-                color: const Color(0xFF00B894).withValues(alpha: 0.3),
-                blurRadius: 8,
-              ),
-            ] : null,
-          ),
-          child: CircleAvatar(
-            radius: 24,
-            backgroundColor: isMe ? const Color(0xFFE8E0FF) : Colors.grey.shade200,
-            backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-            child: avatarUrl == null
-                ? Icon(
-                    Icons.person,
-                    size: 24,
-                    color: isMe ? const Color(0xFF6C5CE7) : Colors.grey,
-                  )
-                : null,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          name,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            color: isActive ? const Color(0xFF00B894) : Colors.grey.shade600,
-          ),
-          overflow: TextOverflow.ellipsis,
-        ),
-        const SizedBox(height: 2),
-        // 말 개수 표시
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: List.generate(3, (index) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 1),
-              child: Icon(
-                index < pieceCount ? Icons.circle : Icons.circle_outlined,
-                size: 12,
-                color: index < pieceCount ? color : Colors.grey.shade300,
-              ),
-            );
-          }),
-        ),
-      ],
+          );
+        }),
+      ),
     );
   }
 
@@ -642,10 +588,10 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
     }
   }
 
-  Widget _buildFinishedView(GameProvider game) {
+  Widget _buildFinishedView(GameProvider game, GameTheme theme) {
     final isWinner = game.isWinner;
     final resultText = isWinner ? '승리!' : '아쉬워요...';
-    final resultColor = isWinner ? const Color(0xFF6C5CE7) : Colors.grey;
+    final resultColor = isWinner ? theme.primary : Colors.grey;
     final resultIcon = isWinner ? Icons.emoji_events : Icons.sentiment_dissatisfied;
 
     return Container(

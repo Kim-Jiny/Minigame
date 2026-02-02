@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/stats_provider.dart';
-import 'mileage_shop_screen.dart';
+import '../providers/shop_provider.dart';
+import '../models/shop_item.dart';
+import 'shop_screen.dart';
 import 'level_manage_screen.dart';
 import 'recent_records_screen.dart';
 
@@ -40,20 +42,22 @@ class ProfileScreen extends StatelessWidget {
       );
     }
 
-    return Consumer<StatsProvider>(
-      builder: (context, statsProvider, child) {
+    return Consumer2<StatsProvider, ShopProvider>(
+      builder: (context, statsProvider, shopProvider, child) {
         // 통합 레벨 계산
         int totalLevel = 0;
         for (var stats in statsProvider.allStats) {
           totalLevel += stats.level;
         }
 
+        final profileSettings = shopProvider.profileSettings;
+
         return SingleChildScrollView(
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
               // 프로필 카드
-              _buildProfileCard(context, auth, totalLevel),
+              _buildProfileCard(context, auth, totalLevel, profileSettings),
               const SizedBox(height: 24),
 
               // 메뉴 목록
@@ -61,12 +65,12 @@ class ProfileScreen extends StatelessWidget {
                 context,
                 icon: Icons.monetization_on,
                 iconColor: Colors.amber.shade600,
-                title: '마일리지 샵',
-                subtitle: '${statsProvider.mileage} 마일리지 보유',
+                title: '코인 샵',
+                subtitle: '${statsProvider.mileage} 코인 보유',
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => const MileageShopScreen()),
+                    MaterialPageRoute(builder: (_) => const ShopScreen()),
                   );
                 },
               ),
@@ -127,7 +131,56 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildProfileCard(BuildContext context, AuthProvider auth, int totalLevel) {
+  Widget _buildProfileCard(BuildContext context, AuthProvider auth, int totalLevel, dynamic profileSettings) {
+    // 테마 색상 결정
+    List<Color> themeColors = [
+      Theme.of(context).primaryColor,
+      Theme.of(context).primaryColor.withValues(alpha: 0.7),
+    ];
+
+    if (profileSettings?.activeTheme != null) {
+      final gradientColors = profileSettings.activeTheme.gradientColors;
+      if (gradientColors != null && gradientColors.length >= 2) {
+        themeColors = gradientColors;
+      }
+    }
+
+    // 프레임 스타일 결정
+    Color? frameColor;
+    Color? glowColor;
+    bool isRainbow = false;
+
+    if (profileSettings?.activeFrame != null) {
+      final frame = profileSettings.activeFrame;
+      frameColor = frame.borderColor;
+      glowColor = frame.glowColor;
+      isRainbow = frame.isRainbow;
+    }
+
+    // 칭호 정보
+    String? titleText;
+    String? titleIcon;
+    Color? titleColor;
+    List<Color>? titleGradient;
+
+    if (profileSettings?.activeTitle != null) {
+      final title = profileSettings.activeTitle;
+      titleText = title.name;
+      titleIcon = title.titleIcon;
+      titleColor = title.textColor;
+      titleGradient = title.titleGradient;
+    }
+
+    // 아바타 정보
+    String? avatarEmoji;
+    Color? avatarBgColor;
+
+    final activeAvatar = profileSettings?.activeAvatar;
+    if (activeAvatar != null) {
+      avatarEmoji = activeAvatar.avatarEmoji;
+      avatarBgColor = activeAvatar.avatarBgColor;
+    }
+
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -139,23 +192,13 @@ class ProfileScreen extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              Theme.of(context).primaryColor,
-              Theme.of(context).primaryColor.withValues(alpha: 0.7),
-            ],
+            colors: themeColors,
           ),
         ),
         child: Column(
           children: [
-            // 아바타
-            CircleAvatar(
-              radius: 40,
-              backgroundColor: Colors.white.withValues(alpha: 0.2),
-              backgroundImage: auth.avatarUrl != null ? NetworkImage(auth.avatarUrl!) : null,
-              child: auth.avatarUrl == null
-                  ? const Icon(Icons.person, size: 40, color: Colors.white)
-                  : null,
-            ),
+            // 프레임이 적용된 아바타
+            _buildFramedAvatar(frameColor, glowColor, isRainbow, avatarEmoji, avatarBgColor),
             const SizedBox(height: 16),
 
             // 닉네임
@@ -167,7 +210,12 @@ class ProfileScreen extends StatelessWidget {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            if (auth.email != null) ...[
+
+            // 칭호
+            if (titleText != null) ...[
+              const SizedBox(height: 4),
+              _buildTitleWidget(titleText, titleIcon, titleColor, titleGradient),
+            ] else if (auth.email != null) ...[
               const SizedBox(height: 4),
               Text(
                 auth.email!,
@@ -201,6 +249,83 @@ class ProfileScreen extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildFramedAvatar(Color? frameColor, Color? glowColor, bool isRainbow, String? avatarEmoji, Color? avatarBgColor) {
+    return Container(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: glowColor != null
+            ? [
+                BoxShadow(
+                  color: glowColor.withValues(alpha: 0.6),
+                  blurRadius: 12,
+                  spreadRadius: 4,
+                ),
+              ]
+            : null,
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: isRainbow
+              ? const SweepGradient(
+                  colors: [
+                    Colors.red,
+                    Colors.orange,
+                    Colors.yellow,
+                    Colors.green,
+                    Colors.blue,
+                    Colors.purple,
+                    Colors.red,
+                  ],
+                )
+              : null,
+          border: !isRainbow && frameColor != null
+              ? Border.all(color: frameColor, width: 4)
+              : !isRainbow
+                  ? Border.all(color: Colors.white.withValues(alpha: 0.3), width: 2)
+                  : null,
+        ),
+        child: CircleAvatar(
+          radius: 40,
+          backgroundColor: avatarBgColor ?? Colors.white.withValues(alpha: 0.2),
+          child: avatarEmoji != null
+              ? Text(avatarEmoji, style: const TextStyle(fontSize: 48))
+              : const Icon(Icons.person, size: 40, color: Colors.white),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTitleWidget(String title, String? icon, Color? textColor, List<Color>? gradient) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (icon != null) ...[
+          Text(icon, style: const TextStyle(fontSize: 14)),
+          const SizedBox(width: 4),
+        ],
+        ShaderMask(
+          shaderCallback: (bounds) {
+            if (gradient != null && gradient.length >= 2) {
+              return LinearGradient(colors: gradient).createShader(bounds);
+            }
+            final color = textColor ?? Colors.white70;
+            return LinearGradient(colors: [color, color]).createShader(bounds);
+          },
+          child: Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ],
     );
   }
 

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../services/socket_service.dart';
+import '../models/shop_item.dart';
 
 class Friend {
   final int id;
@@ -9,6 +10,7 @@ class Friend {
   final String? friendCode;
   final String? memo;
   final bool isOnline;
+  final UserProfileSettings? profileSettings;
 
   Friend({
     required this.id,
@@ -18,6 +20,7 @@ class Friend {
     this.friendCode,
     this.memo,
     this.isOnline = false,
+    this.profileSettings,
   });
 
   Friend copyWith({String? memo}) {
@@ -29,6 +32,7 @@ class Friend {
       friendCode: friendCode,
       memo: memo ?? this.memo,
       isOnline: isOnline,
+      profileSettings: profileSettings,
     );
   }
 
@@ -41,6 +45,9 @@ class Friend {
       friendCode: json['friendCode'],
       memo: json['memo'],
       isOnline: json['isOnline'] ?? false,
+      profileSettings: json['profileSettings'] != null
+          ? UserProfileSettings.fromJson(json['profileSettings'])
+          : null,
     );
   }
 }

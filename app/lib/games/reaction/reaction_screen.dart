@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
+import '../../providers/shop_provider.dart';
 import '../../services/socket_service.dart';
 import '../../config/app_config.dart';
+import '../../models/shop_item.dart';
+import '../../widgets/game_player_profile.dart';
+import '../../utils/game_theme.dart';
 
 enum ReactionGameStatus {
   idle,
@@ -42,6 +46,8 @@ class _ReactionScreenState extends State<ReactionScreen> {
   int? _opponentUserId;
   bool _isInvitationGame = false;
   final bool _isHardcore = false;
+  UserProfileSettings? _myProfileSettings;
+  UserProfileSettings? _opponentProfileSettings;
 
   int _currentRound = 0;
   List<int> _scores = [0, 0]; // [player0, player1]
@@ -86,6 +92,7 @@ class _ReactionScreenState extends State<ReactionScreen> {
     _socketService.on('match_found', (data) {
       final players = data['players'] as List;
       final opponent = players.firstWhere((p) => p['id'] != _myId);
+      final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
       _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
 
       setState(() {
@@ -95,6 +102,13 @@ class _ReactionScreenState extends State<ReactionScreen> {
         _opponentAvatarUrl = opponent['avatarUrl'];
         _opponentUserId = opponent['userId'];
         _isInvitationGame = data['isInvitation'] == true;
+        // 프로필 설정
+        if (me != null && me['profileSettings'] != null) {
+          _myProfileSettings = UserProfileSettings.fromJson(me['profileSettings']);
+        }
+        if (opponent['profileSettings'] != null) {
+          _opponentProfileSettings = UserProfileSettings.fromJson(opponent['profileSettings']);
+        }
       });
     });
 
@@ -271,6 +285,9 @@ class _ReactionScreenState extends State<ReactionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final shop = context.watch<ShopProvider>();
+    final theme = GameTheme.fromProfileSettings(shop.profileSettings);
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -285,32 +302,25 @@ class _ReactionScreenState extends State<ReactionScreen> {
             onPressed: _showExitDialog,
           ),
         ),
-        body: _buildBody(),
+        body: _buildBody(theme),
       ),
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(GameTheme theme) {
     return switch (_status) {
-      ReactionGameStatus.idle => _buildIdleView(),
-      ReactionGameStatus.searching => _buildSearchingView(),
-      ReactionGameStatus.matched => _buildMatchedView(),
-      ReactionGameStatus.playing => _buildPlayingView(),
-      ReactionGameStatus.finished => _buildFinishedView(),
+      ReactionGameStatus.idle => _buildIdleView(theme),
+      ReactionGameStatus.searching => _buildSearchingView(theme),
+      ReactionGameStatus.matched => _buildMatchedView(theme),
+      ReactionGameStatus.playing => _buildPlayingView(theme),
+      ReactionGameStatus.finished => _buildFinishedView(theme),
     };
   }
 
-  Widget _buildIdleView() {
+  Widget _buildIdleView(GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFFE74C3C).withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
+        gradient: theme.backgroundGradient,
       ),
       child: Center(
         child: Column(
@@ -319,22 +329,22 @@ class _ReactionScreenState extends State<ReactionScreen> {
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: const Color(0xFFE74C3C).withValues(alpha: 0.1),
+                color: theme.primary.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.flash_on,
                 size: 80,
-                color: Color(0xFFE74C3C),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 24),
-            const Text(
+            Text(
               '반응속도',
               style: TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFFE74C3C),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 8),
@@ -359,8 +369,8 @@ class _ReactionScreenState extends State<ReactionScreen> {
               icon: const Icon(Icons.search),
               label: const Text('상대 찾기'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFE74C3C),
-                foregroundColor: Colors.white,
+                backgroundColor: theme.primary,
+                foregroundColor: theme.textOnPrimary,
                 padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(30),
@@ -373,27 +383,20 @@ class _ReactionScreenState extends State<ReactionScreen> {
     );
   }
 
-  Widget _buildSearchingView() {
+  Widget _buildSearchingView(GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFFE74C3C).withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
+        gradient: theme.backgroundGradient,
       ),
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const SizedBox(
+            SizedBox(
               width: 60,
               height: 60,
               child: CircularProgressIndicator(
-                color: Color(0xFFE74C3C),
+                color: theme.primary,
                 strokeWidth: 4,
               ),
             ),
@@ -409,8 +412,8 @@ class _ReactionScreenState extends State<ReactionScreen> {
             OutlinedButton(
               onPressed: _cancelMatch,
               style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFFE74C3C),
-                side: const BorderSide(color: Color(0xFFE74C3C)),
+                foregroundColor: theme.primary,
+                side: BorderSide(color: theme.primary),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(30),
                 ),
@@ -423,17 +426,10 @@ class _ReactionScreenState extends State<ReactionScreen> {
     );
   }
 
-  Widget _buildMatchedView() {
+  Widget _buildMatchedView(GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFFE74C3C).withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
+        gradient: theme.backgroundGradient,
       ),
       child: Center(
         child: Column(
@@ -441,23 +437,23 @@ class _ReactionScreenState extends State<ReactionScreen> {
           children: [
             Container(
               padding: const EdgeInsets.all(16),
-              decoration: const BoxDecoration(
-                color: Color(0xFFFADADA),
+              decoration: BoxDecoration(
+                color: theme.background1,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.sports_esports,
                 size: 64,
-                color: Color(0xFFE74C3C),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 16),
             Text(
               '$_opponentNickname님과 매칭!',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFFE74C3C),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 8),
@@ -471,7 +467,7 @@ class _ReactionScreenState extends State<ReactionScreen> {
     );
   }
 
-  Widget _buildPlayingView() {
+  Widget _buildPlayingView(GameTheme theme) {
     return Column(
       children: [
         // 프로필 & 점수판
@@ -486,11 +482,14 @@ class _ReactionScreenState extends State<ReactionScreen> {
             children: [
               // 내 프로필
               Expanded(
-                child: _buildPlayerProfile(
-                  _myNickname ?? '나',
-                  _myAvatarUrl,
-                  _scores[_myPlayerIndex],
-                  true,
+                child: GamePlayerProfile(
+                  name: _myNickname ?? '나',
+                  avatarUrl: _myAvatarUrl,
+                  isActive: true,
+                  isMe: true,
+                  profileSettings: _myProfileSettings ?? context.read<ShopProvider>().profileSettings,
+                  activeColor: const Color(0xFFE74C3C),
+                  extraWidget: _buildScoreWidget(_scores[_myPlayerIndex]),
                 ),
               ),
               // 라운드 표시
@@ -527,11 +526,14 @@ class _ReactionScreenState extends State<ReactionScreen> {
               ),
               // 상대 프로필
               Expanded(
-                child: _buildPlayerProfile(
-                  _opponentNickname ?? '상대',
-                  _opponentAvatarUrl,
-                  _scores[1 - _myPlayerIndex],
-                  false,
+                child: GamePlayerProfile(
+                  name: _opponentNickname ?? '상대',
+                  avatarUrl: _opponentAvatarUrl,
+                  isActive: true,
+                  isMe: false,
+                  profileSettings: _opponentProfileSettings,
+                  activeColor: const Color(0xFFE74C3C),
+                  extraWidget: _buildScoreWidget(_scores[1 - _myPlayerIndex]),
                 ),
               ),
             ],
@@ -560,63 +562,24 @@ class _ReactionScreenState extends State<ReactionScreen> {
     );
   }
 
-  Widget _buildPlayerProfile(String name, String? avatarUrl, int score, bool isMe) {
-    return Column(
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: isMe ? const Color(0xFFE74C3C) : Colors.grey.shade400,
-              width: 3,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: (isMe ? const Color(0xFFE74C3C) : Colors.grey).withValues(alpha: 0.3),
-                blurRadius: 8,
-              ),
-            ],
-          ),
-          child: CircleAvatar(
-            radius: 28,
-            backgroundColor: isMe ? const Color(0xFFFADADA) : Colors.grey.shade200,
-            backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-            child: avatarUrl == null
-                ? Icon(
-                    Icons.person,
-                    size: 28,
-                    color: isMe ? const Color(0xFFE74C3C) : Colors.grey,
-                  )
-                : null,
-          ),
+  Widget _buildScoreWidget(int score) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        decoration: BoxDecoration(
+          color: const Color(0xFFE74C3C),
+          borderRadius: BorderRadius.circular(12),
         ),
-        const SizedBox(height: 6),
-        Text(
-          name,
-          style: TextStyle(
-            fontSize: 13,
+        child: Text(
+          '$score',
+          style: const TextStyle(
+            fontSize: 18,
             fontWeight: FontWeight.bold,
-            color: isMe ? const Color(0xFFE74C3C) : Colors.grey.shade700,
-          ),
-          overflow: TextOverflow.ellipsis,
-        ),
-        const SizedBox(height: 4),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          decoration: BoxDecoration(
-            color: isMe ? const Color(0xFFE74C3C) : Colors.grey,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            '$score',
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
+            color: Colors.white,
           ),
         ),
-      ],
+      ),
     );
   }
 
@@ -799,7 +762,7 @@ class _ReactionScreenState extends State<ReactionScreen> {
     );
   }
 
-  Widget _buildFinishedView() {
+  Widget _buildFinishedView(GameTheme theme) {
     final isWinner = _winnerId == _myId;
 
     String resultText;

@@ -3,8 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
+import '../../providers/shop_provider.dart';
 import '../../services/socket_service.dart';
 import '../../config/app_config.dart';
+import '../../models/shop_item.dart';
+import '../../utils/game_theme.dart';
+import '../../widgets/game_player_profile.dart';
 
 enum SpeedTapGameStatus {
   idle,
@@ -35,6 +39,8 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
   int? _opponentUserId;
   bool _isInvitationGame = false;
   int _myPlayerIndex = 0;
+  UserProfileSettings? _myProfileSettings;
+  UserProfileSettings? _opponentProfileSettings;
 
   int _currentRound = 0;
   List<int> _roundScores = [0, 0]; // 라운드 승리 수
@@ -129,6 +135,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
     _socketService.on('match_found', (data) {
       final players = data['players'] as List;
       final opponent = players.firstWhere((p) => p['id'] != _myId);
+      final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
       _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
 
       setState(() {
@@ -138,6 +145,13 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
         _opponentAvatarUrl = opponent['avatarUrl'];
         _opponentUserId = opponent['userId'];
         _isInvitationGame = data['isInvitation'] == true;
+        // 프로필 설정 파싱
+        if (opponent['profileSettings'] != null) {
+          _opponentProfileSettings = UserProfileSettings.fromJson(opponent['profileSettings']);
+        }
+        if (me != null && me['profileSettings'] != null) {
+          _myProfileSettings = UserProfileSettings.fromJson(me['profileSettings']);
+        }
       });
     });
 
@@ -330,48 +344,46 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        _showExitDialog();
-      },
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('스피드 탭'),
-          backgroundColor: const Color(0xFF00CEC9),
-          foregroundColor: Colors.white,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: _showExitDialog,
+    return Consumer<ShopProvider>(
+      builder: (context, shop, child) {
+        final theme = GameTheme.fromProfileSettings(shop.profileSettings);
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop) return;
+            _showExitDialog(theme);
+          },
+          child: Scaffold(
+            appBar: AppBar(
+              title: const Text('스피드 탭'),
+              backgroundColor: theme.primary,
+              foregroundColor: Colors.white,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => _showExitDialog(theme),
+              ),
+            ),
+            body: _buildBody(theme),
           ),
-        ),
-        body: _buildBody(),
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(GameTheme theme) {
     return switch (_status) {
-      SpeedTapGameStatus.idle => _buildIdleView(),
-      SpeedTapGameStatus.searching => _buildSearchingView(),
-      SpeedTapGameStatus.matched => _buildMatchedView(),
-      SpeedTapGameStatus.playing => _buildPlayingView(),
-      SpeedTapGameStatus.finished => _buildFinishedView(),
+      SpeedTapGameStatus.idle => _buildIdleView(theme),
+      SpeedTapGameStatus.searching => _buildSearchingView(theme),
+      SpeedTapGameStatus.matched => _buildMatchedView(theme),
+      SpeedTapGameStatus.playing => _buildPlayingView(theme),
+      SpeedTapGameStatus.finished => _buildFinishedView(theme),
     };
   }
 
-  Widget _buildIdleView() {
+  Widget _buildIdleView(GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF00CEC9).withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
+        gradient: theme.backgroundGradient,
       ),
       child: Center(
         child: Column(
@@ -384,24 +396,24 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF00CEC9).withValues(alpha: 0.3),
+                    color: theme.primary.withValues(alpha: 0.3),
                     blurRadius: 20,
                   ),
                 ],
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.touch_app,
                 size: 64,
-                color: Color(0xFF00CEC9),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 32),
-            const Text(
+            Text(
               '스피드 탭',
               style: TextStyle(
                 fontSize: 28,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF00CEC9),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 8),
@@ -426,7 +438,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
               icon: const Icon(Icons.search),
               label: const Text('상대 찾기'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF00CEC9),
+                backgroundColor: theme.primary,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
                 shape: RoundedRectangleBorder(
@@ -440,7 +452,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
     );
   }
 
-  Widget _buildSearchingView() {
+  Widget _buildSearchingView(GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -483,7 +495,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
     );
   }
 
-  Widget _buildMatchedView() {
+  Widget _buildMatchedView(GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -531,7 +543,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
     );
   }
 
-  Widget _buildPlayingView() {
+  Widget _buildPlayingView(GameTheme theme) {
     final bool showResult = _lastPlayer0Taps != null && !_roundInProgress;
 
     return Column(
@@ -547,12 +559,14 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
           child: Row(
             children: [
               Expanded(
-                child: _buildPlayerProfile(
-                  _myNickname ?? '나',
-                  _myAvatarUrl,
-                  _taps[_myPlayerIndex],
-                  _roundScores[_myPlayerIndex],
-                  true,
+                child: GamePlayerProfile(
+                  name: _myNickname ?? '나',
+                  avatarUrl: _myAvatarUrl,
+                  isActive: true,
+                  isMe: true,
+                  profileSettings: _myProfileSettings,
+                  activeColor: const Color(0xFF00CEC9),
+                  extraWidget: _buildTapScoreWidget(_taps[_myPlayerIndex], _roundScores[_myPlayerIndex], true),
                 ),
               ),
               Padding(
@@ -587,12 +601,14 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
                 ),
               ),
               Expanded(
-                child: _buildPlayerProfile(
-                  _opponentNickname ?? '상대',
-                  _opponentAvatarUrl,
-                  _taps[1 - _myPlayerIndex],
-                  _roundScores[1 - _myPlayerIndex],
-                  false,
+                child: GamePlayerProfile(
+                  name: _opponentNickname ?? '상대',
+                  avatarUrl: _opponentAvatarUrl,
+                  isActive: false,
+                  isMe: false,
+                  profileSettings: _opponentProfileSettings,
+                  activeColor: const Color(0xFF00CEC9),
+                  extraWidget: _buildTapScoreWidget(_taps[1 - _myPlayerIndex], _roundScores[1 - _myPlayerIndex], false),
                 ),
               ),
             ],
@@ -609,47 +625,9 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
     );
   }
 
-  Widget _buildPlayerProfile(String name, String? avatarUrl, int tapCount, int roundWins, bool isMe) {
+  Widget _buildTapScoreWidget(int tapCount, int roundWins, bool isMe) {
     return Column(
       children: [
-        Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: isMe ? const Color(0xFF00CEC9) : Colors.grey.shade400,
-              width: 3,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: (isMe ? const Color(0xFF00CEC9) : Colors.grey).withValues(alpha: 0.3),
-                blurRadius: 8,
-              ),
-            ],
-          ),
-          child: CircleAvatar(
-            radius: 24,
-            backgroundColor: isMe ? const Color(0xFFE0F7FA) : Colors.grey.shade200,
-            backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-            child: avatarUrl == null
-                ? Icon(
-                    Icons.person,
-                    size: 24,
-                    color: isMe ? const Color(0xFF00CEC9) : Colors.grey,
-                  )
-                : null,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          name,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            color: isMe ? const Color(0xFF00CEC9) : Colors.grey.shade700,
-          ),
-          overflow: TextOverflow.ellipsis,
-        ),
-        const SizedBox(height: 4),
         // 탭 카운트
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
@@ -909,7 +887,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
     );
   }
 
-  Widget _buildFinishedView() {
+  Widget _buildFinishedView(GameTheme theme) {
     final isWinner = _winnerId == _myId;
 
     String resultText;
@@ -1120,7 +1098,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
     );
   }
 
-  void _showExitDialog() {
+  void _showExitDialog(GameTheme theme) {
     if (_status == SpeedTapGameStatus.idle) {
       Navigator.pop(context);
       return;

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/friend_provider.dart';
 import '../providers/auth_provider.dart';
+import '../models/shop_item.dart';
 import 'chat_screen.dart';
 
 class FriendsScreen extends StatefulWidget {
@@ -20,6 +21,32 @@ class _FriendsScreenState extends State<FriendsScreen> {
   void dispose() {
     _friendCodeController.dispose();
     super.dispose();
+  }
+
+  Widget _buildTitleBadge(UserProfileSettings settings) {
+    final gradientColors = settings.getTitleGradient();
+    final hasGradient = gradientColors != null;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        gradient: hasGradient
+            ? LinearGradient(
+                colors: [gradientColors.$1, gradientColors.$2],
+              )
+            : null,
+        color: hasGradient ? null : Colors.grey.shade200,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        settings.activeTitleName ?? '',
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w500,
+          color: hasGradient ? Colors.white : Colors.grey.shade700,
+        ),
+      ),
+    );
   }
 
   void _showAddFriendDialog(BuildContext context) {
@@ -773,18 +800,46 @@ class _FriendsScreenState extends State<FriendsScreen> {
   }
 
   Widget _buildFriendCard(BuildContext context, Friend friend, FriendProvider friendProvider) {
+    // 프레임 색상 가져오기
+    final frameColors = friend.profileSettings?.getFrameColors();
+    final hasFrame = frameColors != null;
+    // 아바타 정보 가져오기
+    final avatarInfo = friend.profileSettings?.getAvatarInfo();
+    final avatarEmoji = avatarInfo?.$1;
+    final avatarBgColor = avatarInfo?.$2;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
         leading: Stack(
           children: [
-            CircleAvatar(
-              backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.2),
-              backgroundImage: friend.avatarUrl != null ? NetworkImage(friend.avatarUrl!) : null,
-              child: friend.avatarUrl == null
-                  ? Icon(Icons.person, color: Theme.of(context).primaryColor)
+            // 프레임이 있으면 테두리 적용
+            Container(
+              padding: hasFrame ? const EdgeInsets.all(2) : EdgeInsets.zero,
+              decoration: hasFrame
+                  ? BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        colors: [frameColors.$1, frameColors.$2],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: frameColors.$1.withValues(alpha: 0.4),
+                          blurRadius: 6,
+                          spreadRadius: 1,
+                        ),
+                      ],
+                    )
                   : null,
+              child: CircleAvatar(
+                backgroundColor: avatarBgColor ?? Theme.of(context).primaryColor.withValues(alpha: 0.2),
+                child: avatarEmoji != null
+                    ? Text(avatarEmoji, style: const TextStyle(fontSize: 24))
+                    : Icon(Icons.person, color: Theme.of(context).primaryColor),
+              ),
             ),
             if (friend.isOnline)
               Positioned(
@@ -804,9 +859,12 @@ class _FriendsScreenState extends State<FriendsScreen> {
         ),
         title: Row(
           children: [
-            Text(
-              friend.nickname,
-              style: const TextStyle(fontWeight: FontWeight.bold),
+            Flexible(
+              child: Text(
+                friend.nickname,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             if (friend.memo != null && friend.memo!.isNotEmpty) ...[
               const SizedBox(width: 8),
@@ -823,12 +881,22 @@ class _FriendsScreenState extends State<FriendsScreen> {
             ],
           ],
         ),
-        subtitle: Text(
-          friend.isOnline ? '온라인' : '오프라인',
-          style: TextStyle(
-            color: friend.isOnline ? Colors.green : Colors.grey,
-            fontSize: 12,
-          ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 칭호 표시
+            if (friend.profileSettings?.activeTitleName != null) ...[
+              _buildTitleBadge(friend.profileSettings!),
+              const SizedBox(height: 2),
+            ],
+            Text(
+              friend.isOnline ? '온라인' : '오프라인',
+              style: TextStyle(
+                color: friend.isOnline ? Colors.green : Colors.grey,
+                fontSize: 12,
+              ),
+            ),
+          ],
         ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,

@@ -17,6 +17,28 @@ export interface Friend {
   avatarUrl?: string;
   friendCode: string;
   memo?: string;
+  profileSettings?: {
+    activeFrameId?: number;
+    activeFrameKey?: string;
+    activeFrameName?: string;
+    activeFrameRarity?: string;
+    activeFramePreviewData?: any;
+    activeTitleId?: number;
+    activeTitleKey?: string;
+    activeTitleName?: string;
+    activeTitleRarity?: string;
+    activeTitlePreviewData?: any;
+    activeThemeId?: number;
+    activeThemeKey?: string;
+    activeThemeName?: string;
+    activeThemeRarity?: string;
+    activeThemePreviewData?: any;
+    activeAvatarId?: number;
+    activeAvatarKey?: string;
+    activeAvatarName?: string;
+    activeAvatarRarity?: string;
+    activeAvatarPreviewData?: any;
+  } | null;
 }
 
 export interface FriendRequest {
@@ -302,16 +324,71 @@ export const friendService = {
     if (!pool) throw new Error('Database not connected');
 
     const result = await pool.query(
-      `SELECT u.id, u.nickname, u.email, u.avatar_url as "avatarUrl", fc.code as "friendCode", f.memo
+      `SELECT u.id, u.nickname, u.email, u.avatar_url as "avatarUrl", fc.code as "friendCode", f.memo,
+              ups.active_frame_id as "activeFrameId",
+              ups.active_title_id as "activeTitleId",
+              ups.active_theme_id as "activeThemeId",
+              ups.active_avatar_id as "activeAvatarId",
+              frame.item_key as "activeFrameKey",
+              frame.name as "activeFrameName",
+              frame.rarity as "activeFrameRarity",
+              frame.preview_data as "activeFramePreviewData",
+              title.item_key as "activeTitleKey",
+              title.name as "activeTitleName",
+              title.rarity as "activeTitleRarity",
+              title.preview_data as "activeTitlePreviewData",
+              theme.item_key as "activeThemeKey",
+              theme.name as "activeThemeName",
+              theme.rarity as "activeThemeRarity",
+              theme.preview_data as "activeThemePreviewData",
+              avatar.item_key as "activeAvatarKey",
+              avatar.name as "activeAvatarName",
+              avatar.rarity as "activeAvatarRarity",
+              avatar.preview_data as "activeAvatarPreviewData"
        FROM users u
        JOIN friendships f ON u.id = f.friend_id
        LEFT JOIN friend_codes fc ON u.id = fc.user_id
+       LEFT JOIN user_profile_settings ups ON u.id = ups.user_id
+       LEFT JOIN shop_items frame ON ups.active_frame_id = frame.id
+       LEFT JOIN shop_items title ON ups.active_title_id = title.id
+       LEFT JOIN shop_items theme ON ups.active_theme_id = theme.id
+       LEFT JOIN shop_items avatar ON ups.active_avatar_id = avatar.id
        WHERE f.user_id = $1
        ORDER BY u.nickname`,
       [userId]
     );
 
-    return result.rows;
+    // 프로필 설정을 별도 객체로 변환
+    return result.rows.map(row => ({
+      id: row.id,
+      nickname: row.nickname,
+      email: row.email,
+      avatarUrl: row.avatarUrl,
+      friendCode: row.friendCode,
+      memo: row.memo,
+      profileSettings: row.activeFrameKey || row.activeTitleKey || row.activeThemeKey || row.activeAvatarKey ? {
+        activeFrameId: row.activeFrameId,
+        activeFrameKey: row.activeFrameKey,
+        activeFrameName: row.activeFrameName,
+        activeFrameRarity: row.activeFrameRarity,
+        activeFramePreviewData: row.activeFramePreviewData,
+        activeTitleId: row.activeTitleId,
+        activeTitleKey: row.activeTitleKey,
+        activeTitleName: row.activeTitleName,
+        activeTitleRarity: row.activeTitleRarity,
+        activeTitlePreviewData: row.activeTitlePreviewData,
+        activeThemeId: row.activeThemeId,
+        activeThemeKey: row.activeThemeKey,
+        activeThemeName: row.activeThemeName,
+        activeThemeRarity: row.activeThemeRarity,
+        activeThemePreviewData: row.activeThemePreviewData,
+        activeAvatarId: row.activeAvatarId,
+        activeAvatarKey: row.activeAvatarKey,
+        activeAvatarName: row.activeAvatarName,
+        activeAvatarRarity: row.activeAvatarRarity,
+        activeAvatarPreviewData: row.activeAvatarPreviewData,
+      } : null,
+    }));
   },
 
   // 친구 메모 수정

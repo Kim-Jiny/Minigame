@@ -3,7 +3,10 @@ import 'package:provider/provider.dart';
 import '../../providers/game_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
+import '../../providers/shop_provider.dart';
 import '../../config/app_config.dart';
+import '../../widgets/game_player_profile.dart';
+import '../../utils/game_theme.dart';
 
 class GomokuScreen extends StatefulWidget {
   const GomokuScreen({super.key});
@@ -56,14 +59,15 @@ class _GomokuScreenState extends State<GomokuScreen> {
             onPressed: () => _showExitDialog(context),
           ),
         ),
-        body: Consumer<GameProvider>(
-          builder: (context, game, child) {
+        body: Consumer2<GameProvider, ShopProvider>(
+          builder: (context, game, shop, child) {
+            final theme = GameTheme.fromProfileSettings(shop.profileSettings);
             return switch (game.status) {
-              GameStatus.idle => _buildIdleView(game),
-              GameStatus.searching => _buildSearchingView(game),
-              GameStatus.matched => _buildMatchedView(game),
-              GameStatus.playing => _buildPlayingView(game),
-              GameStatus.finished => _buildFinishedView(game),
+              GameStatus.idle => _buildIdleView(game, theme),
+              GameStatus.searching => _buildSearchingView(game, theme),
+              GameStatus.matched => _buildMatchedView(game, theme),
+              GameStatus.playing => _buildPlayingView(game, theme),
+              GameStatus.finished => _buildFinishedView(game, theme),
             };
           },
         ),
@@ -71,17 +75,10 @@ class _GomokuScreenState extends State<GomokuScreen> {
     );
   }
 
-  Widget _buildIdleView(GameProvider game) {
+  Widget _buildIdleView(GameProvider game, GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF2D3436).withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
+        gradient: theme.backgroundGradient,
       ),
       child: Center(
         child: Column(
@@ -91,22 +88,22 @@ class _GomokuScreenState extends State<GomokuScreen> {
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: const Color(0xFF2D3436).withValues(alpha: 0.1),
+                color: theme.primary.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.circle_outlined,
                 size: 80,
-                color: Color(0xFF2D3436),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 24),
-            const Text(
+            Text(
               '오목',
               style: TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF2D3436),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 8),
@@ -168,7 +165,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
               icon: const Icon(Icons.search),
               label: Text(game.isHardcore ? '하드코어 상대 찾기' : '상대 찾기'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: game.isHardcore ? Colors.red : const Color(0xFF2D3436),
+                backgroundColor: game.isHardcore ? Colors.red : theme.primary,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 32,
@@ -185,27 +182,20 @@ class _GomokuScreenState extends State<GomokuScreen> {
     );
   }
 
-  Widget _buildSearchingView(GameProvider game) {
+  Widget _buildSearchingView(GameProvider game, GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF2D3436).withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
+        gradient: theme.backgroundGradient,
       ),
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const SizedBox(
+            SizedBox(
               width: 60,
               height: 60,
               child: CircularProgressIndicator(
-                color: Color(0xFF2D3436),
+                color: theme.primary,
                 strokeWidth: 4,
               ),
             ),
@@ -264,8 +254,8 @@ class _GomokuScreenState extends State<GomokuScreen> {
                 game.cancelMatch(AppConfig.gameTypeGomoku);
               },
               style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF2D3436),
-                side: const BorderSide(color: Color(0xFF2D3436)),
+                foregroundColor: theme.primary,
+                side: BorderSide(color: theme.primary),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(30),
                 ),
@@ -278,17 +268,10 @@ class _GomokuScreenState extends State<GomokuScreen> {
     );
   }
 
-  Widget _buildMatchedView(GameProvider game) {
+  Widget _buildMatchedView(GameProvider game, GameTheme theme) {
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF2D3436).withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
+        gradient: theme.backgroundGradient,
       ),
       child: Center(
         child: Column(
@@ -296,23 +279,23 @@ class _GomokuScreenState extends State<GomokuScreen> {
           children: [
             Container(
               padding: const EdgeInsets.all(16),
-              decoration: const BoxDecoration(
-                color: Color(0xFFDFE6E9),
+              decoration: BoxDecoration(
+                color: theme.background1,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.sports_esports,
                 size: 64,
-                color: Color(0xFF2D3436),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 16),
             Text(
               '${game.opponentNickname}님과 매칭!',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF2D3436),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 8),
@@ -326,7 +309,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
     );
   }
 
-  Widget _buildPlayingView(GameProvider game) {
+  Widget _buildPlayingView(GameProvider game, GameTheme theme) {
     final auth = context.read<AuthProvider>();
 
     return Container(
@@ -354,11 +337,13 @@ class _GomokuScreenState extends State<GomokuScreen> {
               children: [
                 // 내 프로필
                 Expanded(
-                  child: _buildPlayerProfile(
-                    auth.nickname ?? '나',
-                    auth.avatarUrl,
-                    game.isMyTurn,
-                    true,
+                  child: GamePlayerProfile(
+                    name: auth.nickname ?? '나',
+                    avatarUrl: auth.avatarUrl,
+                    isActive: game.isMyTurn,
+                    isMe: true,
+                    profileSettings: game.myProfileSettings ?? context.read<ShopProvider>().profileSettings,
+                    activeColor: const Color(0xFF2D3436),
                   ),
                 ),
                 // VS & 타이머
@@ -381,11 +366,13 @@ class _GomokuScreenState extends State<GomokuScreen> {
                 ),
                 // 상대 프로필
                 Expanded(
-                  child: _buildPlayerProfile(
-                    game.opponentNickname ?? '상대',
-                    game.opponentAvatarUrl,
-                    !game.isMyTurn,
-                    false,
+                  child: GamePlayerProfile(
+                    name: game.opponentNickname ?? '상대',
+                    avatarUrl: game.opponentAvatarUrl,
+                    isActive: !game.isMyTurn,
+                    isMe: false,
+                    profileSettings: game.opponentProfileSettings,
+                    activeColor: const Color(0xFF2D3436),
                   ),
                 ),
               ],
@@ -414,50 +401,6 @@ class _GomokuScreenState extends State<GomokuScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildPlayerProfile(String name, String? avatarUrl, bool isActive, bool isMe) {
-    return Column(
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: isActive ? const Color(0xFF2D3436) : Colors.grey.shade300,
-              width: isActive ? 3 : 2,
-            ),
-            boxShadow: isActive ? [
-              BoxShadow(
-                color: const Color(0xFF2D3436).withValues(alpha: 0.3),
-                blurRadius: 8,
-              ),
-            ] : null,
-          ),
-          child: CircleAvatar(
-            radius: 24,
-            backgroundColor: isMe ? const Color(0xFFDFE6E9) : Colors.grey.shade200,
-            backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-            child: avatarUrl == null
-                ? Icon(
-                    Icons.person,
-                    size: 24,
-                    color: isMe ? const Color(0xFF2D3436) : Colors.grey,
-                  )
-                : null,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          name,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            color: isActive ? const Color(0xFF2D3436) : Colors.grey.shade600,
-          ),
-          overflow: TextOverflow.ellipsis,
-        ),
-      ],
     );
   }
 
@@ -599,7 +542,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
     );
   }
 
-  Widget _buildFinishedView(GameProvider game) {
+  Widget _buildFinishedView(GameProvider game, GameTheme theme) {
     String resultText;
     Color resultColor;
     IconData resultIcon;

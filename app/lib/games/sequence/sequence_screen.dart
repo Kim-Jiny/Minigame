@@ -5,6 +5,9 @@ import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
 import '../../services/socket_service.dart';
 import '../../config/app_config.dart';
+import '../../models/shop_item.dart';
+import '../../widgets/game_player_profile.dart';
+import '../../utils/game_theme.dart';
 
 enum SequenceGameStatus {
   idle,
@@ -38,6 +41,8 @@ class _SequenceScreenState extends State<SequenceScreen>
   int? _opponentUserId;
   bool _isInvitationGame = false;
   int _myPlayerIndex = 0;
+  UserProfileSettings? _myProfileSettings;
+  UserProfileSettings? _opponentProfileSettings;
 
   int _gridSize = 9; // 3x3
   List<int> _sequence = [];
@@ -123,6 +128,7 @@ class _SequenceScreenState extends State<SequenceScreen>
     _socketService.on('match_found', (data) {
       final players = data['players'] as List;
       final opponent = players.firstWhere((p) => p['id'] != _myId);
+      final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
       _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
 
       setState(() {
@@ -132,6 +138,13 @@ class _SequenceScreenState extends State<SequenceScreen>
         _opponentAvatarUrl = opponent['avatarUrl'];
         _opponentUserId = opponent['userId'];
         _isInvitationGame = data['isInvitation'] == true;
+        // 프로필 설정 파싱
+        if (opponent['profileSettings'] != null) {
+          _opponentProfileSettings = UserProfileSettings.fromJson(opponent['profileSettings']);
+        }
+        if (me != null && me['profileSettings'] != null) {
+          _myProfileSettings = UserProfileSettings.fromJson(me['profileSettings']);
+        }
       });
     });
 
@@ -420,8 +433,11 @@ class _SequenceScreenState extends State<SequenceScreen>
     });
   }
 
+  GameTheme get _theme => GameTheme.fromProfileSettings(_myProfileSettings);
+
   @override
   Widget build(BuildContext context) {
+    final theme = _theme;
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -431,8 +447,8 @@ class _SequenceScreenState extends State<SequenceScreen>
       child: Scaffold(
         appBar: AppBar(
           title: const Text('순서 기억하기'),
-          backgroundColor: const Color(0xFF9B59B6),
-          foregroundColor: Colors.white,
+          backgroundColor: theme.primary,
+          foregroundColor: theme.textOnPrimary,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: _showExitDialog,
@@ -456,16 +472,10 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   Widget _buildIdleView() {
+    final theme = _theme;
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF9B59B6).withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
+        gradient: theme.backgroundGradient,
       ),
       child: Center(
         child: Column(
@@ -478,24 +488,24 @@ class _SequenceScreenState extends State<SequenceScreen>
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF9B59B6).withValues(alpha: 0.3),
+                    color: theme.primary.withValues(alpha: 0.3),
                     blurRadius: 20,
                   ),
                 ],
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.psychology,
                 size: 64,
-                color: Color(0xFF9B59B6),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 32),
-            const Text(
+            Text(
               '순서 기억하기',
               style: TextStyle(
                 fontSize: 28,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF9B59B6),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 8),
@@ -571,7 +581,7 @@ class _SequenceScreenState extends State<SequenceScreen>
               icon: const Icon(Icons.search),
               label: const Text('상대 찾기'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: _isHardcore ? Colors.red : const Color(0xFF9B59B6),
+                backgroundColor: _isHardcore ? Colors.red : theme.primary,
                 foregroundColor: Colors.white,
                 padding:
                     const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
@@ -587,31 +597,25 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   Widget _buildSearchingView() {
+    final theme = _theme;
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF9B59B6).withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
+        gradient: theme.backgroundGradient,
       ),
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const CircularProgressIndicator(
-              color: Color(0xFF9B59B6),
+            CircularProgressIndicator(
+              color: theme.primary,
             ),
             const SizedBox(height: 24),
-            const Text(
+            Text(
               '상대를 찾는 중...',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF9B59B6),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 48),
@@ -630,16 +634,10 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   Widget _buildMatchedView() {
+    final theme = _theme;
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF9B59B6).withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
+        gradient: theme.backgroundGradient,
       ),
       child: Center(
         child: Column(
@@ -647,23 +645,23 @@ class _SequenceScreenState extends State<SequenceScreen>
           children: [
             Container(
               padding: const EdgeInsets.all(16),
-              decoration: const BoxDecoration(
-                color: Color(0xFFF3E5F5),
+              decoration: BoxDecoration(
+                color: theme.background1,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.sports_esports,
                 size: 64,
-                color: Color(0xFF9B59B6),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 16),
             Text(
               '$_opponentNickname님과 매칭!',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF9B59B6),
+                color: theme.primary,
               ),
             ),
             const SizedBox(height: 8),
@@ -678,6 +676,7 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   Widget _buildShowingView() {
+    final theme = _theme;
     final totalSeconds = (_timeLimit / 1000).ceil();
     return Column(
       children: [
@@ -685,14 +684,7 @@ class _SequenceScreenState extends State<SequenceScreen>
         Expanded(
           child: Container(
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  const Color(0xFF9B59B6).withValues(alpha: 0.1),
-                  Colors.white,
-                ],
-              ),
+              gradient: theme.backgroundGradient,
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -726,12 +718,12 @@ class _SequenceScreenState extends State<SequenceScreen>
                   ),
                 ),
                 const SizedBox(height: 16),
-                const Text(
+                Text(
                   '순서를 기억하세요!',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF9B59B6),
+                    color: theme.primary,
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -745,6 +737,7 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   Widget _buildPlayingView() {
+    final theme = _theme;
     final isLowTime = _remainingSeconds <= 3;
     return Column(
       children: [
@@ -752,14 +745,7 @@ class _SequenceScreenState extends State<SequenceScreen>
         Expanded(
           child: Container(
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  const Color(0xFF9B59B6).withValues(alpha: 0.1),
-                  Colors.white,
-                ],
-              ),
+              gradient: theme.backgroundGradient,
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -797,10 +783,10 @@ class _SequenceScreenState extends State<SequenceScreen>
                 const SizedBox(height: 16),
                 Text(
                   '순서대로 터치! (${_myInputs.length}/${_sequence.length})',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF9B59B6),
+                    color: theme.primary,
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -870,12 +856,14 @@ class _SequenceScreenState extends State<SequenceScreen>
       child: Row(
         children: [
           Expanded(
-            child: _buildPlayerProfile(
-              _myNickname ?? '나',
-              _myAvatarUrl,
-              _myMaxLevel,
-              _myFailed,
-              true,
+            child: GamePlayerProfile(
+              name: _myNickname ?? '나',
+              avatarUrl: _myAvatarUrl,
+              isActive: !_myFailed,
+              isMe: true,
+              profileSettings: _myProfileSettings,
+              activeColor: const Color(0xFF9B59B6),
+              extraWidget: _buildStatusWidget(_myFailed),
             ),
           ),
           Padding(
@@ -911,12 +899,14 @@ class _SequenceScreenState extends State<SequenceScreen>
             ),
           ),
           Expanded(
-            child: _buildPlayerProfile(
-              _opponentNickname ?? '상대',
-              _opponentAvatarUrl,
-              _opponentMaxLevel,
-              _opponentFailed,
-              false,
+            child: GamePlayerProfile(
+              name: _opponentNickname ?? '상대',
+              avatarUrl: _opponentAvatarUrl,
+              isActive: !_opponentFailed,
+              isMe: false,
+              profileSettings: _opponentProfileSettings,
+              activeColor: const Color(0xFF9B59B6),
+              extraWidget: _buildStatusWidget(_opponentFailed),
             ),
           ),
         ],
@@ -924,62 +914,23 @@ class _SequenceScreenState extends State<SequenceScreen>
     );
   }
 
-  Widget _buildPlayerProfile(
-      String name, String? avatarUrl, int level, bool failed, bool isMe) {
-    return Column(
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: failed
-                  ? Colors.red
-                  : (isMe ? const Color(0xFF9B59B6) : Colors.grey.shade400),
-              width: 3,
-            ),
-          ),
-          child: CircleAvatar(
-            radius: 24,
-            backgroundColor:
-                isMe ? const Color(0xFFF3E5F5) : Colors.grey.shade200,
-            backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-            child: avatarUrl == null
-                ? Icon(
-                    Icons.person,
-                    size: 24,
-                    color: isMe ? const Color(0xFF9B59B6) : Colors.grey,
-                  )
-                : null,
-          ),
+  Widget _buildStatusWidget(bool failed) {
+    if (!failed) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.red,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Text(
+        'OUT',
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
         ),
-        const SizedBox(height: 4),
-        Text(
-          name,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            color: isMe ? const Color(0xFF9B59B6) : Colors.grey.shade700,
-          ),
-          overflow: TextOverflow.ellipsis,
-        ),
-        if (failed)
-          Container(
-            margin: const EdgeInsets.only(top: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: Colors.red,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Text(
-              'OUT',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-          ),
-      ],
+      ),
     );
   }
 

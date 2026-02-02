@@ -11,6 +11,8 @@ import { friendService } from '../services/friendService';
 import { invitationService } from '../services/invitationService';
 import { statsService } from '../services/statsService';
 import { messageService } from '../services/messageService';
+import { coinService } from '../services/coinService';
+import { shopService } from '../services/shopService';
 
 interface Player {
   id: string;
@@ -143,7 +145,10 @@ async function finishReactionGame(io: Server, room: GameRoom) {
   const winnerNickname = winner?.nickname ?? null;
   const isDraw = winnerIndex === null;
 
-  // 통계 업데이트
+  // 코인/연승 보상 결과 저장
+  const rewardResults: { [key: string]: any } = {};
+
+  // 통계 및 코인 업데이트
   for (let i = 0; i < room.players.length; i++) {
     const player = room.players[i];
     const opponent = room.players[i === 0 ? 1 : 0];
@@ -162,6 +167,18 @@ async function finishReactionGame(io: Server, room: GameRoom) {
         if (i === 0 && opponent.userId) {
           await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
         }
+
+        // 코인/연승 처리
+        if (opponent.userId) {
+          const reward = await coinService.processGameReward(player.userId, opponent.userId, gameResult);
+          rewardResults[player.id] = reward;
+          player.socket.emit('coins_updated', {
+            coins: reward.totalCoins,
+            earned: reward.coinsEarned,
+            streak: reward.streakAfter,
+            streakBonus: reward.streakBonusEarned,
+          });
+        }
       } catch (err) {
         console.error('Failed to update stats:', err);
       }
@@ -174,6 +191,7 @@ async function finishReactionGame(io: Server, room: GameRoom) {
     isDraw,
     scores,
     roundResults: game.getRoundResults(),
+    rewards: rewardResults,
   });
 
   console.log(`🏆 Reaction game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores[0]}-${scores[1]})`);
@@ -253,7 +271,10 @@ async function finishRpsGame(io: Server, room: GameRoom) {
   const winnerNickname = winner?.nickname ?? null;
   const isDraw = winnerIndex === null;
 
-  // 통계 업데이트
+  // 코인/연승 보상 결과 저장
+  const rewardResults: { [key: string]: any } = {};
+
+  // 통계 및 코인 업데이트
   for (let i = 0; i < room.players.length; i++) {
     const player = room.players[i];
     const opponent = room.players[i === 0 ? 1 : 0];
@@ -272,6 +293,18 @@ async function finishRpsGame(io: Server, room: GameRoom) {
         if (i === 0 && opponent.userId) {
           await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
         }
+
+        // 코인/연승 처리
+        if (opponent.userId) {
+          const reward = await coinService.processGameReward(player.userId, opponent.userId, gameResult);
+          rewardResults[player.id] = reward;
+          player.socket.emit('coins_updated', {
+            coins: reward.totalCoins,
+            earned: reward.coinsEarned,
+            streak: reward.streakAfter,
+            streakBonus: reward.streakBonusEarned,
+          });
+        }
       } catch (err) {
         console.error('Failed to update stats:', err);
       }
@@ -284,6 +317,7 @@ async function finishRpsGame(io: Server, room: GameRoom) {
     isDraw,
     scores,
     roundResults: game.getRoundResults(),
+    rewards: rewardResults,
   });
 
   console.log(`🏆 RPS game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores[0]}-${scores[1]})`);
@@ -375,7 +409,10 @@ async function finishSpeedTapGame(io: Server, room: GameRoom) {
   const winnerNickname = winner?.nickname ?? null;
   const isDraw = winnerIndex === null;
 
-  // 통계 업데이트
+  // 코인/연승 보상 결과 저장
+  const rewardResults: { [key: string]: any } = {};
+
+  // 통계 및 코인 업데이트
   for (let i = 0; i < room.players.length; i++) {
     const player = room.players[i];
     const opponent = room.players[i === 0 ? 1 : 0];
@@ -394,6 +431,18 @@ async function finishSpeedTapGame(io: Server, room: GameRoom) {
         if (i === 0 && opponent.userId) {
           await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
         }
+
+        // 코인/연승 처리
+        if (opponent.userId) {
+          const reward = await coinService.processGameReward(player.userId, opponent.userId, gameResult);
+          rewardResults[player.id] = reward;
+          player.socket.emit('coins_updated', {
+            coins: reward.totalCoins,
+            earned: reward.coinsEarned,
+            streak: reward.streakAfter,
+            streakBonus: reward.streakBonusEarned,
+          });
+        }
       } catch (err) {
         console.error('Failed to update stats:', err);
       }
@@ -406,6 +455,7 @@ async function finishSpeedTapGame(io: Server, room: GameRoom) {
     isDraw,
     roundScores,
     roundResults: game.getRoundResults(),
+    rewards: rewardResults,
   });
 
   console.log(`🏆 SpeedTap game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${roundScores[0]}-${roundScores[1]})`);
@@ -482,7 +532,10 @@ async function finishSequenceGame(io: Server, room: GameRoom) {
   const winnerNickname = winner?.nickname ?? null;
   const isDraw = winnerIndex === null;
 
-  // 통계 업데이트
+  // 코인/연승 보상 결과 저장
+  const rewardResults: { [key: string]: any } = {};
+
+  // 통계 및 코인 업데이트
   for (let i = 0; i < room.players.length; i++) {
     const player = room.players[i];
     const opponent = room.players[i === 0 ? 1 : 0];
@@ -501,6 +554,18 @@ async function finishSequenceGame(io: Server, room: GameRoom) {
         if (i === 0 && opponent.userId) {
           await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
         }
+
+        // 코인/연승 처리
+        if (opponent.userId) {
+          const reward = await coinService.processGameReward(player.userId, opponent.userId, gameResult);
+          rewardResults[player.id] = reward;
+          player.socket.emit('coins_updated', {
+            coins: reward.totalCoins,
+            earned: reward.coinsEarned,
+            streak: reward.streakAfter,
+            streakBonus: reward.streakBonusEarned,
+          });
+        }
       } catch (err) {
         console.error('Failed to update stats:', err);
       }
@@ -514,6 +579,7 @@ async function finishSequenceGame(io: Server, room: GameRoom) {
     maxLevels,
     player0Level: maxLevels[0],
     player1Level: maxLevels[1],
+    rewards: rewardResults,
   });
 
   console.log(`🏆 Sequence game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (Levels: ${maxLevels[0]} vs ${maxLevels[1]})`);
@@ -584,7 +650,10 @@ async function finishStroopGame(io: Server, room: GameRoom) {
   const winnerNickname = winner?.nickname ?? null;
   const isDraw = winnerIndex === null;
 
-  // 통계 업데이트
+  // 코인/연승 보상 결과 저장
+  const rewardResults: { [key: string]: any } = {};
+
+  // 통계 및 코인 업데이트
   for (let i = 0; i < room.players.length; i++) {
     const player = room.players[i];
     const opponent = room.players[i === 0 ? 1 : 0];
@@ -603,6 +672,18 @@ async function finishStroopGame(io: Server, room: GameRoom) {
         if (i === 0 && opponent.userId) {
           await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
         }
+
+        // 코인/연승 처리
+        if (opponent.userId) {
+          const reward = await coinService.processGameReward(player.userId, opponent.userId, gameResult);
+          rewardResults[player.id] = reward;
+          player.socket.emit('coins_updated', {
+            coins: reward.totalCoins,
+            earned: reward.coinsEarned,
+            streak: reward.streakAfter,
+            streakBonus: reward.streakBonusEarned,
+          });
+        }
       } catch (err) {
         console.error('Failed to update stats:', err);
       }
@@ -615,6 +696,7 @@ async function finishStroopGame(io: Server, room: GameRoom) {
     isDraw,
     scores,
     roundResults: game.getRoundResults(),
+    rewards: rewardResults,
   });
 
   console.log(`🏆 Stroop game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores[0]}-${scores[1]})`);
@@ -778,7 +860,7 @@ export function setupSocketHandlers(io: Server) {
     });
 
     // 게임 매칭 요청
-    socket.on('find_match', (data: { gameType: string; isHardcore?: boolean }) => {
+    socket.on('find_match', async (data: { gameType: string; isHardcore?: boolean }) => {
       if (!currentPlayer) {
         socket.emit('error', { message: 'Please join lobby first' });
         return;
@@ -834,15 +916,30 @@ export function setupSocketHandlers(io: Server) {
         socket.join(roomId);
         currentRoomId = roomId;
 
+        // 연승 정보 조회
+        const opponentStreak = opponent.userId ? await coinService.getStreak(opponent.userId) : { currentStreak: 0 };
+        const currentPlayerStreak = currentPlayer.userId ? await coinService.getStreak(currentPlayer.userId) : { currentStreak: 0 };
+
+        // 프로필 설정 조회
+        const opponentProfile = opponent.userId ? await shopService.getUserProfileSettings(opponent.userId) : null;
+        const currentPlayerProfile = currentPlayer.userId ? await shopService.getUserProfileSettings(currentPlayer.userId) : null;
+
+        // 오늘 서로 몇 번 만났는지
+        let dailyMatchCount = 0;
+        if (opponent.userId && currentPlayer.userId) {
+          dailyMatchCount = await coinService.getDailyMatchCount(currentPlayer.userId, opponent.userId);
+        }
+
         // 매칭 성공 알림
         io.to(roomId).emit('match_found', {
           roomId,
           gameType,
           isHardcore,
           players: [
-            { id: opponent.id, nickname: opponent.nickname, userId: opponent.userId, avatarUrl: opponent.avatarUrl },
-            { id: currentPlayer.id, nickname: currentPlayer.nickname, userId: currentPlayer.userId, avatarUrl: currentPlayer.avatarUrl },
+            { id: opponent.id, nickname: opponent.nickname, userId: opponent.userId, avatarUrl: opponent.avatarUrl, streak: opponentStreak.currentStreak, profileSettings: opponentProfile },
+            { id: currentPlayer.id, nickname: currentPlayer.nickname, userId: currentPlayer.userId, avatarUrl: currentPlayer.avatarUrl, streak: currentPlayerStreak.currentStreak, profileSettings: currentPlayerProfile },
           ],
+          dailyMatchCount: dailyMatchCount + 1,  // 이번 게임 포함
         });
 
         console.log(`🎯 Match found: ${opponent.nickname} vs ${currentPlayer.nickname} ${isHardcore ? '(하드코어)' : ''}`);
@@ -963,10 +1060,10 @@ export function setupSocketHandlers(io: Server) {
             ? room.players[result.winner].nickname
             : null;
 
-          // 통계 업데이트 및 기록 저장
-          const player0 = room.players[0];
-          const player1 = room.players[1];
+          // 코인/연승 보상 결과 저장
+          const rewardResults: { [key: string]: any } = {};
 
+          // 통계 업데이트 및 기록 저장
           for (let i = 0; i < room.players.length; i++) {
             const player = room.players[i];
             const opponent = room.players[i === 0 ? 1 : 0];
@@ -987,6 +1084,18 @@ export function setupSocketHandlers(io: Server) {
                 if (i === 0 && opponent.userId) {
                   await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
                 }
+
+                // 코인/연승 처리
+                if (opponent.userId) {
+                  const reward = await coinService.processGameReward(player.userId, opponent.userId, gameResult);
+                  rewardResults[player.id] = reward;
+                  player.socket.emit('coins_updated', {
+                    coins: reward.totalCoins,
+                    earned: reward.coinsEarned,
+                    streak: reward.streakAfter,
+                    streakBonus: reward.streakBonusEarned,
+                  });
+                }
               } catch (err) {
                 console.error('Failed to update stats:', err);
               }
@@ -998,6 +1107,7 @@ export function setupSocketHandlers(io: Server) {
             winnerNickname: winnerNickname,
             isDraw: result.isDraw,
             board: room.game.getBoard(),
+            rewards: rewardResults,
           });
           console.log(`🏆 Game ended: ${result.isDraw ? 'Draw' : winnerNickname + ' wins'}`);
         } else {
@@ -1037,6 +1147,9 @@ export function setupSocketHandlers(io: Server) {
             ? room.players[result.winner].nickname
             : null;
 
+          // 코인/연승 보상 결과 저장
+          const rewardResults: { [key: string]: any } = {};
+
           // 통계 업데이트 및 기록 저장
           for (let i = 0; i < room.players.length; i++) {
             const player = room.players[i];
@@ -1051,6 +1164,18 @@ export function setupSocketHandlers(io: Server) {
                 if (i === 0 && opponent.userId) {
                   await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
                 }
+
+                // 코인/연승 처리
+                if (opponent.userId) {
+                  const reward = await coinService.processGameReward(player.userId, opponent.userId, gameResult);
+                  rewardResults[player.id] = reward;
+                  player.socket.emit('coins_updated', {
+                    coins: reward.totalCoins,
+                    earned: reward.coinsEarned,
+                    streak: reward.streakAfter,
+                    streakBonus: reward.streakBonusEarned,
+                  });
+                }
               } catch (err) {
                 console.error('Failed to update stats:', err);
               }
@@ -1062,6 +1187,7 @@ export function setupSocketHandlers(io: Server) {
             winnerNickname: winnerNickname,
             isDraw: false,  // 무한 틱택토는 무승부 없음
             board: room.game.getBoard(),
+            rewards: rewardResults,
           });
           console.log(`🏆 Infinite TicTacToe ended: ${winnerNickname} wins`);
         } else {
@@ -1103,6 +1229,9 @@ export function setupSocketHandlers(io: Server) {
             ? room.players[result.winner].nickname
             : null;
 
+          // 코인/연승 보상 결과 저장
+          const rewardResults: { [key: string]: any } = {};
+
           // 통계 업데이트 및 기록 저장
           for (let i = 0; i < room.players.length; i++) {
             const player = room.players[i];
@@ -1124,6 +1253,18 @@ export function setupSocketHandlers(io: Server) {
                 if (i === 0 && opponent.userId) {
                   await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
                 }
+
+                // 코인/연승 처리
+                if (opponent.userId) {
+                  const reward = await coinService.processGameReward(player.userId, opponent.userId, gameResult);
+                  rewardResults[player.id] = reward;
+                  player.socket.emit('coins_updated', {
+                    coins: reward.totalCoins,
+                    earned: reward.coinsEarned,
+                    streak: reward.streakAfter,
+                    streakBonus: reward.streakBonusEarned,
+                  });
+                }
               } catch (err) {
                 console.error('Failed to update stats:', err);
               }
@@ -1135,6 +1276,7 @@ export function setupSocketHandlers(io: Server) {
             winnerNickname: winnerNickname,
             isDraw: result.isDraw,
             board: room.game.getBoard(),
+            rewards: rewardResults,
           });
           console.log(`🏆 Gomoku ended: ${result.isDraw ? 'Draw' : winnerNickname + ' wins'}`);
         } else {
@@ -2252,6 +2394,120 @@ export function setupSocketHandlers(io: Server) {
     // 방 나가기
     socket.on('leave_room', (data: { roomId: string }) => {
       leaveRoom(socket, data.roomId);
+    });
+
+    // ====== 상점 시스템 ======
+
+    // 상점 아이템 목록 조회
+    socket.on('get_shop_items', async (data?: { category?: string }) => {
+      try {
+        const items = await shopService.getShopItems(data?.category);
+        socket.emit('shop_items', { items });
+      } catch (error) {
+        console.error('Get shop items error:', error);
+        socket.emit('shop_items', { items: [] });
+      }
+    });
+
+    // 유저 보유 아이템 조회
+    socket.on('get_user_items', async () => {
+      if (!currentPlayer?.userId) {
+        socket.emit('user_items', { items: [] });
+        return;
+      }
+
+      try {
+        const items = await shopService.getUserItems(currentPlayer.userId);
+        socket.emit('user_items', { items });
+      } catch (error) {
+        console.error('Get user items error:', error);
+        socket.emit('user_items', { items: [] });
+      }
+    });
+
+    // 유저 프로필 설정 조회
+    socket.on('get_profile_settings', async () => {
+      if (!currentPlayer?.userId) {
+        socket.emit('profile_settings', { settings: null });
+        return;
+      }
+
+      try {
+        const settings = await shopService.getUserProfileSettings(currentPlayer.userId);
+        socket.emit('profile_settings', { settings });
+      } catch (error) {
+        console.error('Get profile settings error:', error);
+        socket.emit('profile_settings', { settings: null });
+      }
+    });
+
+    // 아이템 구매
+    socket.on('purchase_item', async (data: { itemId: number }) => {
+      if (!currentPlayer?.userId) {
+        socket.emit('purchase_result', { success: false, message: '로그인이 필요합니다.' });
+        return;
+      }
+
+      try {
+        const result = await shopService.purchaseItem(currentPlayer.userId, data.itemId);
+        socket.emit('purchase_result', result);
+
+        // 코인 업데이트 이벤트도 전송
+        if (result.success && result.coins !== undefined) {
+          socket.emit('mileage', { mileage: result.coins });
+        }
+      } catch (error) {
+        console.error('Purchase item error:', error);
+        socket.emit('purchase_result', { success: false, message: '구매 중 오류가 발생했습니다.' });
+      }
+    });
+
+    // 아이템 장착
+    socket.on('equip_item', async (data: { itemId: number }) => {
+      if (!currentPlayer?.userId) {
+        socket.emit('equip_result', { success: false, message: '로그인이 필요합니다.' });
+        return;
+      }
+
+      try {
+        const result = await shopService.equipItem(currentPlayer.userId, data.itemId);
+        socket.emit('equip_result', result);
+      } catch (error) {
+        console.error('Equip item error:', error);
+        socket.emit('equip_result', { success: false, message: '장착 중 오류가 발생했습니다.' });
+      }
+    });
+
+    // 아이템 장착 해제
+    socket.on('unequip_item', async (data: { category: string }) => {
+      if (!currentPlayer?.userId) {
+        socket.emit('unequip_result', { success: false, message: '로그인이 필요합니다.' });
+        return;
+      }
+
+      try {
+        const result = await shopService.unequipItem(currentPlayer.userId, data.category);
+        socket.emit('unequip_result', result);
+      } catch (error) {
+        console.error('Unequip item error:', error);
+        socket.emit('unequip_result', { success: false, message: '장착 해제 중 오류가 발생했습니다.' });
+      }
+    });
+
+    // 1패 삭제권 사용
+    socket.on('delete_loss', async (data: { gameType: string }) => {
+      if (!currentPlayer?.userId) {
+        socket.emit('delete_loss_result', { success: false, message: '로그인이 필요합니다.' });
+        return;
+      }
+
+      try {
+        const result = await shopService.deleteLoss(currentPlayer.userId, data.gameType);
+        socket.emit('delete_loss_result', result);
+      } catch (error) {
+        console.error('Delete loss error:', error);
+        socket.emit('delete_loss_result', { success: false, message: '패배 삭제 중 오류가 발생했습니다.' });
+      }
     });
 
     // 연결 해제

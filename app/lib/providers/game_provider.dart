@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../services/socket_service.dart';
+import '../models/shop_item.dart';
 
 enum GameStatus {
   idle,
@@ -50,6 +51,14 @@ class GameProvider extends ChangeNotifier {
   bool _isHardcore = false;  // 하드코어 모드 설정
   bool _isHardcoreGame = false;  // 현재 게임이 하드코어인지
 
+  // 연승 정보
+  int _myStreak = 0;
+  int _opponentStreak = 0;
+
+  // 프로필 설정
+  UserProfileSettings? _myProfileSettings;
+  UserProfileSettings? _opponentProfileSettings;
+
   // 생성자에서 리스너 설정
   GameProvider() {
     _setupSocketListeners();
@@ -78,6 +87,10 @@ class GameProvider extends ChangeNotifier {
   bool get isHardcore => _isHardcore;
   bool get isHardcoreGame => _isHardcoreGame;
   int? get lastMovePosition => _lastMovePosition;
+  int get myStreak => _myStreak;
+  int get opponentStreak => _opponentStreak;
+  UserProfileSettings? get myProfileSettings => _myProfileSettings;
+  UserProfileSettings? get opponentProfileSettings => _opponentProfileSettings;
 
   // 하드코어 모드 설정
   void setHardcoreMode(bool value) {
@@ -127,6 +140,7 @@ class GameProvider extends ChangeNotifier {
       _roomId = data['roomId'];
       final players = data['players'] as List;
       final opponent = players.firstWhere((p) => p['id'] != _myId);
+      final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
       _opponentNickname = opponent['nickname'];
       _opponentAvatarUrl = opponent['avatarUrl'];
       _opponentUserId = opponent['userId'];
@@ -137,7 +151,19 @@ class GameProvider extends ChangeNotifier {
       // 친구 초대 게임인지 확인
       _isInvitationGame = data['isInvitation'] == true;
       _isHardcoreGame = data['isHardcore'] == true;
-      debugPrint('🎮 match_found - isInvitation: ${data['isInvitation']}, isHardcore: ${data['isHardcore']}');
+
+      // 연승 정보 (players 배열에서 추출)
+      _myStreak = me != null ? (me['streak'] ?? 0) : 0;
+      _opponentStreak = opponent['streak'] ?? 0;
+
+      // 프로필 설정 (players 배열에서 추출)
+      if (me != null && me['profileSettings'] != null) {
+        _myProfileSettings = UserProfileSettings.fromJson(me['profileSettings']);
+      }
+      if (opponent['profileSettings'] != null) {
+        _opponentProfileSettings = UserProfileSettings.fromJson(opponent['profileSettings']);
+      }
+      debugPrint('🎮 match_found - isInvitation: ${data['isInvitation']}, isHardcore: ${data['isHardcore']}, myStreak: $_myStreak, opponentStreak: $_opponentStreak');
 
       notifyListeners();
     });
@@ -299,11 +325,20 @@ class GameProvider extends ChangeNotifier {
     _myId = _socketService.socket?.id;
 
     final opponent = players.firstWhere((p) => p['id'] != _myId);
+    final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
     _opponentNickname = opponent['nickname'];
     _opponentAvatarUrl = opponent['avatarUrl'];
     _opponentUserId = opponent['userId'];
     _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
     _isInvitationGame = true;
+
+    // 프로필 설정
+    if (me != null && me['profileSettings'] != null) {
+      _myProfileSettings = UserProfileSettings.fromJson(me['profileSettings']);
+    }
+    if (opponent['profileSettings'] != null) {
+      _opponentProfileSettings = UserProfileSettings.fromJson(opponent['profileSettings']);
+    }
 
     _status = GameStatus.playing;
     _currentTurn = currentTurn;
@@ -390,6 +425,8 @@ class GameProvider extends ChangeNotifier {
     _turnStartTime = null;
     _remainingTime = 0;
     _timeoutPlayerNickname = null;
+    _myStreak = 0;
+    _opponentStreak = 0;
     notifyListeners();
   }
 
