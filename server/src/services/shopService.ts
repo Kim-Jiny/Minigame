@@ -347,34 +347,71 @@ export const shopService = {
     }
   },
 
-  // 1패 삭제 처리
-  async deleteLoss(userId: number, gameType: string): Promise<{ success: boolean; message: string; stats?: any }> {
+  // 1패 삭제 처리 (코인 차감 포함)
+  async deleteLoss(userId: number, gameType: string): Promise<{ success: boolean; message: string; stats?: any; coins?: number }> {
     const pool = getPool();
     if (!pool) return { success: false, message: '데이터베이스 연결 실패' };
 
+    const TICKET_PRICE = 50; // 1패 삭제권 가격
+
+    const client = await pool.connect();
     try {
-      // 현재 통계 조회
-      const statsResult = await pool.query(
+      await client.query('BEGIN');
+
+      // 1. 현재 코인 확인
+      const coinResult = await client.query(
+        'SELECT coins FROM users WHERE id = $1',
+        [userId]
+      );
+
+      if (coinResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, message: '사용자를 찾을 수 없습니다.' };
+      }
+
+      const currentCoins = coinResult.rows[0].coins || 0;
+      if (currentCoins < TICKET_PRICE) {
+        await client.query('ROLLBACK');
+        return { success: false, message: `코인이 부족합니다. (현재: ${currentCoins}, 필요: ${TICKET_PRICE})` };
+      }
+
+      // 2. 현재 통계 조회
+      const statsResult = await client.query(
         'SELECT * FROM user_game_stats WHERE user_id = $1 AND game_type = $2',
         [userId, gameType]
       );
 
       if (statsResult.rows.length === 0 || statsResult.rows[0].losses <= 0) {
+        await client.query('ROLLBACK');
         return { success: false, message: '삭제할 패배 기록이 없습니다.' };
       }
 
-      // 패배 1회 감소
-      await pool.query(
+      // 3. 코인 차감
+      await client.query(
+        'UPDATE users SET coins = coins - $1 WHERE id = $2',
+        [TICKET_PRICE, userId]
+      );
+
+      // 4. 패배 1회 감소
+      await client.query(
         `UPDATE user_game_stats
          SET losses = losses - 1, updated_at = CURRENT_TIMESTAMP
          WHERE user_id = $1 AND game_type = $2`,
         [userId, gameType]
       );
 
+      await client.query('COMMIT');
+
       // 업데이트된 통계 조회
       const updatedStats = await pool.query(
         'SELECT * FROM user_game_stats WHERE user_id = $1 AND game_type = $2',
         [userId, gameType]
+      );
+
+      // 업데이트된 코인 조회
+      const updatedCoins = await pool.query(
+        'SELECT coins FROM users WHERE id = $1',
+        [userId]
       );
 
       const stats = updatedStats.rows[0];
@@ -384,6 +421,7 @@ export const shopService = {
       return {
         success: true,
         message: '패배 1회가 삭제되었습니다!',
+        coins: updatedCoins.rows[0]?.coins || 0,
         stats: {
           gameType: stats.game_type,
           wins: stats.wins,
@@ -396,8 +434,11 @@ export const shopService = {
         }
       };
     } catch (error) {
+      await client.query('ROLLBACK');
       console.error('Delete loss error:', error);
       return { success: false, message: '패배 삭제 중 오류가 발생했습니다.' };
+    } finally {
+      client.release();
     }
   },
 

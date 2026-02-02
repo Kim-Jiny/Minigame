@@ -2504,6 +2504,21 @@ export function setupSocketHandlers(io: Server) {
       try {
         const result = await shopService.deleteLoss(currentPlayer.userId, data.gameType);
         socket.emit('delete_loss_result', result);
+
+        // 성공 시 코인 업데이트 이벤트 발송
+        if (result.success && result.coins !== undefined) {
+          socket.emit('coins_updated', {
+            coins: result.coins,
+            earned: -50, // 차감된 코인
+            streak: 0,
+            streakBonus: false,
+          });
+
+          // 통계도 업데이트
+          if (result.stats) {
+            socket.emit('stats_updated', result.stats);
+          }
+        }
       } catch (error) {
         console.error('Delete loss error:', error);
         socket.emit('delete_loss_result', { success: false, message: '패배 삭제 중 오류가 발생했습니다.' });

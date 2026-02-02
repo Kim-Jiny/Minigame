@@ -720,9 +720,7 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              // 먼저 티켓 구매
-              shopProvider.purchaseItem(ticket.id);
-              // 그 후 1패 삭제
+              // 1패 삭제 (서버에서 코인 차감까지 처리)
               shopProvider.deleteLoss(gameType);
             },
             style: ElevatedButton.styleFrom(
