@@ -3,6 +3,7 @@ services:
     name: minigame-server
     env: node
     plan: free
+    rootDir: server
     buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:

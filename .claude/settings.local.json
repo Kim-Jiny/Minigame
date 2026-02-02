@@ -38,7 +38,13 @@
       "Bash(xxd:*)",
       "Bash(pgrep:*)",
       "Bash(kill:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(xcodebuild:*)",
+      "WebSearch",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nRender 배포 설정 및 스피드탭 카운트다운 추가\n\n- render.yaml 추가 \\(Render 배포 설정\\)\n- package.json에 Node 버전 명시\n- 스피드탭 3-2-1 카운트다운 UI 추가\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
