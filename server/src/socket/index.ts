@@ -5,6 +5,7 @@ import { GomokuGame } from '../games/gomoku';
 import { ReactionGame } from '../games/reaction';
 import { RpsGame } from '../games/rps';
 import { SpeedTapGame } from '../games/speedtap';
+import { SequenceGame } from '../games/sequence';
 import { friendService } from '../services/friendService';
 import { invitationService } from '../services/invitationService';
 import { statsService } from '../services/statsService';
@@ -22,7 +23,7 @@ interface GameRoom {
   id: string;
   gameType: string;
   players: Player[];
-  game: TicTacToeGame | InfiniteTicTacToeGame | GomokuGame | ReactionGame | RpsGame | SpeedTapGame | null;
+  game: TicTacToeGame | InfiniteTicTacToeGame | GomokuGame | ReactionGame | RpsGame | SpeedTapGame | SequenceGame | null;
   status: 'waiting' | 'playing' | 'finished';
   rematchRequests?: Set<string>;
   turnTimer?: NodeJS.Timeout;
@@ -409,6 +410,76 @@ async function finishSpeedTapGame(io: Server, room: GameRoom) {
   console.log(`🏆 SpeedTap game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${roundScores[0]}-${roundScores[1]})`);
 }
 
+// 순서 기억하기 라운드 시작
+function startSequenceRound(io: Server, room: GameRoom) {
+  if (room.gameType !== 'sequence' || !(room.game instanceof SequenceGame)) return;
+
+  const game = room.game;
+  const { sequence, level } = game.startNewRound();
+
+  // 시퀀스 보여주기 이벤트
+  io.to(room.id).emit('sequence_show', {
+    sequence,
+    level,
+    showDelay: SequenceGame.SHOW_DELAY,
+  });
+
+  console.log(`🧠 Sequence Level ${level} started (length: ${sequence.length})`);
+}
+
+// 순서 기억하기 게임 종료 처리
+async function finishSequenceGame(io: Server, room: GameRoom) {
+  if (!(room.game instanceof SequenceGame)) return;
+
+  room.status = 'finished';
+  clearRoundTimer(room);
+
+  const game = room.game;
+  const winnerIndex = game.getWinner();
+  const maxLevels = game.getPlayerMaxLevel();
+
+  const winner = winnerIndex !== null ? room.players[winnerIndex] : null;
+  const winnerId = winner?.id ?? null;
+  const winnerNickname = winner?.nickname ?? null;
+  const isDraw = winnerIndex === null;
+
+  // 통계 업데이트
+  for (let i = 0; i < room.players.length; i++) {
+    const player = room.players[i];
+    const opponent = room.players[i === 0 ? 1 : 0];
+    if (player.userId) {
+      let gameResult: 'win' | 'loss' | 'draw';
+      if (isDraw) {
+        gameResult = 'draw';
+      } else if (winnerIndex === i) {
+        gameResult = 'win';
+      } else {
+        gameResult = 'loss';
+      }
+      try {
+        const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
+        player.socket.emit('stats_updated', { stats });
+        if (i === 0 && opponent.userId) {
+          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
+        }
+      } catch (err) {
+        console.error('Failed to update stats:', err);
+      }
+    }
+  }
+
+  io.to(room.id).emit('game_end', {
+    winner: winnerId,
+    winnerNickname,
+    isDraw,
+    maxLevels,
+    player0Level: maxLevels[0],
+    player1Level: maxLevels[1],
+  });
+
+  console.log(`🏆 Sequence game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (Levels: ${maxLevels[0]} vs ${maxLevels[1]})`);
+}
+
 // 시간 초과 처리 - 랜덤 위치에 두기 (턴제 게임 전용)
 async function handleTurnTimeout(io: Server, room: GameRoom) {
   if (room.status !== 'playing' || !room.game) return;
@@ -610,6 +681,8 @@ export function setupSocketHandlers(io: Server) {
           room.game = new RpsGame();
         } else if (gameType === 'speedtap') {
           room.game = new SpeedTapGame();
+        } else if (gameType === 'sequence') {
+          room.game = new SequenceGame();
         }
 
         rooms.set(roomId, room);
@@ -631,6 +704,7 @@ export function setupSocketHandlers(io: Server) {
         });
 
         console.log(`🎯 Match found: ${opponent.nickname} vs ${currentPlayer.nickname} ${isHardcore ? '(하드코어)' : ''}`);
+        console.log(`🎮 gameType: '${gameType}'`);
 
         // 게임 시작
         room.status = 'playing';
@@ -656,6 +730,16 @@ export function setupSocketHandlers(io: Server) {
           });
           // 1초 후 첫 라운드 시작
           setTimeout(() => startSpeedTapRound(io, room), 1000);
+        } else if (gameType === 'sequence') {
+          // 순서 기억하기 게임
+          const seqGame = room.game as SequenceGame;
+          io.to(roomId).emit('game_start', {
+            gameType: 'sequence',
+            gridSize: seqGame.getGridSize(),
+            sequence: seqGame.getSequence(),
+            level: seqGame.getCurrentLevel(),
+            showDelay: SequenceGame.SHOW_DELAY,
+          });
         } else {
           // 턴제 게임
           startTurnTimer(io, room);
@@ -1016,6 +1100,42 @@ export function setupSocketHandlers(io: Server) {
             tapCount: result.tapCount,
             taps: room.game.getTaps(),
           });
+        }
+      }
+
+      // 순서 기억하기 게임 로직
+      if (room.gameType === 'sequence' && room.game instanceof SequenceGame) {
+        const position = data.action.position as number;
+        const result = room.game.handleInput(playerIndex, position);
+
+        if (result.valid) {
+          // 입력 결과 전송
+          io.to(data.roomId).emit('sequence_input', {
+            playerId: socket.id,
+            playerIndex,
+            position,
+            correct: result.correct,
+            inputIndex: result.inputIndex,
+            completed: result.completed,
+            failed: result.failed,
+          });
+
+          // 둘 다 현재 라운드 완료했는지 확인
+          if (room.game.bothPlayersCompleted()) {
+            const roundResult = room.game.checkRoundResult();
+
+            if (roundResult.gameOver) {
+              // 게임 종료
+              await finishSequenceGame(io, room);
+            } else if (roundResult.bothPassed) {
+              // 둘 다 성공 - 다음 라운드 (2초 후)
+              io.to(data.roomId).emit('sequence_round_complete', {
+                success: true,
+                nextLevel: room.game.getCurrentLevel() + 1,
+              });
+              setTimeout(() => startSequenceRound(io, room), 2000);
+            }
+          }
         }
       }
     });
@@ -1407,6 +1527,8 @@ export function setupSocketHandlers(io: Server) {
           room.game = new RpsGame();
         } else if (invitation.gameType === 'speedtap') {
           room.game = new SpeedTapGame();
+        } else if (invitation.gameType === 'sequence') {
+          room.game = new SequenceGame();
         }
 
         rooms.set(roomId, room);
@@ -1525,6 +1647,43 @@ export function setupSocketHandlers(io: Server) {
           });
 
           setTimeout(() => startSpeedTapRound(io, room), 1000);
+        } else if (invitation.gameType === 'sequence') {
+          // 순서 기억하기 게임
+          const seqGame = room.game as SequenceGame;
+          socket.emit('accept_invitation_result', {
+            success: true,
+            roomId,
+            gameType: invitation.gameType,
+            gameState: {
+              players,
+              isInvitation: true,
+            }
+          });
+
+          inviterSocket!.emit('invitation_accepted', {
+            roomId,
+            gameType: invitation.gameType,
+            acceptedBy: currentPlayer.nickname,
+            gameState: {
+              players,
+              isInvitation: true,
+            }
+          });
+
+          io.to(roomId).emit('match_found', {
+            roomId,
+            gameType: invitation.gameType,
+            isInvitation: true,
+            players
+          });
+
+          io.to(roomId).emit('game_start', {
+            gameType: 'sequence',
+            gridSize: seqGame.getGridSize(),
+            sequence: seqGame.getSequence(),
+            level: seqGame.getCurrentLevel(),
+            showDelay: SequenceGame.SHOW_DELAY,
+          });
         } else {
           // 턴제 게임
           startTurnTimer(io, room);
@@ -1770,6 +1929,8 @@ export function setupSocketHandlers(io: Server) {
             room.game = new RpsGame();
           } else if (room.gameType === 'speedtap') {
             room.game = new SpeedTapGame();
+          } else if (room.gameType === 'sequence') {
+            room.game = new SequenceGame();
           }
           room.status = 'playing';
           room.rematchRequests.clear();
@@ -1795,6 +1956,16 @@ export function setupSocketHandlers(io: Server) {
               gameType: 'speedtap',
             });
             setTimeout(() => startSpeedTapRound(io, room), 1000);
+          } else if (room.gameType === 'sequence') {
+            // 순서 기억하기 게임 재대결
+            const seqGame = room.game as SequenceGame;
+            io.to(data.roomId).emit('game_start', {
+              gameType: 'sequence',
+              gridSize: seqGame.getGridSize(),
+              sequence: seqGame.getSequence(),
+              level: seqGame.getCurrentLevel(),
+              showDelay: SequenceGame.SHOW_DELAY,
+            });
           } else {
             // 턴제 게임
             startTurnTimer(io, room);

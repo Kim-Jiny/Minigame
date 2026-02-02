@@ -50,12 +50,14 @@ class AdConfig {
 
 class RemoteConfig {
   final String apiBaseUrl;
+  final String? debugApiBaseUrl;
   final String webBaseUrl;
   final MaintenanceInfo maintenance;
   final AdConfig ad;
 
   RemoteConfig({
     required this.apiBaseUrl,
+    this.debugApiBaseUrl,
     required this.webBaseUrl,
     required this.maintenance,
     required this.ad,
@@ -64,6 +66,7 @@ class RemoteConfig {
   factory RemoteConfig.fromJson(Map<String, dynamic> json) {
     return RemoteConfig(
       apiBaseUrl: json['api_base_url'] ?? 'https://minigame-server-jfep.onrender.com',
+      debugApiBaseUrl: json['debug_api_base_url'],
       webBaseUrl: json['web_base_url'] ?? 'https://minigame-server-jfep.onrender.com',
       maintenance: MaintenanceInfo.fromJson(json['maintenance'] ?? {}),
       ad: AdConfig.fromJson(json['ad'] ?? {}),

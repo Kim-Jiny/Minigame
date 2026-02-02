@@ -15,6 +15,7 @@ import 'games/gomoku/gomoku_screen.dart';
 import 'games/reaction/reaction_screen.dart';
 import 'games/rps/rps_screen.dart';
 import 'games/speedtap/speedtap_screen.dart';
+import 'games/sequence/sequence_screen.dart';
 
 // 앱 테마 색상 정의
 class AppColors {
@@ -120,6 +121,7 @@ class MinigameApp extends StatelessWidget {
           '/game/reaction': (context) => const ReactionScreen(),
           '/game/rps': (context) => const RpsScreen(),
           '/game/speedtap': (context) => const SpeedTapScreen(),
+          '/game/sequence': (context) => const SequenceScreen(),
         },
       ),
     );
