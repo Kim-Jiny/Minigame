@@ -37,6 +37,9 @@ class _GomokuScreenState extends State<GomokuScreen> {
       final auth = context.read<AuthProvider>();
       final game = context.read<GameProvider>();
 
+      // 소켓 리스너 재등록 (다른 화면에서 제거되었을 수 있음)
+      game.ensureSocketListeners();
+
       // 일반 게임 진입 시 이전 게임 상태 리셋
       if (!widget.isRanked) {
         game.reset();
@@ -173,6 +176,8 @@ class _GomokuScreenState extends State<GomokuScreen> {
             const SizedBox(height: 24),
             ElevatedButton.icon(
               onPressed: () {
+                debugPrint('🎯 [Gomoku] 상대 찾기 버튼 클릭');
+                debugPrint('🎯 [Gomoku] 현재 상태: ${game.status}');
                 game.findMatch(AppConfig.gameTypeGomoku);
               },
               icon: const Icon(Icons.search),
@@ -817,11 +822,31 @@ class _GomokuScreenState extends State<GomokuScreen> {
   void _showExitDialog(BuildContext context) {
     final game = context.read<GameProvider>();
 
-    if (game.status == GameStatus.idle) {
+    // idle 상태면 바로 나가기
+    if (!widget.isRanked && game.status == GameStatus.idle) {
       Navigator.pop(context);
       return;
     }
 
+    // 랭크전 대기 중이면 경고 없이 나가기
+    final isRankedWaiting = widget.isRanked &&
+        (game.status == GameStatus.idle ||
+            game.status == GameStatus.searching ||
+            game.status == GameStatus.matched);
+
+    if (isRankedWaiting) {
+      Navigator.pop(context);
+      return;
+    }
+
+    // searching 상태면 매칭 취소
+    if (game.status == GameStatus.searching) {
+      game.cancelMatch(AppConfig.gameTypeGomoku);
+      Navigator.pop(context);
+      return;
+    }
+
+    // matched 또는 playing 상태면 확인 다이얼로그
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -833,7 +858,9 @@ class _GomokuScreenState extends State<GomokuScreen> {
             Text('게임 나가기'),
           ],
         ),
-        content: const Text('정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.'),
+        content: Text(game.status == GameStatus.matched
+            ? '매칭이 완료되었습니다. 나가시겠습니까?'
+            : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),

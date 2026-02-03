@@ -1041,6 +1041,19 @@ class _ReactionScreenState extends State<ReactionScreen> {
             _status == ReactionGameStatus.searching ||
             _status == ReactionGameStatus.matched);
 
+    // 랭크전 대기 중이면 경고 없이 나가기
+    if (isRankedWaiting) {
+      Navigator.pop(context);
+      return;
+    }
+
+    // 일반 게임에서 searching 상태면 매칭 취소하고 나가기
+    if (_status == ReactionGameStatus.searching) {
+      _cancelMatch();
+      Navigator.pop(context);
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(

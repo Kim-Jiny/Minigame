@@ -66,6 +66,7 @@ class GameProvider extends ChangeNotifier {
   // 생성자에서 리스너 설정
   GameProvider() {
     _setupSocketListeners();
+    _listenersInitialized = true;
   }
 
   // Getters
@@ -135,20 +136,28 @@ class GameProvider extends ChangeNotifier {
     _myId = myId;
   }
 
+  bool _listenersInitialized = false;
+
   /// 다른 게임 화면의 dispose()에서 off()를 호출해서 리스너가 제거될 수 있음
   /// 이 메서드를 호출하여 리스너를 재등록
   void ensureSocketListeners() {
-    debugPrint('🎮 [GameProvider] ensureSocketListeners called');
-    _setupSocketListeners();
+    debugPrint('🎮 [GameProvider] ensureSocketListeners called, initialized: $_listenersInitialized');
+    if (!_listenersInitialized) {
+      _setupSocketListeners();
+      _listenersInitialized = true;
+    }
   }
 
   void _setupSocketListeners() {
+    // 기존 리스너 제거 후 다시 등록
+    _removeSocketListeners();
     // 소켓 연결 시 myId 자동 설정
     _socketService.on('lobby_joined', (_) {
       _myId = _socketService.socket?.id;
     });
 
     _socketService.on('waiting_for_match', (data) {
+      debugPrint('🎮 [GameProvider] waiting_for_match received: $data');
       _status = GameStatus.searching;
       notifyListeners();
     });
@@ -393,6 +402,8 @@ class GameProvider extends ChangeNotifier {
   }
 
   void findMatch(String gameType) {
+    debugPrint('🎮 [GameProvider] findMatch called: gameType=$gameType, isHardcore=$_isHardcore, isInfinite=$_isInfiniteMode');
+    debugPrint('🎮 [GameProvider] socket connected: ${_socketService.socket?.connected}');
     _socketService.emit('find_match', {
       'gameType': gameType,
       'isHardcore': _isHardcore,
@@ -467,9 +478,7 @@ class GameProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  @override
-  void dispose() {
-    _stopCountdownTimer();
+  void _removeSocketListeners() {
     _socketService.off('lobby_joined');
     _socketService.off('waiting_for_match');
     _socketService.off('match_found');
@@ -482,6 +491,13 @@ class GameProvider extends ChangeNotifier {
     _socketService.off('rematch_requested');
     _socketService.off('rematch_cancelled');
     _socketService.off('error');
+  }
+
+  @override
+  void dispose() {
+    _stopCountdownTimer();
+    _removeSocketListeners();
+    _listenersInitialized = false;
     super.dispose();
   }
 }

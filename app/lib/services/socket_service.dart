@@ -140,12 +140,16 @@ class SocketService {
 
     for (final entry in _activeListeners.entries) {
       final event = entry.key;
-      for (final callback in entry.value) {
-        _socket!.on(event, (data) {
-          print('📡 Received event: $event');
-          callback(data);
-        });
-      }
+      final callbacks = entry.value;
+      if (callbacks.isEmpty) continue;
+
+      // 기존 리스너 제거 후 첫 번째 콜백만 등록 (중복 방지)
+      _socket!.off(event);
+      final callback = callbacks.first;
+      _socket!.on(event, (data) {
+        print('📡 Received event: $event');
+        callback(data);
+      });
     }
   }
 
@@ -165,9 +169,13 @@ class SocketService {
   void on(String event, Function(dynamic) callback) {
     print('📡 Setting up listener for: $event');
 
-    // 활성 리스너 목록에 저장 (재연결 시 사용)
-    _activeListeners.putIfAbsent(event, () => []);
-    _activeListeners[event]!.add(callback);
+    // 기존 리스너 제거 (중복 방지)
+    _socket?.off(event);
+    _activeListeners.remove(event);
+    _pendingListeners.remove(event);
+
+    // 새 리스너 저장 (재연결 시 사용)
+    _activeListeners[event] = [callback];
 
     if (_socket != null) {
       // 소켓이 있으면 바로 등록
@@ -178,8 +186,7 @@ class SocketService {
     } else {
       // 소켓이 없으면 버퍼링
       print('📡 Buffering listener for: $event (socket not ready)');
-      _pendingListeners.putIfAbsent(event, () => []);
-      _pendingListeners[event]!.add(callback);
+      _pendingListeners[event] = [callback];
     }
   }
 

@@ -132,7 +132,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
         return Scaffold(
           appBar: AppBar(
-            title: Text(_currentIndex == 0 ? '플레이메이트' : _currentIndex == 1 ? '친구' : '프로필'),
+            title: Text(_currentIndex == 0 ? '듀오아레나' : _currentIndex == 1 ? '친구' : '프로필'),
             backgroundColor: Theme.of(context).primaryColor,
             foregroundColor: Colors.white,
             elevation: 0,
@@ -276,67 +276,91 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
             // 게임 목록
             Expanded(
-              child: GridView.count(
-                crossAxisCount: 3,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                childAspectRatio: 0.85,
+              child: ListView(
                 children: [
-                  _buildGameCard(
-                    context,
-                    title: '틱택토',
-                    subtitle: '3연속',
-                    icon: Icons.grid_3x3,
-                    color: const Color(0xFF6C5CE7),
-                    route: '/game/tictactoe',
+                  // 빠른 게임 섹션
+                  _buildSectionHeader(
+                    icon: Icons.bolt,
+                    title: '빠른 게임',
+                    subtitle: '1~3분',
+                    color: Colors.orange,
                   ),
-                  _buildGameCard(
+                  const SizedBox(height: 8),
+                  GridView.count(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisCount: 3,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                    childAspectRatio: 0.85,
+                    children: [
+                      _buildGameCard(
+                        context,
+                        title: '틱택토',
+                        subtitle: '3연속',
+                        icon: Icons.grid_3x3,
+                        color: const Color(0xFF6C5CE7),
+                        route: '/game/tictactoe',
+                      ),
+                      _buildGameCard(
+                        context,
+                        title: '반응속도',
+                        subtitle: '터치!',
+                        icon: Icons.flash_on,
+                        color: const Color(0xFFE17055),
+                        route: '/game/reaction',
+                      ),
+                      _buildGameCard(
+                        context,
+                        title: '가위바위보',
+                        subtitle: '3판2선',
+                        icon: Icons.front_hand,
+                        color: const Color(0xFF9B59B6),
+                        route: '/game/rps',
+                      ),
+                      _buildGameCard(
+                        context,
+                        title: '스피드탭',
+                        subtitle: '빠르게!',
+                        icon: Icons.touch_app,
+                        color: const Color(0xFF00CEC9),
+                        route: '/game/speedtap',
+                      ),
+                      _buildGameCard(
+                        context,
+                        title: '순서 기억',
+                        subtitle: '기억력!',
+                        icon: Icons.psychology,
+                        color: const Color(0xFFE056FD),
+                        route: '/game/sequence',
+                      ),
+                      _buildGameCard(
+                        context,
+                        title: '스트룹',
+                        subtitle: '색깔!',
+                        icon: Icons.palette,
+                        color: const Color(0xFF00CEC9),
+                        route: '/game/stroop',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // 전략 게임 섹션
+                  _buildSectionHeader(
+                    icon: Icons.psychology_alt,
+                    title: '전략 게임',
+                    subtitle: '10~20분',
+                    color: const Color(0xFF636E72),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildLargeGameCard(
                     context,
                     title: '오목',
-                    subtitle: '5연속',
+                    subtitle: '5개를 연속으로 놓으면 승리',
                     icon: Icons.circle_outlined,
                     color: const Color(0xFF636E72),
                     route: '/game/gomoku',
-                  ),
-                  _buildGameCard(
-                    context,
-                    title: '반응속도',
-                    subtitle: '터치!',
-                    icon: Icons.flash_on,
-                    color: const Color(0xFFE17055),
-                    route: '/game/reaction',
-                  ),
-                  _buildGameCard(
-                    context,
-                    title: '가위바위보',
-                    subtitle: '3판2선',
-                    icon: Icons.front_hand,
-                    color: const Color(0xFF9B59B6),
-                    route: '/game/rps',
-                  ),
-                  _buildGameCard(
-                    context,
-                    title: '스피드탭',
-                    subtitle: '빠르게!',
-                    icon: Icons.touch_app,
-                    color: const Color(0xFF00CEC9),
-                    route: '/game/speedtap',
-                  ),
-                  _buildGameCard(
-                    context,
-                    title: '순서 기억',
-                    subtitle: '기억력!',
-                    icon: Icons.psychology,
-                    color: const Color(0xFFE056FD),
-                    route: '/game/sequence',
-                  ),
-                  _buildGameCard(
-                    context,
-                    title: '스트룹',
-                    subtitle: '색깔!',
-                    icon: Icons.palette,
-                    color: const Color(0xFF00CEC9),
-                    route: '/game/stroop',
                   ),
                 ],
               ),
@@ -525,6 +549,135 @@ class _LobbyScreenState extends State<LobbyScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildSectionHeader({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+  }) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: color, size: 18),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.grey.shade800,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            subtitle,
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey.shade600,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLargeGameCard(
+    BuildContext context, {
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    String? route,
+  }) {
+    return Card(
+      elevation: 4,
+      shadowColor: color.withValues(alpha: 0.3),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Ink(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              color.withValues(alpha: 0.85),
+              color,
+            ],
+          ),
+        ),
+        child: InkWell(
+          onTap: route != null
+              ? () {
+                  Navigator.pushNamed(context, route);
+                }
+              : null,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.25),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  icon,
+                  size: 28,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white.withValues(alpha: 0.8),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right,
+                color: Colors.white.withValues(alpha: 0.8),
+                size: 28,
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
     );
   }
 }

@@ -1319,6 +1319,19 @@ class _StroopScreenState extends State<StroopScreen>
             _status == StroopGameStatus.searching ||
             _status == StroopGameStatus.matched);
 
+    // 랭크전 대기 중이면 경고 없이 나가기
+    if (isRankedWaiting) {
+      Navigator.pop(context);
+      return;
+    }
+
+    // 일반 게임에서 searching 상태면 매칭 취소하고 나가기
+    if (_status == StroopGameStatus.searching) {
+      _cancelMatch();
+      Navigator.pop(context);
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(

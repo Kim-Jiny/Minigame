@@ -913,15 +913,31 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
       return;
     }
 
-    final shop = context.read<ShopProvider>();
-    final theme = GameTheme.fromProfileSettings(shop.profileSettings);
-
-    // 랭크 게임에서 idle/waiting 상태면 다른 메시지 표시
+    // 랭크전 대기 중이면 경고 없이 나가기
     final isRankedWaiting = widget.isRanked &&
         (game.status == GameStatus.idle ||
             game.status == GameStatus.searching ||
             game.status == GameStatus.matched);
 
+    if (isRankedWaiting) {
+      Navigator.pop(context);
+      return;
+    }
+
+    // 일반 게임에서 searching 상태면 매칭 취소하고 나가기
+    if (game.status == GameStatus.searching) {
+      final gameType = game.isInfiniteMode
+          ? AppConfig.gameTypeInfiniteTicTacToe
+          : AppConfig.gameTypeTicTacToe;
+      game.cancelMatch(gameType);
+      Navigator.pop(context);
+      return;
+    }
+
+    final shop = context.read<ShopProvider>();
+    final theme = GameTheme.fromProfileSettings(shop.profileSettings);
+
+    // matched 또는 playing 상태면 확인 다이얼로그
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -933,11 +949,9 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
             const Text('게임 나가기'),
           ],
         ),
-        content: Text(
-          isRankedWaiting
-              ? '랭크전 진행 중입니다.\n나가시겠습니까?'
-              : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
-        ),
+        content: Text(game.status == GameStatus.matched
+            ? '매칭이 완료되었습니다. 나가시겠습니까?'
+            : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),

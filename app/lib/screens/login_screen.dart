@@ -241,7 +241,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                     colors: [Color(0xFF6C5CE7), Color(0xFF74B9FF)],
                   ).createShader(bounds),
                   child: const Text(
-                    '플레이메이트',
+                    '듀오아레나',
                     style: TextStyle(
                       fontSize: 36,
                       fontWeight: FontWeight.bold,
