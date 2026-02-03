@@ -794,7 +794,8 @@ class _FriendsScreenState extends State<FriendsScreen> {
   Widget _buildFriendCard(BuildContext context, Friend friend, FriendProvider friendProvider) {
     // 프레임 색상 가져오기
     final frameColors = friend.profileSettings?.getFrameColors();
-    final hasFrame = frameColors != null;
+    final isRainbow = friend.profileSettings?.isRainbowFrame() ?? false;
+    final hasFrame = frameColors != null || isRainbow;
     // 아바타 정보 가져오기
     final avatarInfo = friend.profileSettings?.getAvatarInfo();
     final avatarEmoji = avatarInfo?.$1;
@@ -812,14 +813,28 @@ class _FriendsScreenState extends State<FriendsScreen> {
               decoration: hasFrame
                   ? BoxDecoration(
                       shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        colors: [frameColors.$1, frameColors.$2],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
+                      gradient: isRainbow
+                          ? const SweepGradient(
+                              colors: [
+                                Colors.red,
+                                Colors.orange,
+                                Colors.yellow,
+                                Colors.green,
+                                Colors.blue,
+                                Colors.purple,
+                                Colors.red,
+                              ],
+                            )
+                          : LinearGradient(
+                              colors: [frameColors!.$1, frameColors.$2],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
                       boxShadow: [
                         BoxShadow(
-                          color: frameColors.$1.withValues(alpha: 0.4),
+                          color: isRainbow
+                              ? Colors.purple.withValues(alpha: 0.4)
+                              : frameColors!.$1.withValues(alpha: 0.4),
                           blurRadius: 6,
                           spreadRadius: 1,
                         ),

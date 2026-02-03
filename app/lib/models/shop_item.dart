@@ -397,6 +397,20 @@ class UserProfileSettings {
     return null;
   }
 
+  // 레인보우 프레임 여부 확인
+  bool isRainbowFrame() {
+    // nested 구조 확인
+    if (activeFrame != null && activeFrame!.isRainbow) {
+      return true;
+    }
+    // flat 구조 확인
+    if (activeFramePreviewData != null) {
+      final borderColorStr = activeFramePreviewData!['borderColor'] as String?;
+      return borderColorStr == 'rainbow';
+    }
+    return false;
+  }
+
   // 칭호 그라디언트 가져오기
   (Color, Color)? getTitleGradient() {
     // nested 구조 우선 - ShopItem의 titleGradient 사용
