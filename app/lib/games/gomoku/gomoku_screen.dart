@@ -40,8 +40,8 @@ class _GomokuScreenState extends State<GomokuScreen> {
       // 소켓 리스너 재등록 (다른 화면에서 제거되었을 수 있음)
       game.ensureSocketListeners();
 
-      // 일반 게임 진입 시 이전 게임 상태 리셋
-      if (!widget.isRanked) {
+      // 초대 게임으로 이미 playing 상태면 리셋하지 않음
+      if (!widget.isRanked && game.status != GameStatus.playing) {
         game.reset();
       }
 
