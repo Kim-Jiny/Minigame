@@ -6,6 +6,9 @@ import dotenv from 'dotenv';
 import { setupSocketHandlers } from './socket';
 import { setupDatabase } from './config/database';
 import authRouter from './routes/auth';
+import inquiryRouter from './routes/inquiry';
+import adminRouter from './routes/admin';
+import path from 'path';
 
 dotenv.config();
 
@@ -29,6 +32,15 @@ app.get('/', (req, res) => {
 
 // Auth routes
 app.use('/api/auth', authRouter);
+
+// Inquiry routes
+app.use('/api/inquiry', inquiryRouter);
+
+// Admin routes
+app.use('/api/admin', adminRouter);
+
+// Admin page
+app.use('/admin', express.static(path.join(__dirname, '../public/admin')));
 
 // Socket.io 핸들러 설정
 setupSocketHandlers(io);
