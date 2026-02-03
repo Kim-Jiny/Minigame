@@ -3,13 +3,35 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/stats_provider.dart';
 import '../providers/shop_provider.dart';
+import '../services/api_service.dart';
 import 'shop_screen.dart';
 import 'level_manage_screen.dart';
 import 'recent_records_screen.dart';
 import 'leaderboard_screen.dart';
+import 'inquiry_screen.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  int _unreadInquiryCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUnreadCount();
+  }
+
+  Future<void> _loadUnreadCount() async {
+    final count = await ApiService().getUnreadInquiryCount();
+    if (mounted) {
+      setState(() => _unreadInquiryCount = count);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -118,14 +140,43 @@ class ProfileScreen extends StatelessWidget {
               const Divider(),
               const SizedBox(height: 8),
 
+              // 고객 지원
+              _buildMenuItem(
+                context,
+                icon: Icons.mail_outline,
+                iconColor: Colors.blue,
+                title: '문의하기',
+                subtitle: '버그 신고, 건의사항',
+                badge: _unreadInquiryCount,
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const InquiryScreen()),
+                  );
+                  _loadUnreadCount();
+                },
+              ),
+
+              const SizedBox(height: 16),
+
               // 계정 관련
               _buildMenuItem(
                 context,
                 icon: Icons.logout,
-                iconColor: Colors.red,
+                iconColor: Colors.orange,
                 title: '로그아웃',
                 onTap: () {
                   _showLogoutDialog(context, auth);
+                },
+              ),
+              _buildMenuItem(
+                context,
+                icon: Icons.delete_forever,
+                iconColor: Colors.red,
+                title: '회원 탈퇴',
+                subtitle: '모든 데이터가 삭제됩니다',
+                onTap: () {
+                  _showDeleteAccountDialog(context, auth);
                 },
               ),
             ],
@@ -339,6 +390,7 @@ class ProfileScreen extends StatelessWidget {
     required Color iconColor,
     required String title,
     String? subtitle,
+    int badge = 0,
     required VoidCallback onTap,
   }) {
     return Card(
@@ -354,7 +406,25 @@ class ProfileScreen extends StatelessWidget {
           ),
           child: Icon(icon, color: iconColor),
         ),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+        title: Row(
+          children: [
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+            if (badge > 0) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.red,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  badge > 99 ? '99+' : '$badge',
+                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ],
+        ),
         subtitle: subtitle != null
             ? Text(subtitle, style: TextStyle(color: Colors.grey.shade600, fontSize: 13))
             : null,
@@ -384,6 +454,111 @@ class ProfileScreen extends StatelessWidget {
               foregroundColor: Colors.white,
             ),
             child: const Text('로그아웃'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteAccountDialog(BuildContext context, AuthProvider auth) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning, color: Colors.red),
+            SizedBox(width: 8),
+            Text('회원 탈퇴'),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '정말 탈퇴하시겠습니까?',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            SizedBox(height: 12),
+            Text('탈퇴 시 다음 데이터가 모두 삭제됩니다:'),
+            SizedBox(height: 8),
+            Text('• 게임 전적 및 레벨'),
+            Text('• 보유 코인 및 구매 아이템'),
+            Text('• 친구 목록'),
+            Text('• 랭크 정보'),
+            SizedBox(height: 12),
+            Text(
+              '삭제된 데이터는 복구할 수 없습니다.',
+              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('취소'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              _confirmDeleteAccount(context, auth);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('탈퇴하기'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteAccount(BuildContext context, AuthProvider auth) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('최종 확인'),
+        content: const Text('정말로 회원 탈퇴를 진행하시겠습니까?\n이 작업은 되돌릴 수 없습니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('취소'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+
+              // 로딩 표시
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (context) => const Center(
+                  child: CircularProgressIndicator(),
+                ),
+              );
+
+              final success = await auth.deleteAccount();
+
+              if (context.mounted) {
+                Navigator.pop(context); // 로딩 닫기
+
+                if (success) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('회원 탈퇴가 완료되었습니다.')),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(auth.error ?? '회원 탈퇴에 실패했습니다.')),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('탈퇴 확인'),
           ),
         ],
       ),

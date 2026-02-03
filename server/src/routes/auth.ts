@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
-import { findOrCreateUser, updateNickname } from '../services/userService';
+import { findOrCreateUser, updateNickname, deleteUser } from '../services/userService';
 import { generateToken, verifyToken } from '../utils/jwt';
 
 const router = Router();
@@ -218,6 +218,32 @@ router.put('/nickname', async (req: Request, res: Response): Promise<void> => {
   } catch (error) {
     console.error('Update nickname error:', error);
     res.status(500).json({ error: 'Failed to update nickname' });
+  }
+});
+
+// DELETE /api/auth/account - 회원 탈퇴
+router.delete('/account', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'No token provided' });
+      return;
+    }
+
+    const token = authHeader.split(' ')[1];
+    const payload = verifyToken(token);
+
+    if (!payload) {
+      res.status(401).json({ error: 'Invalid token' });
+      return;
+    }
+
+    await deleteUser(payload.userId);
+
+    res.json({ success: true, message: '회원 탈퇴가 완료되었습니다.' });
+  } catch (error) {
+    console.error('Delete account error:', error);
+    res.status(500).json({ error: 'Failed to delete account' });
   }
 });
 

@@ -89,3 +89,25 @@ export async function updateNickname(userId: number, nickname: string): Promise<
 
   return result.rows[0];
 }
+
+export async function deleteUser(userId: number): Promise<void> {
+  const pool = getPool();
+
+  if (!pool) {
+    throw new Error('Database not connected');
+  }
+
+  // 관련 데이터 삭제 (CASCADE가 설정되어 있지 않은 경우를 대비)
+  await pool.query('DELETE FROM user_sessions WHERE user_id = $1', [userId]);
+  await pool.query('DELETE FROM user_stats WHERE user_id = $1', [userId]);
+  await pool.query('DELETE FROM game_records WHERE user_id = $1', [userId]);
+  await pool.query('DELETE FROM user_items WHERE user_id = $1', [userId]);
+  await pool.query('DELETE FROM friendships WHERE user_id = $1 OR friend_id = $1', [userId]);
+
+  // 사용자 삭제
+  const result = await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+
+  if (result.rowCount === 0) {
+    throw new Error('User not found');
+  }
+}

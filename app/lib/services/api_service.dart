@@ -108,6 +108,116 @@ class ApiService {
     final data = jsonDecode(response.body);
     return UserInfo.fromJson(data['user']);
   }
+
+  Future<void> deleteAccount() async {
+    if (_jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+
+    final response = await http.delete(
+      Uri.parse('${AppConfig.serverUrl}/api/auth/account'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_jwtToken',
+      },
+    );
+
+    if (response.statusCode != 200) {
+      final data = jsonDecode(response.body);
+      throw Exception(data['error'] ?? 'Failed to delete account');
+    }
+
+    await clearToken();
+  }
+
+  // 문의 등록
+  Future<Map<String, dynamic>> submitInquiry({
+    required String category,
+    required String title,
+    required String content,
+  }) async {
+    if (_jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+
+    final response = await http.post(
+      Uri.parse('${AppConfig.serverUrl}/api/inquiry'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_jwtToken',
+      },
+      body: jsonEncode({
+        'category': category,
+        'title': title,
+        'content': content,
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      final data = jsonDecode(response.body);
+      throw Exception(data['error'] ?? 'Failed to submit inquiry');
+    }
+
+    return jsonDecode(response.body);
+  }
+
+  // 내 문의 목록 조회
+  Future<List<Map<String, dynamic>>> getMyInquiries() async {
+    if (_jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+
+    final response = await http.get(
+      Uri.parse('${AppConfig.serverUrl}/api/inquiry'),
+      headers: {
+        'Authorization': 'Bearer $_jwtToken',
+      },
+    );
+
+    if (response.statusCode != 200) {
+      final data = jsonDecode(response.body);
+      throw Exception(data['error'] ?? 'Failed to get inquiries');
+    }
+
+    final data = jsonDecode(response.body);
+    return List<Map<String, dynamic>>.from(data['inquiries']);
+  }
+
+  // 읽지 않은 답변 수 조회
+  Future<int> getUnreadInquiryCount() async {
+    if (_jwtToken == null) {
+      return 0;
+    }
+
+    try {
+      final response = await http.get(
+        Uri.parse('${AppConfig.serverUrl}/api/inquiry/unread-count'),
+        headers: {
+          'Authorization': 'Bearer $_jwtToken',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['count'] ?? 0;
+      }
+    } catch (_) {}
+    return 0;
+  }
+
+  // 문의 읽음 처리
+  Future<void> markInquiryAsRead(int inquiryId) async {
+    if (_jwtToken == null) return;
+
+    try {
+      await http.put(
+        Uri.parse('${AppConfig.serverUrl}/api/inquiry/$inquiryId/read'),
+        headers: {
+          'Authorization': 'Bearer $_jwtToken',
+        },
+      );
+    } catch (_) {}
+  }
 }
 
 class AuthResponse {
