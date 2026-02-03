@@ -15,7 +15,6 @@ class FriendsScreen extends StatefulWidget {
 
 class _FriendsScreenState extends State<FriendsScreen> {
   final _friendCodeController = TextEditingController();
-  bool _inviteHardcoreMode = false;
 
   @override
   void initState() {
@@ -154,168 +153,6 @@ class _FriendsScreenState extends State<FriendsScreen> {
             child: const Text('저장'),
           ),
         ],
-      ),
-    );
-  }
-
-  void _showInviteGameDialog(BuildContext context, Friend friend) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            const Icon(Icons.sports_esports, color: Colors.pink),
-            const SizedBox(width: 8),
-            Text('${friend.nickname}님 초대'),
-          ],
-        ),
-        content: StatefulBuilder(
-          builder: (context, setState) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('어떤 게임으로 초대할까요?'),
-                const SizedBox(height: 16),
-                // 하드코어 모드 토글
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: _inviteHardcoreMode ? Colors.red.shade50 : Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: _inviteHardcoreMode ? Colors.red : Colors.grey.shade300,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.local_fire_department,
-                            color: _inviteHardcoreMode ? Colors.red : Colors.grey,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            '하드코어 모드',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: _inviteHardcoreMode ? Colors.red : Colors.grey.shade600,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '(10초)',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: _inviteHardcoreMode ? Colors.red.shade400 : Colors.grey,
-                            ),
-                          ),
-                        ],
-                      ),
-                      Switch(
-                        value: _inviteHardcoreMode,
-                        onChanged: (value) {
-                          setState(() {
-                            _inviteHardcoreMode = value;
-                          });
-                        },
-                        activeColor: Colors.red,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                _buildGameOption(
-                  context,
-                  friend,
-                  '틱택토',
-                  'tictactoe',
-                  Icons.grid_3x3,
-                ),
-                const SizedBox(height: 8),
-                _buildGameOption(
-                  context,
-                  friend,
-                  '오목',
-                  'gomoku',
-                  Icons.circle_outlined,
-                ),
-                const SizedBox(height: 8),
-                _buildGameOption(
-                  context,
-                  friend,
-                  '반응속도',
-                  'reaction',
-                  Icons.flash_on,
-                ),
-                const SizedBox(height: 8),
-                _buildGameOption(
-                  context,
-                  friend,
-                  '가위바위보',
-                  'rps',
-                  Icons.front_hand,
-                ),
-              ],
-            );
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGameOption(
-    BuildContext context,
-    Friend friend,
-    String title,
-    String gameType,
-    IconData icon,
-  ) {
-    return InkWell(
-      onTap: () {
-        context.read<FriendProvider>().inviteToGame(
-          friend.id,
-          gameType,
-          isHardcore: _inviteHardcoreMode,
-        );
-        Navigator.pop(context);
-        final modeText = _inviteHardcoreMode ? ' (하드코어)' : '';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${friend.nickname}님에게$modeText 초대를 보냈습니다!')),
-        );
-        // 다음 초대를 위해 리셋
-        _inviteHardcoreMode = false;
-      },
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          border: Border.all(
-            color: _inviteHardcoreMode ? Colors.red.shade200 : Colors.pink.shade200,
-          ),
-          borderRadius: BorderRadius.circular(12),
-          color: _inviteHardcoreMode ? Colors.red.shade50 : null,
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: _inviteHardcoreMode ? Colors.red : Colors.pink),
-            const SizedBox(width: 12),
-            Text(title, style: const TextStyle(fontSize: 16)),
-            const Spacer(),
-            if (_inviteHardcoreMode)
-              Icon(Icons.local_fire_department, size: 16, color: Colors.red),
-            const SizedBox(width: 4),
-            const Icon(Icons.arrow_forward_ios, size: 16),
-          ],
-        ),
       ),
     );
   }
@@ -958,15 +795,6 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   ),
               ],
             ),
-            if (friend.isOnline)
-              IconButton(
-                onPressed: () => _showInviteGameDialog(context, friend),
-                icon: Icon(
-                  Icons.sports_esports,
-                  color: Theme.of(context).primaryColor,
-                ),
-                tooltip: '게임 초대',
-              ),
             PopupMenuButton<String>(
               onSelected: (value) {
                 if (value == 'memo') {

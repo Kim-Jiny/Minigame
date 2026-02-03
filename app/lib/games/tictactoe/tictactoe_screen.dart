@@ -85,6 +85,158 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
     return '상대 찾기';
   }
 
+  void _showFriendInviteDialog(BuildContext context, GameProvider game) {
+    final friendProvider = context.read<FriendProvider>();
+    final onlineFriends = friendProvider.friends.where((f) => f.isOnline).toList();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.6,
+        ),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 핸들
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            // 헤더
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                children: [
+                  const Icon(Icons.person_add, color: Colors.blue),
+                  const SizedBox(width: 12),
+                  const Text(
+                    '친구 초대',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const Spacer(),
+                  if (game.isHardcore)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.local_fire_department, size: 16, color: Colors.red.shade400),
+                          const SizedBox(width: 4),
+                          Text('하드코어', style: TextStyle(fontSize: 12, color: Colors.red.shade400, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            // 친구 목록
+            Flexible(
+              child: onlineFriends.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(40),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.person_off, size: 48, color: Colors.grey.shade400),
+                            const SizedBox(height: 16),
+                            Text(
+                              '온라인 친구가 없습니다',
+                              style: TextStyle(color: Colors.grey.shade600),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: onlineFriends.length,
+                      itemBuilder: (context, index) {
+                        final friend = onlineFriends[index];
+                        return ListTile(
+                          leading: Stack(
+                            children: [
+                              CircleAvatar(
+                                backgroundColor: Colors.blue.shade100,
+                                child: Text(
+                                  friend.nickname.isNotEmpty ? friend.nickname[0].toUpperCase() : '?',
+                                  style: TextStyle(color: Colors.blue.shade700),
+                                ),
+                              ),
+                              Positioned(
+                                right: 0,
+                                bottom: 0,
+                                child: Container(
+                                  width: 12,
+                                  height: 12,
+                                  decoration: BoxDecoration(
+                                    color: Colors.green,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: Colors.white, width: 2),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          title: Text(friend.nickname, style: const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: friend.memo != null && friend.memo!.isNotEmpty
+                              ? Text(friend.memo!, style: TextStyle(color: Colors.grey.shade600, fontSize: 12))
+                              : null,
+                          trailing: ElevatedButton(
+                            onPressed: () {
+                              final gameType = game.isInfiniteMode
+                                  ? AppConfig.gameTypeInfiniteTicTacToe
+                                  : AppConfig.gameTypeTicTacToe;
+                              friendProvider.inviteToGame(
+                                friend.id,
+                                gameType,
+                                isHardcore: game.isHardcore,
+                              );
+                              Navigator.pop(context);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('${friend.nickname}님에게 초대를 보냈습니다!'),
+                                  backgroundColor: Colors.green,
+                                ),
+                              );
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: game.isHardcore ? Colors.red : Colors.blue,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                            ),
+                            child: const Text('초대'),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+            SizedBox(height: MediaQuery.of(context).padding.bottom + 16),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildPieceCounter(String label, int count, Color color) {
     return Column(
       children: [
@@ -239,23 +391,47 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
               ),
             ),
             const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () {
-                game.findMatch(AppConfig.gameTypeTicTacToe);
-              },
-              icon: const Icon(Icons.search),
-              label: Text(_getMatchButtonLabel(game)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: game.isHardcore ? Colors.red : (game.isInfiniteMode ? Colors.purple : theme.primary),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 32,
-                  vertical: 16,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: () {
+                    game.findMatch(AppConfig.gameTypeTicTacToe);
+                  },
+                  icon: const Icon(Icons.search),
+                  label: Text(_getMatchButtonLabel(game)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: game.isHardcore ? Colors.red : (game.isInfiniteMode ? Colors.purple : theme.primary),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 16,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                  ),
                 ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
+                const SizedBox(width: 12),
+                OutlinedButton.icon(
+                  onPressed: () => _showFriendInviteDialog(context, game),
+                  icon: const Icon(Icons.person_add),
+                  label: const Text('친구 초대'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: game.isHardcore ? Colors.red : (game.isInfiniteMode ? Colors.purple : theme.primary),
+                    side: BorderSide(
+                      color: game.isHardcore ? Colors.red : (game.isInfiniteMode ? Colors.purple : theme.primary),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 16,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
           ],
         ),
