@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DUO Admin</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; }
+
+    /* Login */
+    .login-container { display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .login-box { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); width: 100%; max-width: 360px; }
+    .login-box h1 { text-align: center; margin-bottom: 30px; color: #333; }
+    .login-box input { width: 100%; padding: 12px 16px; margin-bottom: 16px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; }
+    .login-box button { width: 100%; padding: 14px; background: #6C5CE7; color: white; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; }
+    .login-box button:hover { background: #5B4BD5; }
+    .error { color: #e74c3c; text-align: center; margin-bottom: 16px; }
+
+    /* Dashboard */
+    .dashboard { display: none; }
+    .header { background: #6C5CE7; color: white; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+    .header h1 { font-size: 20px; }
+    .header button { background: rgba(255,255,255,0.2); border: none; color: white; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
+
+    .stats { display: flex; gap: 16px; padding: 24px; flex-wrap: wrap; }
+    .stat-card { background: white; padding: 20px; border-radius: 12px; flex: 1; min-width: 150px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    .stat-card h3 { color: #888; font-size: 14px; margin-bottom: 8px; }
+    .stat-card .number { font-size: 32px; font-weight: bold; color: #333; }
+    .stat-card.pending .number { color: #e74c3c; }
+
+    .content { padding: 0 24px 24px; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+    .tabs button { padding: 10px 20px; border: none; background: #e0e0e0; border-radius: 8px; cursor: pointer; }
+    .tabs button.active { background: #6C5CE7; color: white; }
+
+    .inquiry-list { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    .inquiry-item { padding: 16px 20px; border-bottom: 1px solid #eee; cursor: pointer; }
+    .inquiry-item:hover { background: #f9f9f9; }
+    .inquiry-item:last-child { border-bottom: none; }
+    .inquiry-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .inquiry-title { font-weight: 600; color: #333; }
+    .inquiry-meta { display: flex; gap: 12px; font-size: 13px; color: #888; }
+    .badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+    .badge.pending { background: #fff3cd; color: #856404; }
+    .badge.replied { background: #d4edda; color: #155724; }
+    .badge.bug { background: #f8d7da; color: #721c24; }
+    .badge.suggestion { background: #fff3cd; color: #856404; }
+    .badge.account { background: #cce5ff; color: #004085; }
+    .badge.other { background: #e2e3e5; color: #383d41; }
+
+    /* Modal */
+    .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 100; }
+    .modal.show { display: flex; }
+    .modal-content { background: white; border-radius: 12px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; margin: 20px; }
+    .modal-header { padding: 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+    .modal-header h2 { font-size: 18px; }
+    .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: #888; }
+    .modal-body { padding: 20px; }
+    .modal-body label { display: block; font-weight: 600; margin-bottom: 8px; color: #555; }
+    .modal-body .content-box { background: #f5f5f5; padding: 16px; border-radius: 8px; margin-bottom: 20px; white-space: pre-wrap; }
+    .modal-body textarea { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; resize: vertical; min-height: 120px; }
+    .modal-footer { padding: 20px; border-top: 1px solid #eee; display: flex; gap: 12px; justify-content: flex-end; }
+    .modal-footer button { padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+    .btn-primary { background: #6C5CE7; color: white; border: none; }
+    .btn-danger { background: #e74c3c; color: white; border: none; }
+    .btn-secondary { background: #e0e0e0; border: none; }
+
+    .empty { text-align: center; padding: 60px; color: #888; }
+
+    /* User Info Section */
+    .user-info-section { margin: 20px 0; }
+    .section-title { background: #f0f0f0; padding: 12px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .section-title:hover { background: #e8e8e8; }
+    .section-content { display: none; padding: 12px; background: #fafafa; border-radius: 8px; margin-bottom: 12px; }
+    .section-content.show { display: block; }
+    .info-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .info-table th, .info-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #eee; }
+    .info-table th { background: #f5f5f5; font-weight: 600; width: 120px; }
+    .info-table tr:last-child td, .info-table tr:last-child th { border-bottom: none; }
+    .session-item { background: white; padding: 10px; border-radius: 6px; margin-bottom: 8px; font-size: 13px; }
+    .session-item:last-child { margin-bottom: 0; }
+    .session-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .session-platform { font-weight: 600; color: #6C5CE7; }
+    .session-date { color: #888; font-size: 12px; }
+    .session-detail { color: #666; }
+    .game-record { display: flex; justify-content: space-between; align-items: center; padding: 8px; background: white; border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
+    .game-record:last-child { margin-bottom: 0; }
+    .game-result.win { color: #27ae60; font-weight: 600; }
+    .game-result.lose { color: #e74c3c; font-weight: 600; }
+    .game-result.draw { color: #888; }
+    .stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
+    .stat-row:last-child { border-bottom: none; }
+    .mileage-badge { background: #ffd700; color: #333; padding: 4px 12px; border-radius: 12px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <!-- Login -->
+  <div class="login-container" id="loginContainer">
+    <div class="login-box">
+      <h1>DUO Admin</h1>
+      <div class="error" id="loginError"></div>
+      <input type="text" id="username" placeholder="Username" autocomplete="off">
+      <input type="password" id="password" placeholder="Password">
+      <button onclick="login()">Login</button>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div class="dashboard" id="dashboard">
+    <div class="header">
+      <h1>DUO Admin</h1>
+      <button onclick="logout()">Logout</button>
+    </div>
+
+    <div class="stats" id="stats">
+      <div class="stat-card">
+        <h3>Total Users</h3>
+        <div class="number" id="totalUsers">-</div>
+      </div>
+      <div class="stat-card">
+        <h3>Total Inquiries</h3>
+        <div class="number" id="totalInquiries">-</div>
+      </div>
+      <div class="stat-card pending">
+        <h3>Pending</h3>
+        <div class="number" id="pendingInquiries">-</div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="tabs">
+        <button class="active" onclick="filterInquiries('all', this)">All</button>
+        <button onclick="filterInquiries('pending', this)">Pending</button>
+        <button onclick="filterInquiries('replied', this)">Replied</button>
+      </div>
+      <div class="inquiry-list" id="inquiryList">
+        <div class="empty">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div class="modal" id="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modalTitle">문의 상세</h2>
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label>User</label>
+        <div class="content-box" id="modalUser"></div>
+
+        <label>Category</label>
+        <div class="content-box" id="modalCategory"></div>
+
+        <label>Content</label>
+        <div class="content-box" id="modalContent"></div>
+
+        <!-- User Info Section -->
+        <div class="user-info-section">
+          <div class="section-title" onclick="toggleSection('deviceInfo')">
+            📱 Device Info <span class="toggle-icon">▼</span>
+          </div>
+          <div id="deviceInfo" class="section-content"></div>
+
+          <div class="section-title" onclick="toggleSection('gameStats')">
+            🎮 Game Stats <span class="toggle-icon">▼</span>
+          </div>
+          <div id="gameStats" class="section-content"></div>
+
+          <div class="section-title" onclick="toggleSection('recentGames')">
+            📋 Recent Games <span class="toggle-icon">▼</span>
+          </div>
+          <div id="recentGames" class="section-content"></div>
+        </div>
+
+        <div id="replySection">
+          <label>Reply</label>
+          <textarea id="replyText" placeholder="답변을 입력하세요..."></textarea>
+        </div>
+
+        <div id="existingReply" style="display:none;">
+          <label>Reply (Sent)</label>
+          <div class="content-box" id="modalReply"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-danger" onclick="deleteInquiry()">Delete</button>
+        <button class="btn-secondary" onclick="closeModal()">Close</button>
+        <button class="btn-primary" id="replyBtn" onclick="submitReply()">Send Reply</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let token = localStorage.getItem('adminToken');
+    let currentInquiry = null;
+
+    // Check login
+    if (token) {
+      showDashboard();
+    }
+
+    async function login() {
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+      const errorEl = document.getElementById('loginError');
+
+      try {
+        const res = await fetch('/api/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          token = data.token;
+          localStorage.setItem('adminToken', token);
+          showDashboard();
+        } else {
+          errorEl.textContent = data.error || 'Login failed';
+        }
+      } catch (e) {
+        errorEl.textContent = 'Connection error';
+      }
+    }
+
+    function logout() {
+      token = null;
+      localStorage.removeItem('adminToken');
+      document.getElementById('loginContainer').style.display = 'flex';
+      document.getElementById('dashboard').style.display = 'none';
+    }
+
+    function showDashboard() {
+      document.getElementById('loginContainer').style.display = 'none';
+      document.getElementById('dashboard').style.display = 'block';
+      loadStats();
+      loadInquiries('all');
+    }
+
+    async function loadStats() {
+      try {
+        const res = await fetch('/api/admin/stats', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        document.getElementById('totalUsers').textContent = data.totalUsers;
+        document.getElementById('totalInquiries').textContent = data.totalInquiries;
+        document.getElementById('pendingInquiries').textContent = data.pendingInquiries;
+      } catch (e) {
+        console.error('Failed to load stats');
+      }
+    }
+
+    async function loadInquiries(status) {
+      const list = document.getElementById('inquiryList');
+      try {
+        const res = await fetch(`/api/admin/inquiries?status=${status}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+
+        if (data.inquiries.length === 0) {
+          list.innerHTML = '<div class="empty">No inquiries</div>';
+          return;
+        }
+
+        list.innerHTML = data.inquiries.map(i => `
+          <div class="inquiry-item" onclick='openInquiry(${JSON.stringify(i).replace(/'/g, "\\'")})'>
+            <div class="inquiry-header">
+              <span class="inquiry-title">${escapeHtml(i.title)}</span>
+              <span class="badge ${i.status}">${i.status === 'pending' ? 'Pending' : 'Replied'}</span>
+            </div>
+            <div class="inquiry-meta">
+              <span class="badge ${i.category}">${getCategoryLabel(i.category)}</span>
+              <span>${i.nickname || 'Unknown'}</span>
+              <span>${formatDate(i.created_at)}</span>
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {
+        list.innerHTML = '<div class="empty">Failed to load</div>';
+      }
+    }
+
+    function filterInquiries(status, btn) {
+      document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      loadInquiries(status);
+    }
+
+    async function openInquiry(inquiry) {
+      currentInquiry = inquiry;
+      document.getElementById('modalTitle').textContent = inquiry.title;
+      document.getElementById('modalUser').textContent = `${inquiry.nickname || 'Unknown'} (${inquiry.email || 'No email'})`;
+      document.getElementById('modalCategory').textContent = getCategoryLabel(inquiry.category);
+      document.getElementById('modalContent').textContent = inquiry.content;
+
+      // Reset sections
+      document.getElementById('deviceInfo').innerHTML = '<div style="color:#888">Loading...</div>';
+      document.getElementById('gameStats').innerHTML = '<div style="color:#888">Loading...</div>';
+      document.getElementById('recentGames').innerHTML = '<div style="color:#888">Loading...</div>';
+      document.querySelectorAll('.section-content').forEach(el => el.classList.remove('show'));
+
+      if (inquiry.reply) {
+        document.getElementById('replySection').style.display = 'none';
+        document.getElementById('existingReply').style.display = 'block';
+        document.getElementById('modalReply').textContent = inquiry.reply;
+        document.getElementById('replyBtn').style.display = 'none';
+      } else {
+        document.getElementById('replySection').style.display = 'block';
+        document.getElementById('existingReply').style.display = 'none';
+        document.getElementById('replyText').value = '';
+        document.getElementById('replyBtn').style.display = 'inline-block';
+      }
+
+      document.getElementById('modal').classList.add('show');
+
+      // Load detailed info
+      try {
+        const res = await fetch(`/api/admin/inquiries/${inquiry.id}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        renderUserInfo(data);
+      } catch (e) {
+        console.error('Failed to load inquiry detail');
+      }
+    }
+
+    function renderUserInfo(data) {
+      // Device Info
+      const deviceInfoEl = document.getElementById('deviceInfo');
+      if (data.sessions && data.sessions.length > 0) {
+        deviceInfoEl.innerHTML = data.sessions.map(s => `
+          <div class="session-item">
+            <div class="session-header">
+              <span class="session-platform">${s.platform || 'Unknown'} ${s.os_version || ''}</span>
+              <span class="session-date">${formatDateTime(s.created_at)}</span>
+            </div>
+            <div class="session-detail">
+              📱 ${s.device_model || 'Unknown'} &nbsp;|&nbsp;
+              📦 v${s.app_version || '?'}(${s.build_number || '?'}) &nbsp;|&nbsp;
+              🌐 ${s.ip_address || 'Unknown'}
+            </div>
+          </div>
+        `).join('');
+      } else {
+        deviceInfoEl.innerHTML = '<div style="color:#888">No session data</div>';
+      }
+
+      // Game Stats
+      const gameStatsEl = document.getElementById('gameStats');
+      let statsHtml = `<div style="margin-bottom:12px">💰 Mileage: <span class="mileage-badge">${data.mileage || 0}</span></div>`;
+      if (data.stats && data.stats.length > 0) {
+        statsHtml += '<table class="info-table"><tr><th>Game</th><th>Win</th><th>Lose</th><th>Draw</th><th>Level</th></tr>';
+        data.stats.forEach(s => {
+          statsHtml += `<tr><td>${getGameLabel(s.game_type)}</td><td style="color:#27ae60">${s.wins}</td><td style="color:#e74c3c">${s.losses}</td><td>${s.draws}</td><td>Lv.${s.level}</td></tr>`;
+        });
+        statsHtml += '</table>';
+      } else {
+        statsHtml += '<div style="color:#888">No game stats</div>';
+      }
+      gameStatsEl.innerHTML = statsHtml;
+
+      // Recent Games
+      const recentGamesEl = document.getElementById('recentGames');
+      if (data.recentGames && data.recentGames.length > 0) {
+        const userNickname = data.inquiry.nickname;
+        recentGamesEl.innerHTML = data.recentGames.map(g => {
+          let result = 'draw';
+          let resultText = 'Draw';
+          if (g.winner_id) {
+            const isWinner = (g.player1_nickname === userNickname && g.winner_id === data.inquiry.user_id) ||
+                            (g.player2_nickname === userNickname && g.winner_id === data.inquiry.user_id);
+            result = isWinner ? 'win' : 'lose';
+            resultText = isWinner ? 'Win' : 'Lose';
+          }
+          const opponent = g.player1_nickname === userNickname ? g.player2_nickname : g.player1_nickname;
+          return `
+            <div class="game-record">
+              <span>${getGameLabel(g.game_type)} vs ${opponent || 'Unknown'}</span>
+              <span>
+                <span class="game-result ${result}">${resultText}</span>
+                <span style="color:#888;margin-left:8px;font-size:12px">${formatDateTime(g.created_at)}</span>
+              </span>
+            </div>
+          `;
+        }).join('');
+      } else {
+        recentGamesEl.innerHTML = '<div style="color:#888">No recent games</div>';
+      }
+    }
+
+    function toggleSection(id) {
+      const el = document.getElementById(id);
+      el.classList.toggle('show');
+    }
+
+    function getGameLabel(gameType) {
+      const labels = {
+        'tictactoe': 'Tic-Tac-Toe',
+        'infinite_tictactoe': 'Infinite TTT',
+        'gomoku': 'Gomoku',
+        'reaction': 'Reaction',
+        'speed_tap': 'Speed Tap',
+        'rps': 'Rock Paper Scissors',
+        'sequence_memory': 'Sequence Memory',
+        'stroop': 'Stroop'
+      };
+      return labels[gameType] || gameType;
+    }
+
+    function formatDateTime(dateStr) {
+      const d = new Date(dateStr);
+      return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    }
+
+    function closeModal() {
+      document.getElementById('modal').classList.remove('show');
+      currentInquiry = null;
+    }
+
+    async function submitReply() {
+      const reply = document.getElementById('replyText').value;
+      if (!reply.trim() || !currentInquiry) return;
+
+      try {
+        const res = await fetch(`/api/admin/inquiries/${currentInquiry.id}/reply`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ reply })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          closeModal();
+          loadStats();
+          loadInquiries('all');
+        } else {
+          alert(data.error || 'Failed to reply');
+        }
+      } catch (e) {
+        alert('Connection error');
+      }
+    }
+
+    async function deleteInquiry() {
+      if (!currentInquiry || !confirm('Delete this inquiry?')) return;
+
+      try {
+        const res = await fetch(`/api/admin/inquiries/${currentInquiry.id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          closeModal();
+          loadStats();
+          loadInquiries('all');
+        }
+      } catch (e) {
+        alert('Failed to delete');
+      }
+    }
+
+    function getCategoryLabel(cat) {
+      const labels = { bug: 'Bug', suggestion: 'Suggestion', account: 'Account', other: 'Other' };
+      return labels[cat] || cat;
+    }
+
+    function formatDate(dateStr) {
+      const d = new Date(dateStr);
+      return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    // Enter key for login
+    document.getElementById('password').addEventListener('keypress', e => {
+      if (e.key === 'Enter') login();
+    });
+  </script>
+</body>
+</html>
