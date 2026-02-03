@@ -51,6 +51,10 @@ class GameProvider extends ChangeNotifier {
   bool _isHardcore = false;  // 하드코어 모드 설정
   bool _isHardcoreGame = false;  // 현재 게임이 하드코어인지
 
+  // 무한 모드 (틱택토에서 사용)
+  bool _isInfiniteMode = false;  // 무한 모드 설정
+  bool _isInfiniteGame = false;  // 현재 게임이 무한 모드인지
+
   // 연승 정보
   int _myStreak = 0;
   int _opponentStreak = 0;
@@ -86,6 +90,8 @@ class GameProvider extends ChangeNotifier {
   String? get timeoutPlayerNickname => _timeoutPlayerNickname;
   bool get isHardcore => _isHardcore;
   bool get isHardcoreGame => _isHardcoreGame;
+  bool get isInfiniteMode => _isInfiniteMode;
+  bool get isInfiniteGame => _isInfiniteGame;
   int? get lastMovePosition => _lastMovePosition;
   int get myStreak => _myStreak;
   int get opponentStreak => _opponentStreak;
@@ -95,6 +101,12 @@ class GameProvider extends ChangeNotifier {
   // 하드코어 모드 설정
   void setHardcoreMode(bool value) {
     _isHardcore = value;
+    notifyListeners();
+  }
+
+  // 무한 모드 설정
+  void setInfiniteMode(bool value) {
+    _isInfiniteMode = value;
     notifyListeners();
   }
 
@@ -121,6 +133,13 @@ class GameProvider extends ChangeNotifier {
 
   void initialize(String myId) {
     _myId = myId;
+  }
+
+  /// 다른 게임 화면의 dispose()에서 off()를 호출해서 리스너가 제거될 수 있음
+  /// 이 메서드를 호출하여 리스너를 재등록
+  void ensureSocketListeners() {
+    debugPrint('🎮 [GameProvider] ensureSocketListeners called');
+    _setupSocketListeners();
   }
 
   void _setupSocketListeners() {
@@ -151,6 +170,7 @@ class GameProvider extends ChangeNotifier {
       // 친구 초대 게임인지 확인
       _isInvitationGame = data['isInvitation'] == true;
       _isHardcoreGame = data['isHardcore'] == true;
+      _isInfiniteGame = data['isInfinite'] == true;
 
       // 연승 정보 (players 배열에서 추출)
       _myStreak = me != null ? (me['streak'] ?? 0) : 0;
@@ -172,7 +192,10 @@ class GameProvider extends ChangeNotifier {
       debugPrint('🎮 game_start 데이터: $data');
       _status = GameStatus.playing;
       _currentTurn = data['currentTurn'];
-      _board = List<int?>.from(data['board']);
+      // board가 있는 게임만 처리 (틱택토, 오목 등)
+      if (data['board'] != null) {
+        _board = List<int?>.from(data['board']);
+      }
       _winnerId = null;
       _winnerNickname = null;
       _isDraw = false;
@@ -186,7 +209,9 @@ class GameProvider extends ChangeNotifier {
       // 턴 타이머 시작
       _turnTimeLimit = data['turnTimeLimit'];
       _turnStartTime = data['turnStartTime'];
-      _startCountdownTimer();
+      if (_turnTimeLimit != null) {
+        _startCountdownTimer();
+      }
       debugPrint('🎮 game_start 후 상태: status=$_status, currentTurn=$_currentTurn, myId=$_myId');
       notifyListeners();
     });
@@ -223,7 +248,10 @@ class GameProvider extends ChangeNotifier {
 
     _socketService.on('game_end', (data) {
       _status = GameStatus.finished;
-      _board = List<int?>.from(data['board']);
+      // board가 있는 게임만 처리 (틱택토, 오목 등)
+      if (data['board'] != null) {
+        _board = List<int?>.from(data['board']);
+      }
       _winnerId = data['winner'];
       _winnerNickname = data['winnerNickname'];
       _isDraw = data['isDraw'] ?? false;
@@ -365,11 +393,19 @@ class GameProvider extends ChangeNotifier {
   }
 
   void findMatch(String gameType) {
-    _socketService.emit('find_match', {'gameType': gameType, 'isHardcore': _isHardcore});
+    _socketService.emit('find_match', {
+      'gameType': gameType,
+      'isHardcore': _isHardcore,
+      'isInfinite': _isInfiniteMode,
+    });
   }
 
   void cancelMatch(String gameType) {
-    _socketService.emit('cancel_match', {'gameType': gameType, 'isHardcore': _isHardcore});
+    _socketService.emit('cancel_match', {
+      'gameType': gameType,
+      'isHardcore': _isHardcore,
+      'isInfinite': _isInfiniteMode,
+    });
     _status = GameStatus.idle;
     notifyListeners();
   }
@@ -421,6 +457,7 @@ class GameProvider extends ChangeNotifier {
     _opponentLeft = false;
     _isInvitationGame = false;
     _isHardcoreGame = false;
+    _isInfiniteGame = false;
     _turnTimeLimit = null;
     _turnStartTime = null;
     _remainingTime = 0;

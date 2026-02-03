@@ -25,7 +25,9 @@ enum RoundState {
 }
 
 class ReactionScreen extends StatefulWidget {
-  const ReactionScreen({super.key});
+  final bool isRanked;
+
+  const ReactionScreen({super.key, this.isRanked = false});
 
   @override
   State<ReactionScreen> createState() => _ReactionScreenState();
@@ -33,6 +35,7 @@ class ReactionScreen extends StatefulWidget {
 
 class _ReactionScreenState extends State<ReactionScreen> {
   final SocketService _socketService = SocketService();
+  bool _hasScheduledPop = false;  // 중복 pop 방지
 
   ReactionGameStatus _status = ReactionGameStatus.idle;
   RoundState _roundState = RoundState.waiting;
@@ -85,15 +88,21 @@ class _ReactionScreenState extends State<ReactionScreen> {
   }
 
   void _setupSocketListeners() {
+    debugPrint('🎮 [ReactionScreen] Setting up socket listeners, myId=$_myId');
+
     _socketService.on('waiting_for_match', (_) {
+      debugPrint('🎮 [ReactionScreen] waiting_for_match received');
       setState(() => _status = ReactionGameStatus.searching);
     });
 
     _socketService.on('match_found', (data) {
+      debugPrint('🎮 [ReactionScreen] match_found received: $data');
+      debugPrint('🎮 [ReactionScreen] Current _myId=$_myId');
       final players = data['players'] as List;
       final opponent = players.firstWhere((p) => p['id'] != _myId);
       final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
       _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
+      debugPrint('🎮 [ReactionScreen] myPlayerIndex=$_myPlayerIndex, me=$me');
 
       setState(() {
         _status = ReactionGameStatus.matched;
@@ -110,15 +119,19 @@ class _ReactionScreenState extends State<ReactionScreen> {
           _opponentProfileSettings = UserProfileSettings.fromJson(opponent['profileSettings']);
         }
       });
+      debugPrint('🎮 [ReactionScreen] Status changed to matched');
     });
 
     _socketService.on('game_start', (data) {
+      debugPrint('🎮 [ReactionScreen] game_start received: $data');
+      debugPrint('🎮 [ReactionScreen] Current status=$_status, rematchWaiting=$_rematchWaiting');
       if (data['gameType'] == 'reaction') {
         // finished 상태에서 재경기 요청 안 했으면 무시
         if (_status == ReactionGameStatus.finished && !_rematchWaiting) {
-          debugPrint('🎮 game_start ignored: not waiting for rematch');
+          debugPrint('🎮 [ReactionScreen] ❌ game_start ignored: not waiting for rematch');
           return;
         }
+        debugPrint('🎮 [ReactionScreen] ✅ Processing game_start for reaction');
         setState(() {
           _status = ReactionGameStatus.playing;
           _currentRound = 0;
@@ -136,6 +149,9 @@ class _ReactionScreenState extends State<ReactionScreen> {
           _isDraw = false;
           _winnerId = null;
         });
+        debugPrint('🎮 [ReactionScreen] Status changed to playing');
+      } else {
+        debugPrint('🎮 [ReactionScreen] game_start ignored: gameType is ${data['gameType']}, not reaction');
       }
     });
 
@@ -309,11 +325,27 @@ class _ReactionScreenState extends State<ReactionScreen> {
     );
   }
 
+  Widget _buildRankedWaitingView(GameTheme theme) {
+    return Container(
+      decoration: BoxDecoration(gradient: theme.backgroundGradient),
+      child: const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('게임 준비 중...', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildBody(GameTheme theme) {
     return switch (_status) {
-      ReactionGameStatus.idle => _buildIdleView(theme),
-      ReactionGameStatus.searching => _buildSearchingView(theme),
-      ReactionGameStatus.matched => _buildMatchedView(theme),
+      ReactionGameStatus.idle => widget.isRanked ? _buildRankedWaitingView(theme) : _buildIdleView(theme),
+      ReactionGameStatus.searching => widget.isRanked ? _buildRankedWaitingView(theme) : _buildSearchingView(theme),
+      ReactionGameStatus.matched => widget.isRanked ? _buildRankedWaitingView(theme) : _buildMatchedView(theme),
       ReactionGameStatus.playing => _buildPlayingView(theme),
       ReactionGameStatus.finished => _buildFinishedView(theme),
     };
@@ -767,6 +799,44 @@ class _ReactionScreenState extends State<ReactionScreen> {
   Widget _buildFinishedView(GameTheme theme) {
     final isWinner = _winnerId == _myId;
 
+    // 랭크전에서는 결과만 표시하고 자동으로 돌아가기
+    if (widget.isRanked) {
+      if (!_hasScheduledPop) {
+        _hasScheduledPop = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          Future.delayed(const Duration(seconds: 2), () {
+            if (mounted) Navigator.pop(context);
+          });
+        });
+      }
+      return Container(
+        decoration: BoxDecoration(gradient: theme.backgroundGradient),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                _isDraw ? Icons.handshake : (isWinner ? Icons.emoji_events : Icons.sentiment_dissatisfied),
+                size: 80,
+                color: _isDraw ? Colors.orange : (isWinner ? Colors.amber : Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                _isDraw ? '무승부!' : (isWinner ? '승리!' : '패배'),
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: _isDraw ? Colors.orange : (isWinner ? theme.primary : Colors.grey),
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Text('잠시 후 다음 게임...', style: TextStyle(color: Colors.grey)),
+            ],
+          ),
+        ),
+      );
+    }
+
     String resultText;
     Color resultColor;
     IconData resultIcon;
@@ -959,10 +1029,17 @@ class _ReactionScreenState extends State<ReactionScreen> {
   }
 
   void _showExitDialog() {
-    if (_status == ReactionGameStatus.idle) {
+    // 일반 게임에서 idle 상태면 바로 나가기
+    if (!widget.isRanked && _status == ReactionGameStatus.idle) {
       Navigator.pop(context);
       return;
     }
+
+    // 랭크 게임에서 대기 중인 상태인지 확인
+    final isRankedWaiting = widget.isRanked &&
+        (_status == ReactionGameStatus.idle ||
+            _status == ReactionGameStatus.searching ||
+            _status == ReactionGameStatus.matched);
 
     showDialog(
       context: context,
@@ -975,7 +1052,11 @@ class _ReactionScreenState extends State<ReactionScreen> {
             Text('게임 나가기'),
           ],
         ),
-        content: const Text('정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.'),
+        content: Text(
+          isRankedWaiting
+              ? '랭크전 진행 중입니다.\n나가시겠습니까?'
+              : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),

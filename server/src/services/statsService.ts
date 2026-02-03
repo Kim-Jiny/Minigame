@@ -7,6 +7,9 @@ export interface GameRecord {
   result: 'win' | 'loss' | 'draw';
   expGained: number;
   createdAt: string;
+  isRanked?: boolean;
+  rankedMatchId?: string;
+  rankedGameIndex?: number;
 }
 
 export interface GameStats {
@@ -186,7 +189,12 @@ export const statsService = {
     userId: number,
     opponentId: number,
     gameType: string,
-    result: 'win' | 'loss'
+    result: 'win' | 'loss',
+    options?: {
+      isRanked?: boolean;
+      rankedMatchId?: string;
+      rankedGameIndex?: number;
+    }
   ): Promise<void> {
     const pool = getPool();
     if (!pool) throw new Error('Database not connected');
@@ -199,7 +207,14 @@ export const statsService = {
         userId,
         opponentId,
         result === 'win' ? userId : opponentId,
-        JSON.stringify({ result, expGained: 0, isQuit: true })
+        JSON.stringify({
+          result,
+          expGained: 0,
+          isQuit: true,
+          isRanked: options?.isRanked || false,
+          rankedMatchId: options?.rankedMatchId || null,
+          rankedGameIndex: options?.rankedGameIndex ?? null,
+        })
       ]
     );
   },
@@ -399,7 +414,12 @@ export const statsService = {
     userId: number,
     opponentId: number,
     gameType: string,
-    result: 'win' | 'loss' | 'draw'
+    result: 'win' | 'loss' | 'draw',
+    options?: {
+      isRanked?: boolean;
+      rankedMatchId?: string;
+      rankedGameIndex?: number;
+    }
   ): Promise<void> {
     const pool = getPool();
     if (!pool) throw new Error('Database not connected');
@@ -414,7 +434,13 @@ export const statsService = {
         userId,
         opponentId,
         result === 'win' ? userId : (result === 'loss' ? opponentId : null),
-        JSON.stringify({ result, expGained })
+        JSON.stringify({
+          result,
+          expGained,
+          isRanked: options?.isRanked || false,
+          rankedMatchId: options?.rankedMatchId || null,
+          rankedGameIndex: options?.rankedGameIndex ?? null,
+        })
       ]
     );
   },
@@ -463,6 +489,9 @@ export const statsService = {
         result: recordResult,
         expGained: getExpForResult(recordResult),
         createdAt: row.created_at.toISOString(),
+        isRanked: gameData.isRanked || false,
+        rankedMatchId: gameData.rankedMatchId || null,
+        rankedGameIndex: gameData.rankedGameIndex ?? null,
       };
     });
   },

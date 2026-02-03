@@ -19,7 +19,9 @@ enum SpeedTapGameStatus {
 }
 
 class SpeedTapScreen extends StatefulWidget {
-  const SpeedTapScreen({super.key});
+  final bool isRanked;
+
+  const SpeedTapScreen({super.key, this.isRanked = false});
 
   @override
   State<SpeedTapScreen> createState() => _SpeedTapScreenState();
@@ -27,6 +29,7 @@ class SpeedTapScreen extends StatefulWidget {
 
 class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProviderStateMixin {
   final SocketService _socketService = SocketService();
+  bool _hasScheduledPop = false;  // 중복 pop 방지
 
   SpeedTapGameStatus _status = SpeedTapGameStatus.idle;
 
@@ -370,11 +373,27 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
     );
   }
 
+  Widget _buildRankedWaitingView(GameTheme theme) {
+    return Container(
+      decoration: BoxDecoration(gradient: theme.backgroundGradient),
+      child: const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('게임 준비 중...', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildBody(GameTheme theme) {
     return switch (_status) {
-      SpeedTapGameStatus.idle => _buildIdleView(theme),
-      SpeedTapGameStatus.searching => _buildSearchingView(theme),
-      SpeedTapGameStatus.matched => _buildMatchedView(theme),
+      SpeedTapGameStatus.idle => widget.isRanked ? _buildRankedWaitingView(theme) : _buildIdleView(theme),
+      SpeedTapGameStatus.searching => widget.isRanked ? _buildRankedWaitingView(theme) : _buildSearchingView(theme),
+      SpeedTapGameStatus.matched => widget.isRanked ? _buildRankedWaitingView(theme) : _buildMatchedView(theme),
       SpeedTapGameStatus.playing => _buildPlayingView(theme),
       SpeedTapGameStatus.finished => _buildFinishedView(theme),
     };
@@ -890,6 +909,44 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
   Widget _buildFinishedView(GameTheme theme) {
     final isWinner = _winnerId == _myId;
 
+    // 랭크전에서는 결과만 표시하고 자동으로 돌아가기
+    if (widget.isRanked) {
+      if (!_hasScheduledPop) {
+        _hasScheduledPop = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          Future.delayed(const Duration(seconds: 2), () {
+            if (mounted) Navigator.pop(context);
+          });
+        });
+      }
+      return Container(
+        decoration: BoxDecoration(gradient: theme.backgroundGradient),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                _isDraw ? Icons.handshake : (isWinner ? Icons.emoji_events : Icons.sentiment_dissatisfied),
+                size: 80,
+                color: _isDraw ? Colors.orange : (isWinner ? Colors.amber : Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                _isDraw ? '무승부!' : (isWinner ? '승리!' : '패배'),
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: _isDraw ? Colors.orange : (isWinner ? theme.primary : Colors.grey),
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Text('잠시 후 다음 게임...', style: TextStyle(color: Colors.grey)),
+            ],
+          ),
+        ),
+      );
+    }
+
     String resultText;
     Color resultColor;
     IconData resultIcon;
@@ -1099,10 +1156,17 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
   }
 
   void _showExitDialog(GameTheme theme) {
-    if (_status == SpeedTapGameStatus.idle) {
+    // 일반 게임에서 idle 상태면 바로 나가기
+    if (!widget.isRanked && _status == SpeedTapGameStatus.idle) {
       Navigator.pop(context);
       return;
     }
+
+    // 랭크 게임에서 대기 중인 상태인지 확인
+    final isRankedWaiting = widget.isRanked &&
+        (_status == SpeedTapGameStatus.idle ||
+            _status == SpeedTapGameStatus.searching ||
+            _status == SpeedTapGameStatus.matched);
 
     showDialog(
       context: context,
@@ -1115,7 +1179,11 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
             Text('게임 나가기'),
           ],
         ),
-        content: const Text('정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.'),
+        content: Text(
+          isRankedWaiting
+              ? '랭크전 진행 중입니다.\n나가시겠습니까?'
+              : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),

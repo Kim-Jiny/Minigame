@@ -19,13 +19,11 @@ export const TIERS: TierInfo[] = [
   { name: 'Challenger', minElo: 2000, maxElo: 9999, color: '#FF4500' },
 ];
 
-// 랭크 게임 목록
+// 랭크 게임 목록 (오목, 무한틱택토 제외)
 export const RANKED_GAMES = [
   'tictactoe',
   'sequence',
   'stroop',
-  'infinite_tictactoe',
-  'gomoku',
   'reaction',
   'rps',
   'speedtap',
@@ -295,5 +293,89 @@ export const rankedService = {
   // 게임이 하드코어 모드인지 확인
   isHardcoreGame(gameType: string): boolean {
     return HARDCORE_GAMES.includes(gameType);
+  },
+
+  // 무승부 결과 반영 (LP 높은 쪽이 30% 페널티로 패배)
+  async updateRankedResultAsDraw(
+    winnerId: number,
+    loserId: number,
+    gamesPlayed: { gameType: string; winnerId: number }[]
+  ): Promise<{
+    winnerStats: RankedStats;
+    loserStats: RankedStats;
+    winnerEloChange: number;
+    loserEloChange: number;
+  }> {
+    const pool = getPool();
+    if (!pool) throw new Error('Database not connected');
+
+    // 현재 통계 조회
+    const winnerStatsBefore = await this.getRankedStats(winnerId);
+    const loserStatsBefore = await this.getRankedStats(loserId);
+
+    // ELO 변동 계산 (정상 계산 후 30% 적용)
+    const { winnerGain, loserLoss } = this.calculateEloChange(
+      winnerStatsBefore.elo,
+      loserStatsBefore.elo
+    );
+
+    // 무승부이므로 30%만 적용
+    const reducedWinnerGain = Math.round(winnerGain * 0.3);
+    const reducedLoserLoss = Math.round(loserLoss * 0.3);
+
+    // 새 ELO 계산 (최소 0)
+    const newWinnerElo = winnerStatsBefore.elo + reducedWinnerGain;
+    const newLoserElo = Math.max(0, loserStatsBefore.elo - reducedLoserLoss);
+
+    // 새 티어 계산
+    const newWinnerTier = this.getTierFromElo(newWinnerElo);
+    const newLoserTier = this.getTierFromElo(newLoserElo);
+
+    // 승자 통계 업데이트 (무승부이므로 연승은 유지하되 증가하지 않음, wins도 증가하지 않음)
+    await pool.query(
+      `UPDATE user_ranked_stats
+       SET elo = $1, tier = $2,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE user_id = $3`,
+      [newWinnerElo, newWinnerTier.name, winnerId]
+    );
+
+    // 패자 통계 업데이트 (무승부이므로 연승만 리셋, losses도 증가하지 않음)
+    await pool.query(
+      `UPDATE user_ranked_stats
+       SET elo = $1, tier = $2, win_streak = 0,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE user_id = $3`,
+      [newLoserElo, newLoserTier.name, loserId]
+    );
+
+    // 매치 기록 저장 (무승부로 표시)
+    await pool.query(
+      `INSERT INTO ranked_matches
+       (player1_id, player2_id, winner_id, games_played,
+        player1_elo_before, player2_elo_before, player1_elo_after, player2_elo_after)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        winnerId,
+        loserId,
+        null,  // 무승부이므로 winner_id는 null
+        JSON.stringify(gamesPlayed),
+        winnerStatsBefore.elo,
+        loserStatsBefore.elo,
+        newWinnerElo,
+        newLoserElo,
+      ]
+    );
+
+    // 업데이트된 통계 반환
+    const winnerStats = await this.getRankedStats(winnerId);
+    const loserStats = await this.getRankedStats(loserId);
+
+    return {
+      winnerStats,
+      loserStats,
+      winnerEloChange: reducedWinnerGain,
+      loserEloChange: -reducedLoserLoss,
+    };
   },
 };

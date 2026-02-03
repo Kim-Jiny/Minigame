@@ -9,19 +9,30 @@ import '../../widgets/game_player_profile.dart';
 import '../../utils/game_theme.dart';
 
 class InfiniteTicTacToeScreen extends StatefulWidget {
-  const InfiniteTicTacToeScreen({super.key});
+  final bool isRanked;
+
+  const InfiniteTicTacToeScreen({super.key, this.isRanked = false});
 
   @override
   State<InfiniteTicTacToeScreen> createState() => _InfiniteTicTacToeScreenState();
 }
 
 class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
+  bool _hasScheduledPop = false;  // 중복 pop 방지
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
       final auth = context.read<AuthProvider>();
       final game = context.read<GameProvider>();
+
+      // 일반 게임 진입 시 이전 게임 상태 리셋
+      if (!widget.isRanked) {
+        game.reset();
+      }
 
       if (auth.socketId != null) {
         game.initialize(auth.socketId!);
@@ -51,9 +62,9 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
               ),
             ),
             body: switch (game.status) {
-              GameStatus.idle => _buildIdleView(game, theme),
-              GameStatus.searching => _buildSearchingView(game, theme),
-              GameStatus.matched => _buildMatchedView(game, theme),
+              GameStatus.idle => widget.isRanked ? _buildRankedWaitingView(theme) : _buildIdleView(game, theme),
+              GameStatus.searching => widget.isRanked ? _buildRankedWaitingView(theme) : _buildSearchingView(game, theme),
+              GameStatus.matched => widget.isRanked ? _buildRankedWaitingView(theme) : _buildMatchedView(game, theme),
               GameStatus.playing => _buildPlayingView(game, theme),
               GameStatus.finished => _buildFinishedView(game, theme),
             },
@@ -590,7 +601,67 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
     }
   }
 
+  Widget _buildRankedWaitingView(GameTheme theme) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: theme.backgroundGradient,
+      ),
+      child: const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text(
+              '게임 준비 중...',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildFinishedView(GameProvider game, GameTheme theme) {
+    // 랭크전에서는 결과만 표시하고 자동으로 돌아가기
+    if (widget.isRanked) {
+      if (!_hasScheduledPop) {
+        _hasScheduledPop = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          Future.delayed(const Duration(seconds: 2), () {
+            if (mounted) Navigator.pop(context);
+          });
+        });
+      }
+      final isWinner = game.isWinner;
+      return Container(
+        decoration: BoxDecoration(gradient: theme.backgroundGradient),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                isWinner ? Icons.emoji_events : Icons.sentiment_dissatisfied,
+                size: 80,
+                color: isWinner ? Colors.amber : Colors.grey,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                isWinner ? '승리!' : '패배',
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: isWinner ? theme.primary : Colors.grey,
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Text('잠시 후 다음 게임...', style: TextStyle(color: Colors.grey)),
+            ],
+          ),
+        ),
+      );
+    }
+
     final isWinner = game.isWinner;
     final resultText = isWinner ? '승리!' : '아쉬워요...';
     final resultColor = isWinner ? theme.primary : Colors.grey;

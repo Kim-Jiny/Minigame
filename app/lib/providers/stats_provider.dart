@@ -8,6 +8,9 @@ class GameRecord {
   final String result; // 'win', 'loss', 'draw'
   final int expGained;
   final DateTime createdAt;
+  final bool isRanked;
+  final String? rankedMatchId;
+  final int? rankedGameIndex;
 
   GameRecord({
     required this.id,
@@ -16,6 +19,9 @@ class GameRecord {
     required this.result,
     required this.expGained,
     required this.createdAt,
+    this.isRanked = false,
+    this.rankedMatchId,
+    this.rankedGameIndex,
   });
 
   factory GameRecord.fromJson(Map<String, dynamic> json) {
@@ -26,6 +32,9 @@ class GameRecord {
       result: json['result'],
       expGained: json['expGained'] ?? 0,
       createdAt: DateTime.parse(json['createdAt']),
+      isRanked: json['isRanked'] ?? false,
+      rankedMatchId: json['rankedMatchId'],
+      rankedGameIndex: json['rankedGameIndex'],
     );
   }
 

@@ -9,19 +9,30 @@ import '../../widgets/game_player_profile.dart';
 import '../../utils/game_theme.dart';
 
 class TicTacToeScreen extends StatefulWidget {
-  const TicTacToeScreen({super.key});
+  final bool isRanked;
+
+  const TicTacToeScreen({super.key, this.isRanked = false});
 
   @override
   State<TicTacToeScreen> createState() => _TicTacToeScreenState();
 }
 
 class _TicTacToeScreenState extends State<TicTacToeScreen> {
+  bool _hasScheduledPop = false;  // 중복 pop 방지
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
       final auth = context.read<AuthProvider>();
       final game = context.read<GameProvider>();
+
+      // 일반 게임 진입 시 이전 게임 상태 리셋
+      if (!widget.isRanked) {
+        game.reset();
+      }
 
       if (auth.socketId != null) {
         game.initialize(auth.socketId!);
@@ -51,15 +62,59 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
               ),
             ),
             body: switch (game.status) {
-              GameStatus.idle => _buildIdleView(game, theme),
-              GameStatus.searching => _buildSearchingView(game, theme),
-              GameStatus.matched => _buildMatchedView(game, theme),
+              GameStatus.idle => widget.isRanked ? _buildRankedWaitingView(theme) : _buildIdleView(game, theme),
+              GameStatus.searching => widget.isRanked ? _buildRankedWaitingView(theme) : _buildSearchingView(game, theme),
+              GameStatus.matched => widget.isRanked ? _buildRankedWaitingView(theme) : _buildMatchedView(game, theme),
               GameStatus.playing => _buildPlayingView(game, theme),
               GameStatus.finished => _buildFinishedView(game, theme),
             },
           ),
         );
       },
+    );
+  }
+
+  String _getMatchButtonLabel(GameProvider game) {
+    if (game.isInfiniteMode && game.isHardcore) {
+      return '무한 하드코어 상대 찾기';
+    } else if (game.isInfiniteMode) {
+      return '무한모드 상대 찾기';
+    } else if (game.isHardcore) {
+      return '하드코어 상대 찾기';
+    }
+    return '상대 찾기';
+  }
+
+  Widget _buildPieceCounter(String label, int count, Color color) {
+    return Column(
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey.shade600,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(3, (index) {
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              width: 16,
+              height: 16,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: index < count ? color : Colors.grey.shade300,
+                border: Border.all(
+                  color: index < count ? color : Colors.grey.shade400,
+                  width: 2,
+                ),
+              ),
+            );
+          }),
+        ),
+      ],
     );
   }
 
@@ -87,22 +142,60 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
             ),
             const SizedBox(height: 24),
             Text(
-              '틱택토',
+              game.isInfiniteMode ? '무한 틱택토' : '틱택토',
               style: TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.bold,
-                color: theme.primary,
+                color: game.isInfiniteMode ? Colors.purple : theme.primary,
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              '3개를 연속으로 놓으면 승리!',
+              game.isInfiniteMode
+                  ? '각 플레이어는 최대 3개의 말만!\n가장 오래된 말이 사라집니다'
+                  : '3개를 연속으로 놓으면 승리!',
+              textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 16,
                 color: Colors.grey.shade600,
               ),
             ),
             const SizedBox(height: 32),
+            // 무한 모드 토글
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: game.isInfiniteMode ? Colors.purple.shade50 : Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: game.isInfiniteMode ? Colors.purple : Colors.grey.shade300,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.all_inclusive,
+                    color: game.isInfiniteMode ? Colors.purple : Colors.grey,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '무한모드',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: game.isInfiniteMode ? Colors.purple : Colors.grey.shade600,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Switch(
+                    value: game.isInfiniteMode,
+                    onChanged: (value) => game.setInfiniteMode(value),
+                    activeColor: Colors.purple,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
             // 하드코어 모드 토글
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -151,9 +244,9 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
                 game.findMatch(AppConfig.gameTypeTicTacToe);
               },
               icon: const Icon(Icons.search),
-              label: Text(game.isHardcore ? '하드코어 상대 찾기' : '상대 찾기'),
+              label: Text(_getMatchButtonLabel(game)),
               style: ElevatedButton.styleFrom(
-                backgroundColor: game.isHardcore ? Colors.red : theme.primary,
+                backgroundColor: game.isHardcore ? Colors.red : (game.isInfiniteMode ? Colors.purple : theme.primary),
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 32,
@@ -372,6 +465,35 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
               ),
             ),
 
+          // 무한모드: 말 개수 표시
+          if (game.isInfiniteGame)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildPieceCounter('내 말', game.myPieceCount, theme.primary),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.purple.shade200),
+                    ),
+                    child: const Text(
+                      '무한모드',
+                      style: TextStyle(
+                        color: Colors.purple,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  _buildPieceCounter('상대 말', game.opponentPieceCount, Colors.red),
+                ],
+              ),
+            ),
+
           // 게임 보드
           Expanded(
             child: Center(
@@ -508,8 +630,69 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
     }
   }
 
+  Widget _buildRankedWaitingView(GameTheme theme) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: theme.backgroundGradient,
+      ),
+      child: const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text(
+              '게임 준비 중...',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildFinishedView(GameProvider game, GameTheme theme) {
     debugPrint('🎮 _buildFinishedView - isInvitationGame: ${game.isInvitationGame}');
+
+    // 랭크전에서는 결과만 표시하고 자동으로 돌아가기
+    if (widget.isRanked) {
+      if (!_hasScheduledPop) {
+        _hasScheduledPop = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          Future.delayed(const Duration(seconds: 2), () {
+            if (mounted) Navigator.pop(context);
+          });
+        });
+      }
+      final isWinner = game.isWinner;
+      final isDraw = game.isDraw;
+      return Container(
+        decoration: BoxDecoration(gradient: theme.backgroundGradient),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                isDraw ? Icons.handshake : (isWinner ? Icons.emoji_events : Icons.sentiment_dissatisfied),
+                size: 80,
+                color: isDraw ? Colors.orange : (isWinner ? Colors.amber : Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                isDraw ? '무승부!' : (isWinner ? '승리!' : '패배'),
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: isDraw ? Colors.orange : (isWinner ? theme.primary : Colors.grey),
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Text('잠시 후 다음 게임...', style: TextStyle(color: Colors.grey)),
+            ],
+          ),
+        ),
+      );
+    }
 
     String resultText;
     Color resultColor;
@@ -724,13 +907,20 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
   void _showExitDialog(BuildContext context) {
     final game = context.read<GameProvider>();
 
-    if (game.status == GameStatus.idle) {
+    // 일반 게임에서 idle 상태면 바로 나가기
+    if (!widget.isRanked && game.status == GameStatus.idle) {
       Navigator.pop(context);
       return;
     }
 
     final shop = context.read<ShopProvider>();
     final theme = GameTheme.fromProfileSettings(shop.profileSettings);
+
+    // 랭크 게임에서 idle/waiting 상태면 다른 메시지 표시
+    final isRankedWaiting = widget.isRanked &&
+        (game.status == GameStatus.idle ||
+            game.status == GameStatus.searching ||
+            game.status == GameStatus.matched);
 
     showDialog(
       context: context,
@@ -743,7 +933,11 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
             const Text('게임 나가기'),
           ],
         ),
-        content: const Text('정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.'),
+        content: Text(
+          isRankedWaiting
+              ? '랭크전 진행 중입니다.\n나가시겠습니까?'
+              : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),

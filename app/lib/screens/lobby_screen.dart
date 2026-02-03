@@ -292,14 +292,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   ),
                   _buildGameCard(
                     context,
-                    title: '무한 틱택토',
-                    subtitle: '3개씩!',
-                    icon: Icons.all_inclusive,
-                    color: const Color(0xFF00B894),
-                    route: '/game/infinite_tictactoe',
-                  ),
-                  _buildGameCard(
-                    context,
                     title: '오목',
                     subtitle: '5연속',
                     icon: Icons.circle_outlined,

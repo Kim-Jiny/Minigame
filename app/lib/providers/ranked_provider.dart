@@ -165,6 +165,7 @@ enum RankedMatchStatus {
   searching,
   found,
   playing,
+  waitingNextGame,  // 게임 종료 후 다음 게임 대기 중
   finished,
 }
 
@@ -172,7 +173,7 @@ class RankedProvider extends ChangeNotifier {
   final SocketService _socketService = SocketService();
 
   // 상태
-  RankedStats? _stats;
+  RankedStats? _stats = RankedStats.empty(); // 초기값으로 기본 stats 사용
   List<LeaderboardEntry> _leaderboard = [];
   int? _myRank;
   bool _isLoading = false;
@@ -223,11 +224,27 @@ class RankedProvider extends ChangeNotifier {
   int? get loserEloChange => _loserEloChange;
 
   void initialize() {
-    if (!_listenersInitialized) {
-      _setupSocketListeners();
-      _listenersInitialized = true;
+    // 소켓 리스너 재등록 (연결이 끊겼다 재연결된 경우 대비)
+    ensureSocketListeners();
+
+    // 화면 진입 시 상태 정리
+    if (_matchStatus == RankedMatchStatus.searching) {
+      // 매칭 중이면 취소 요청
+      _socketService.emit('cancel_ranked_match', {});
+      _matchStatus = RankedMatchStatus.idle;
+      notifyListeners();
+    } else if (_matchStatus == RankedMatchStatus.finished) {
+      // 이전 게임 결과 화면 상태면 리셋
+      resetMatchState();
     }
     getRankedStats();
+  }
+
+  // 소켓 리스너 재등록 (연결 상태 변경 후 필요)
+  void ensureSocketListeners() {
+    debugPrint('🎮 [RankedProvider] ensureSocketListeners called, initialized: $_listenersInitialized');
+    _setupSocketListeners();
+    _listenersInitialized = true;
   }
 
   void _setupSocketListeners() {
@@ -235,6 +252,9 @@ class RankedProvider extends ChangeNotifier {
     _socketService.on('ranked_stats', (data) {
       if (data['stats'] != null) {
         _stats = RankedStats.fromJson(data['stats']);
+      } else {
+        // 서버에서 stats가 없는 경우 기본값 사용
+        _stats = RankedStats.empty();
       }
       _isLoading = false;
       notifyListeners();
@@ -287,6 +307,8 @@ class RankedProvider extends ChangeNotifier {
 
     // 랭크 게임 시작
     _socketService.on('ranked_game_start', (data) {
+      debugPrint('🎮 [RankedProvider] ranked_game_start received: $data');
+      debugPrint('🎮 [RankedProvider] BEFORE - status: $_matchStatus, gameIndex: $_currentGameIndex, currentGame: $_currentGame');
       _matchStatus = RankedMatchStatus.playing;
       _currentGameIndex = data['gameIndex'] ?? 0;
       _currentGame = data['gameType'];
@@ -296,11 +318,16 @@ class RankedProvider extends ChangeNotifier {
             .map((e) => RankedGameResult.fromJson(e))
             .toList();
       }
+      debugPrint('🎮 [RankedProvider] AFTER - status: $_matchStatus, gameIndex: $_currentGameIndex, currentGame: $_currentGame');
+      debugPrint('🎮 [RankedProvider] Calling notifyListeners()...');
       notifyListeners();
+      debugPrint('🎮 [RankedProvider] notifyListeners() called');
     });
 
     // 랭크 개별 게임 종료
     _socketService.on('ranked_game_end', (data) {
+      debugPrint('🎮 [RankedProvider] ranked_game_end received: $data');
+      debugPrint('🎮 [RankedProvider] BEFORE - status: $_matchStatus, score: $_score');
       if (data['results'] != null) {
         _results = (data['results'] as List)
             .map((e) => RankedGameResult.fromJson(e))
@@ -309,6 +336,14 @@ class RankedProvider extends ChangeNotifier {
       if (data['score'] != null) {
         _score = List<int>.from(data['score']);
       }
+      // Bo3가 끝나지 않았으면 다음 게임 대기 상태로
+      // 2승 이상인 경우 ranked_match_end가 올 것이므로 여기서는 waitingNextGame으로 설정
+      if (_score[0] < 2 && _score[1] < 2) {
+        _matchStatus = RankedMatchStatus.waitingNextGame;
+        _currentGame = null;  // 다음 게임 시작 전까지 null로 설정
+        debugPrint('🎮 [RankedProvider] Setting to waitingNextGame, score: ${_score[0]}-${_score[1]}');
+      }
+      debugPrint('🎮 [RankedProvider] AFTER - status: $_matchStatus, currentGame: $_currentGame');
       notifyListeners();
     });
 
@@ -337,6 +372,15 @@ class RankedProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     _socketService.emit('get_ranked_stats', {});
+
+    // 3초 후에도 응답이 없으면 기본값 사용
+    Future.delayed(const Duration(seconds: 3), () {
+      if (_isLoading && _stats == null) {
+        _stats = RankedStats.empty();
+        _isLoading = false;
+        notifyListeners();
+      }
+    });
   }
 
   // 리더보드 조회

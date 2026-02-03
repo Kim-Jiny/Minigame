@@ -2,8 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/ranked_provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/game_provider.dart';
 import '../widgets/tier_badge.dart';
 import 'leaderboard_screen.dart';
+import '../games/tictactoe/tictactoe_screen.dart';
+import '../games/infinite_tictactoe/infinite_tictactoe_screen.dart';
+import '../games/gomoku/gomoku_screen.dart';
+import '../games/reaction/reaction_screen.dart';
+import '../games/rps/rps_screen.dart';
+import '../games/speedtap/speedtap_screen.dart';
+import '../games/sequence/sequence_screen.dart';
+import '../games/stroop/stroop_screen.dart';
 
 class RankedScreen extends StatefulWidget {
   const RankedScreen({super.key});
@@ -13,56 +22,263 @@ class RankedScreen extends StatefulWidget {
 }
 
 class _RankedScreenState extends State<RankedScreen> {
+  int? _lastNavigatedGameIndex;
+  bool _isNavigating = false;
+  bool _listenerAdded = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // 위젯이 이미 dispose 되었으면 무시
+      if (!mounted) return;
+
       final ranked = context.read<RankedProvider>();
       ranked.initialize();
       ranked.getMyRank();
+
+      // Provider 변경 리스너 추가
+      ranked.addListener(_onRankedProviderChanged);
+      _listenerAdded = true;
     });
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('랭크전'),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
+  void dispose() {
+    // 리스너가 추가되었을 때만 제거
+    if (_listenerAdded) {
+      try {
+        final ranked = context.read<RankedProvider>();
+        ranked.removeListener(_onRankedProviderChanged);
+
+        // finished 상태에서 나갈 때 상태 리셋
+        if (ranked.matchStatus == RankedMatchStatus.finished) {
+          ranked.resetMatchState();
+        }
+      } catch (_) {}
+    }
+    super.dispose();
+  }
+
+  void _onRankedProviderChanged() {
+    if (!mounted) {
+      debugPrint('🎮 [Listener] Widget not mounted, skipping');
+      return;
+    }
+
+    final ranked = context.read<RankedProvider>();
+
+    debugPrint('🎮 [Listener] ==============================');
+    debugPrint('🎮 [Listener] status=${ranked.matchStatus}');
+    debugPrint('🎮 [Listener] currentGame=${ranked.currentGame}');
+    debugPrint('🎮 [Listener] currentGameIndex=${ranked.currentGameIndex}');
+    debugPrint('🎮 [Listener] _lastNavigatedGameIndex=$_lastNavigatedGameIndex');
+    debugPrint('🎮 [Listener] _isNavigating=$_isNavigating');
+    debugPrint('🎮 [Listener] score=${ranked.score}');
+
+    // playing 상태이고 게임이 있고 아직 해당 게임으로 이동하지 않았으면 네비게이션
+    final shouldNavigate = ranked.matchStatus == RankedMatchStatus.playing &&
+        ranked.currentGame != null &&
+        _lastNavigatedGameIndex != ranked.currentGameIndex &&
+        !_isNavigating;
+
+    debugPrint('🎮 [Listener] shouldNavigate=$shouldNavigate');
+    debugPrint('🎮 [Listener]   - matchStatus == playing: ${ranked.matchStatus == RankedMatchStatus.playing}');
+    debugPrint('🎮 [Listener]   - currentGame != null: ${ranked.currentGame != null}');
+    debugPrint('🎮 [Listener]   - lastNav != index: ${_lastNavigatedGameIndex != ranked.currentGameIndex}');
+    debugPrint('🎮 [Listener]   - !isNavigating: ${!_isNavigating}');
+
+    if (shouldNavigate) {
+      debugPrint('🎮 [Listener] *** TRIGGERING NAVIGATION to ${ranked.currentGame} ***');
+      _navigateToGameScreen(ranked.currentGame!, ranked.currentGameIndex);
+    }
+
+    // idle, searching, found 상태면 네비게이션 상태 리셋
+    if (ranked.matchStatus == RankedMatchStatus.idle ||
+        ranked.matchStatus == RankedMatchStatus.searching ||
+        ranked.matchStatus == RankedMatchStatus.found) {
+      debugPrint('🎮 [Listener] Resetting navigation state');
+      _lastNavigatedGameIndex = null;
+      _isNavigating = false;
+    }
+    debugPrint('🎮 [Listener] ==============================');
+  }
+
+  void _navigateToGameScreen(String gameType, int gameIndex) {
+    debugPrint('🎮 [Navigate] _navigateToGameScreen called: gameType=$gameType, gameIndex=$gameIndex');
+    debugPrint('🎮 [Navigate] Current state: _isNavigating=$_isNavigating, _lastNavigatedGameIndex=$_lastNavigatedGameIndex');
+
+    if (_isNavigating) {
+      debugPrint('🎮 [Navigate] ❌ Already navigating, skip');
+      return;
+    }
+    if (_lastNavigatedGameIndex == gameIndex) {
+      debugPrint('🎮 [Navigate] ❌ Already navigated to index $gameIndex, skip');
+      return;
+    }
+
+    _isNavigating = true;
+    _lastNavigatedGameIndex = gameIndex;
+
+    debugPrint('🎮 [Navigate] ✅ Proceeding with navigation to $gameType (index: $gameIndex)');
+
+    // GameProvider 초기화 및 상태 리셋
+    final auth = context.read<AuthProvider>();
+    final game = context.read<GameProvider>();
+    debugPrint('🎮 [Navigate] auth.socketId=${auth.socketId}');
+    debugPrint('🎮 [Navigate] GameProvider current status=${game.status}');
+
+    // 중요: 이전 게임의 상태를 리셋하여 두 번째 게임이 올바르게 시작되도록 함
+    game.reset();
+    debugPrint('🎮 [Navigate] GameProvider reset called, status now=${game.status}');
+
+    // 중요: 이전 게임 화면의 dispose()에서 off()를 호출해서 리스너가 제거되었을 수 있음
+    // 소켓 리스너를 재등록
+    game.ensureSocketListeners();
+    debugPrint('🎮 [Navigate] GameProvider listeners re-registered');
+
+    if (auth.socketId != null) {
+      game.initialize(auth.socketId!);
+      debugPrint('🎮 [Navigate] GameProvider initialized');
+    } else {
+      debugPrint('🎮 [Navigate] ⚠️ auth.socketId is null!');
+    }
+
+    Widget gameScreen;
+    switch (gameType) {
+      case 'tictactoe':
+        gameScreen = const TicTacToeScreen(isRanked: true);
+        break;
+      case 'infinite_tictactoe':
+        gameScreen = const InfiniteTicTacToeScreen(isRanked: true);
+        break;
+      case 'gomoku':
+        gameScreen = const GomokuScreen(isRanked: true);
+        break;
+      case 'reaction':
+        gameScreen = const ReactionScreen(isRanked: true);
+        break;
+      case 'rps':
+        gameScreen = const RpsScreen(isRanked: true);
+        break;
+      case 'speedtap':
+        gameScreen = const SpeedTapScreen(isRanked: true);
+        break;
+      case 'sequence':
+        gameScreen = const SequenceScreen(isRanked: true);
+        break;
+      case 'stroop':
+        gameScreen = const StroopScreen(isRanked: true);
+        break;
+      default:
+        debugPrint('🎮 [Navigate] ❌ Unknown game type: $gameType');
+        _isNavigating = false;
+        return;
+    }
+
+    debugPrint('🎮 [Navigate] Calling Navigator.push for $gameType...');
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => gameScreen),
+    ).then((_) {
+      debugPrint('🎮 [Navigate] ✅ Game screen popped, index was $gameIndex');
+      debugPrint('🎮 [Navigate] Resetting _isNavigating to false');
+      _isNavigating = false;
+      // setState로 UI 갱신
+      if (mounted) {
+        setState(() {});
+        debugPrint('🎮 [Navigate] setState called');
+      }
+    });
+    debugPrint('🎮 [Navigate] Navigator.push called (navigation in progress)');
+  }
+
+  void _showExitDialog(BuildContext context, RankedProvider ranked) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('랭크전 나가기'),
+        content: const Text('매칭을 취소하고 나가시겠습니까?'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.leaderboard),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('취소'),
+          ),
+          TextButton(
             onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const LeaderboardScreen()),
-              );
+              ranked.cancelRankedMatch();
+              Navigator.pop(context);
+              Navigator.pop(context);
             },
-            tooltip: '리더보드',
+            child: const Text('나가기'),
           ),
         ],
       ),
-      body: Consumer2<RankedProvider, AuthProvider>(
-        builder: (context, ranked, auth, child) {
-          if (auth.userId == null) {
-            return _buildLoginRequired();
-          }
+    );
+  }
 
-          switch (ranked.matchStatus) {
-            case RankedMatchStatus.idle:
-              return _buildIdleState(ranked);
-            case RankedMatchStatus.searching:
-              return _buildSearchingState(ranked);
-            case RankedMatchStatus.found:
-              return _buildMatchFoundState(ranked);
-            case RankedMatchStatus.playing:
-              return _buildPlayingState(ranked, auth);
-            case RankedMatchStatus.finished:
-              return _buildFinishedState(ranked, auth);
-          }
-        },
-      ),
+  @override
+  Widget build(BuildContext context) {
+    return Consumer2<RankedProvider, AuthProvider>(
+      builder: (context, ranked, auth, child) {
+        final canPop = ranked.matchStatus == RankedMatchStatus.idle ||
+            ranked.matchStatus == RankedMatchStatus.finished;
+
+        return PopScope(
+          canPop: canPop,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop) return;
+            _showExitDialog(context, ranked);
+          },
+          child: Scaffold(
+            appBar: AppBar(
+              title: const Text('랭크전'),
+              backgroundColor: Theme.of(context).primaryColor,
+              foregroundColor: Colors.white,
+              leading: canPop
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.arrow_back),
+                      onPressed: () => _showExitDialog(context, ranked),
+                    ),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.leaderboard),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LeaderboardScreen()),
+                    );
+                  },
+                  tooltip: '리더보드',
+                ),
+              ],
+            ),
+            body: Builder(
+              builder: (context) {
+                if (auth.userId == null) {
+                  return _buildLoginRequired();
+                }
+
+                switch (ranked.matchStatus) {
+                  case RankedMatchStatus.idle:
+                    return _buildIdleState(ranked);
+                  case RankedMatchStatus.searching:
+                    return _buildSearchingState(ranked);
+                  case RankedMatchStatus.found:
+                    return _buildMatchFoundState(ranked);
+                  case RankedMatchStatus.playing:
+                    return _buildPlayingState(ranked, auth);
+                  case RankedMatchStatus.waitingNextGame:
+                    return _buildWaitingNextGameState(ranked, auth);
+                  case RankedMatchStatus.finished:
+                    return _buildFinishedState(ranked, auth);
+                }
+              },
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -93,19 +309,12 @@ class _RankedScreenState extends State<RankedScreen> {
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          // 랭크 정보 카드
           _buildRankCard(ranked, stats),
           const SizedBox(height: 16),
-
-          // 전적 카드
           if (stats != null) _buildStatsCard(stats),
           const SizedBox(height: 24),
-
-          // 매칭 버튼
           _buildMatchButton(ranked),
           const SizedBox(height: 16),
-
-          // 게임 규칙 안내
           _buildRulesCard(),
         ],
       ),
@@ -118,9 +327,7 @@ class _RankedScreenState extends State<RankedScreen> {
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.all(32),
-          child: const Center(
-            child: CircularProgressIndicator(),
-          ),
+          child: const Center(child: CircularProgressIndicator()),
         ),
       );
     }
@@ -144,20 +351,9 @@ class _RankedScreenState extends State<RankedScreen> {
         ),
         child: Column(
           children: [
-            const Text(
-              '나의 랭크',
-              style: TextStyle(
-                color: Colors.white70,
-                fontSize: 14,
-              ),
-            ),
+            const Text('나의 랭크', style: TextStyle(color: Colors.white70, fontSize: 14)),
             const SizedBox(height: 12),
-            TierBadge(
-              tier: stats.tier,
-              tierColor: stats.tierColor,
-              elo: stats.elo,
-              size: 1.5,
-            ),
+            TierBadge(tier: stats.tier, tierColor: stats.tierColor, elo: stats.elo, size: 1.5),
             const SizedBox(height: 16),
             if (ranked.myRank != null)
               Container(
@@ -168,18 +364,11 @@ class _RankedScreenState extends State<RankedScreen> {
                 ),
                 child: Text(
                   '전체 ${ranked.myRank}위',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                 ),
               ),
             const SizedBox(height: 16),
-            TierProgressBar(
-              currentElo: stats.elo,
-              currentTier: stats.tier,
-              tierColor: stats.tierColor,
-            ),
+            TierProgressBar(currentElo: stats.elo, currentTier: stats.tier, tierColor: stats.tierColor),
           ],
         ),
       ),
@@ -193,13 +382,7 @@ class _RankedScreenState extends State<RankedScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              '시즌 전적',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
-            ),
+            const Text('시즌 전적', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: 16),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -228,22 +411,9 @@ class _RankedScreenState extends State<RankedScreen> {
   Widget _buildStatItem(String label, String value, Color color) {
     return Column(
       children: [
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
+        Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color)),
         const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.grey.shade600,
-            fontSize: 12,
-          ),
-        ),
+        Text(label, style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
       ],
     );
   }
@@ -274,13 +444,7 @@ class _RankedScreenState extends State<RankedScreen> {
               children: [
                 Icon(Icons.info_outline, color: Colors.grey.shade600),
                 const SizedBox(width: 8),
-                const Text(
-                  '게임 규칙',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
+                const Text('게임 규칙', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               ],
             ),
             const SizedBox(height: 12),
@@ -301,12 +465,7 @@ class _RankedScreenState extends State<RankedScreen> {
         children: [
           Icon(Icons.check_circle, size: 16, color: Colors.green.shade400),
           const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(color: Colors.grey.shade700),
-            ),
-          ),
+          Expanded(child: Text(text, style: TextStyle(color: Colors.grey.shade700))),
         ],
       ),
     );
@@ -319,18 +478,9 @@ class _RankedScreenState extends State<RankedScreen> {
         children: [
           const CircularProgressIndicator(),
           const SizedBox(height: 24),
-          const Text(
-            '상대를 찾는 중...',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+          const Text('상대를 찾는 중...', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          Text(
-            'ELO 범위 내 상대를 매칭합니다',
-            style: TextStyle(color: Colors.grey.shade600),
-          ),
+          Text('ELO 범위 내 상대를 매칭합니다', style: TextStyle(color: Colors.grey.shade600)),
           const SizedBox(height: 32),
           OutlinedButton(
             onPressed: () => ranked.cancelRankedMatch(),
@@ -348,22 +498,10 @@ class _RankedScreenState extends State<RankedScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
-              Icons.group,
-              size: 64,
-              color: Colors.green,
-            ),
+            const Icon(Icons.group, size: 64, color: Colors.green),
             const SizedBox(height: 16),
-            const Text(
-              '매칭 성공!',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+            const Text('매칭 성공!', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
             const SizedBox(height: 24),
-
-            // 플레이어 정보
             if (ranked.players.length >= 2)
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -371,29 +509,13 @@ class _RankedScreenState extends State<RankedScreen> {
                   _buildPlayerCard(ranked.players[0]),
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Text(
-                      'VS',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.red,
-                      ),
-                    ),
+                    child: Text('VS', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.red)),
                   ),
                   _buildPlayerCard(ranked.players[1]),
                 ],
               ),
-
             const SizedBox(height: 24),
-
-            // 게임 목록
-            const Text(
-              '진행할 게임',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+            const Text('진행할 게임', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -413,23 +535,64 @@ class _RankedScreenState extends State<RankedScreen> {
   Widget _buildPlayerCard(RankedPlayer player) {
     return Column(
       children: [
-        TierBadgeSmall(
-          tier: player.tier,
-          tierColor: player.tierColor,
-        ),
+        TierBadgeSmall(tier: player.tier, tierColor: player.tierColor),
         const SizedBox(height: 8),
-        Text(
-          player.nickname,
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        Text(
-          '${player.elo} LP',
-          style: TextStyle(
-            color: Colors.grey.shade600,
-            fontSize: 12,
-          ),
-        ),
+        Text(player.nickname, style: const TextStyle(fontWeight: FontWeight.bold)),
+        Text('${player.elo} LP', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
       ],
+    );
+  }
+
+  Widget _buildWaitingNextGameState(RankedProvider ranked, AuthProvider auth) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text('${ranked.score[0]}', style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.blue)),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(':', style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold)),
+                ),
+                Text('${ranked.score[1]}', style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.red)),
+              ],
+            ),
+            const SizedBox(height: 24),
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            const Text('다음 게임 준비 중...', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(3, (index) {
+                final isCompleted = index < ranked.results.length;
+                final result = isCompleted ? ranked.results[index] : null;
+                final myUserId = auth.userId;
+                final didWin = result?.winnerId == myUserId;
+
+                return Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: isCompleted ? (didWin ? Colors.green : Colors.red) : Colors.grey.shade300,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: isCompleted
+                        ? Icon(didWin ? Icons.check : Icons.close, color: Colors.white, size: 20)
+                        : Text('${index + 1}', style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
+                  ),
+                );
+              }),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -440,53 +603,21 @@ class _RankedScreenState extends State<RankedScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // 스코어
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(
-                  '${ranked.score[0]}',
-                  style: const TextStyle(
-                    fontSize: 48,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue,
-                  ),
-                ),
+                Text('${ranked.score[0]}', style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.blue)),
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(
-                    ':',
-                    style: TextStyle(
-                      fontSize: 48,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  child: Text(':', style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold)),
                 ),
-                Text(
-                  '${ranked.score[1]}',
-                  style: const TextStyle(
-                    fontSize: 48,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.red,
-                  ),
-                ),
+                Text('${ranked.score[1]}', style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.red)),
               ],
             ),
             const SizedBox(height: 24),
-
-            // 현재 게임
             if (ranked.currentGame != null) ...[
-              const Text(
-                '현재 게임',
-                style: TextStyle(color: Colors.grey),
-              ),
-              Text(
-                ranked.getGameTypeName(ranked.currentGame!),
-                style: const TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              const Text('현재 게임', style: TextStyle(color: Colors.grey)),
+              Text(ranked.getGameTypeName(ranked.currentGame!), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
               if (ranked.isHardcore)
                 Container(
                   margin: const EdgeInsets.only(top: 8),
@@ -496,59 +627,13 @@ class _RankedScreenState extends State<RankedScreen> {
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: Colors.red),
                   ),
-                  child: const Text(
-                    '하드코어',
-                    style: TextStyle(
-                      color: Colors.red,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
+                  child: const Text('하드코어', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 12)),
                 ),
             ],
-
             const SizedBox(height: 24),
-
-            // 게임 진행 상황
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(3, (index) {
-                final isCompleted = index < ranked.results.length;
-                final isCurrent = index == ranked.currentGameIndex;
-                final result = isCompleted ? ranked.results[index] : null;
-                final myUserId = auth.userId;
-                final didWin = result?.winnerId == myUserId;
-
-                return Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: isCurrent
-                        ? Theme.of(context).primaryColor
-                        : isCompleted
-                            ? (didWin ? Colors.green : Colors.red)
-                            : Colors.grey.shade300,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: isCompleted
-                        ? Icon(
-                            didWin ? Icons.check : Icons.close,
-                            color: Colors.white,
-                            size: 20,
-                          )
-                        : Text(
-                            '${index + 1}',
-                            style: TextStyle(
-                              color: isCurrent ? Colors.white : Colors.grey.shade600,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                  ),
-                );
-              }),
-            ),
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            const Text('게임 화면으로 이동 중...', style: TextStyle(color: Colors.grey)),
           ],
         ),
       ),
@@ -574,81 +659,46 @@ class _RankedScreenState extends State<RankedScreen> {
             const SizedBox(height: 16),
             Text(
               isWinner ? '승리!' : '패배',
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: isWinner ? Colors.green : Colors.red,
-              ),
+              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: isWinner ? Colors.green : Colors.red),
             ),
             const SizedBox(height: 8),
-            Text(
-              '${ranked.matchWinnerNickname} 승리',
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
+            Text('${ranked.matchWinnerNickname} 승리', style: TextStyle(color: Colors.grey.shade600)),
             const SizedBox(height: 24),
-
-            // ELO 변동
             if (myStats != null && myEloChange != null)
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
-                      TierBadge(
-                        tier: myStats.tier,
-                        tierColor: myStats.tierColor,
-                        elo: myStats.elo,
-                      ),
+                      TierBadge(tier: myStats.tier, tierColor: myStats.tierColor, elo: myStats.elo),
                       const SizedBox(height: 12),
                       Text(
                         myEloChange >= 0 ? '+$myEloChange LP' : '$myEloChange LP',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: myEloChange >= 0 ? Colors.green : Colors.red,
-                        ),
+                        style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: myEloChange >= 0 ? Colors.green : Colors.red),
                       ),
                     ],
                   ),
                 ),
               ),
-
             const SizedBox(height: 24),
-
-            // 게임 결과
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: ranked.results.map((result) {
                 final didWin = result.winnerId == auth.userId;
                 final isDraw = result.winnerId == null;
-
                 return Chip(
                   avatar: Icon(
-                    isDraw
-                        ? Icons.remove
-                        : didWin
-                            ? Icons.check
-                            : Icons.close,
+                    isDraw ? Icons.remove : didWin ? Icons.check : Icons.close,
                     size: 16,
-                    color: isDraw
-                        ? Colors.grey
-                        : didWin
-                            ? Colors.green
-                            : Colors.red,
+                    color: isDraw ? Colors.grey : didWin ? Colors.green : Colors.red,
                   ),
                   label: Text(ranked.getGameTypeName(result.gameType)),
-                  backgroundColor: isDraw
-                      ? Colors.grey.shade200
-                      : didWin
-                          ? Colors.green.shade100
-                          : Colors.red.shade100,
+                  backgroundColor: isDraw ? Colors.grey.shade200 : didWin ? Colors.green.shade100 : Colors.red.shade100,
                 );
               }).toList(),
             ),
-
             const SizedBox(height: 32),
-
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -663,6 +713,8 @@ class _RankedScreenState extends State<RankedScreen> {
                 ElevatedButton(
                   onPressed: () {
                     ranked.resetMatchState();
+                    _lastNavigatedGameIndex = null;
+                    _isNavigating = false;
                     ranked.findRankedMatch();
                   },
                   child: const Text('다시 하기'),

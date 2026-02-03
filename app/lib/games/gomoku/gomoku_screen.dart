@@ -9,7 +9,9 @@ import '../../widgets/game_player_profile.dart';
 import '../../utils/game_theme.dart';
 
 class GomokuScreen extends StatefulWidget {
-  const GomokuScreen({super.key});
+  final bool isRanked;
+
+  const GomokuScreen({super.key, this.isRanked = false});
 
   @override
   State<GomokuScreen> createState() => _GomokuScreenState();
@@ -24,12 +26,21 @@ class _GomokuScreenState extends State<GomokuScreen> {
   final TransformationController _transformationController =
       TransformationController();
 
+  bool _hasScheduledPop = false;  // 중복 pop 방지
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
       final auth = context.read<AuthProvider>();
       final game = context.read<GameProvider>();
+
+      // 일반 게임 진입 시 이전 게임 상태 리셋
+      if (!widget.isRanked) {
+        game.reset();
+      }
 
       if (auth.socketId != null) {
         game.initialize(auth.socketId!);
@@ -65,9 +76,9 @@ class _GomokuScreenState extends State<GomokuScreen> {
               ),
             ),
             body: switch (game.status) {
-              GameStatus.idle => _buildIdleView(game, theme),
-              GameStatus.searching => _buildSearchingView(game, theme),
-              GameStatus.matched => _buildMatchedView(game, theme),
+              GameStatus.idle => widget.isRanked ? _buildRankedWaitingView(theme) : _buildIdleView(game, theme),
+              GameStatus.searching => widget.isRanked ? _buildRankedWaitingView(theme) : _buildSearchingView(game, theme),
+              GameStatus.matched => widget.isRanked ? _buildRankedWaitingView(theme) : _buildMatchedView(game, theme),
               GameStatus.playing => _buildPlayingView(game, theme),
               GameStatus.finished => _buildFinishedView(game, theme),
             },
@@ -544,7 +555,63 @@ class _GomokuScreenState extends State<GomokuScreen> {
     );
   }
 
+  Widget _buildRankedWaitingView(GameTheme theme) {
+    return Container(
+      decoration: BoxDecoration(gradient: theme.backgroundGradient),
+      child: const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('게임 준비 중...', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildFinishedView(GameProvider game, GameTheme theme) {
+    // 랭크전에서는 결과만 표시하고 자동으로 돌아가기
+    if (widget.isRanked) {
+      if (!_hasScheduledPop) {
+        _hasScheduledPop = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          Future.delayed(const Duration(seconds: 2), () {
+            if (mounted) Navigator.pop(context);
+          });
+        });
+      }
+      final isWinner = game.isWinner;
+      final isDraw = game.isDraw;
+      return Container(
+        decoration: BoxDecoration(gradient: theme.backgroundGradient),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                isDraw ? Icons.handshake : (isWinner ? Icons.emoji_events : Icons.sentiment_dissatisfied),
+                size: 80,
+                color: isDraw ? Colors.orange : (isWinner ? Colors.amber : Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                isDraw ? '무승부!' : (isWinner ? '승리!' : '패배'),
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: isDraw ? Colors.orange : (isWinner ? theme.primary : Colors.grey),
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Text('잠시 후 다음 게임...', style: TextStyle(color: Colors.grey)),
+            ],
+          ),
+        ),
+      );
+    }
+
     String resultText;
     Color resultColor;
     IconData resultIcon;

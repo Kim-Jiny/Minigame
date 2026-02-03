@@ -33,6 +33,7 @@ interface GameRoom {
   turnTimer?: NodeJS.Timeout;
   turnStartTime?: number;
   isHardcore?: boolean;  // 하드코어 모드 여부
+  isInfinite?: boolean;  // 무한 모드 여부 (틱택토)
   roundTimer?: NodeJS.Timeout;  // 반응속도/스피드탭 게임용 라운드 타이머
   isRanked?: boolean;  // 랭크전 여부
   rankedGames?: string[];  // 랭크전 게임 목록 (3개)
@@ -63,8 +64,11 @@ const matchQueues = new Map<string, Player[]>();
 // 유저 ID별 소켓 매핑 (초대 알림용)
 const userSockets = new Map<number, Socket>();
 
-function getQueueKey(gameType: string, isHardcore: boolean): string {
-  return `${gameType}_${isHardcore ? 'hardcore' : 'normal'}`;
+function getQueueKey(gameType: string, isHardcore: boolean, isInfinite: boolean = false): string {
+  let key = gameType;
+  if (isInfinite) key += '_infinite';
+  if (isHardcore) key += '_hardcore';
+  return key;
 }
 
 // 턴 타이머 시작
@@ -177,7 +181,11 @@ async function finishReactionGame(io: Server, room: GameRoom) {
         const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
         player.socket.emit('stats_updated', { stats });
         if (i === 0 && opponent.userId) {
-          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
+          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult, {
+                    isRanked: room.isRanked,
+                    rankedMatchId: room.isRanked ? room.id : undefined,
+                    rankedGameIndex: room.isRanked ? room.rankedCurrentIndex : undefined,
+                  });
         }
 
         // 코인/연승 처리
@@ -308,7 +316,11 @@ async function finishRpsGame(io: Server, room: GameRoom) {
         const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
         player.socket.emit('stats_updated', { stats });
         if (i === 0 && opponent.userId) {
-          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
+          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult, {
+                    isRanked: room.isRanked,
+                    rankedMatchId: room.isRanked ? room.id : undefined,
+                    rankedGameIndex: room.isRanked ? room.rankedCurrentIndex : undefined,
+                  });
         }
 
         // 코인/연승 처리
@@ -451,7 +463,11 @@ async function finishSpeedTapGame(io: Server, room: GameRoom) {
         const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
         player.socket.emit('stats_updated', { stats });
         if (i === 0 && opponent.userId) {
-          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
+          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult, {
+                    isRanked: room.isRanked,
+                    rankedMatchId: room.isRanked ? room.id : undefined,
+                    rankedGameIndex: room.isRanked ? room.rankedCurrentIndex : undefined,
+                  });
         }
 
         // 코인/연승 처리
@@ -579,7 +595,11 @@ async function finishSequenceGame(io: Server, room: GameRoom) {
         const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
         player.socket.emit('stats_updated', { stats });
         if (i === 0 && opponent.userId) {
-          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
+          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult, {
+                    isRanked: room.isRanked,
+                    rankedMatchId: room.isRanked ? room.id : undefined,
+                    rankedGameIndex: room.isRanked ? room.rankedCurrentIndex : undefined,
+                  });
         }
 
         // 코인/연승 처리
@@ -702,7 +722,11 @@ async function finishStroopGame(io: Server, room: GameRoom) {
         const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
         player.socket.emit('stats_updated', { stats });
         if (i === 0 && opponent.userId) {
-          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
+          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult, {
+                    isRanked: room.isRanked,
+                    rankedMatchId: room.isRanked ? room.id : undefined,
+                    rankedGameIndex: room.isRanked ? room.rankedCurrentIndex : undefined,
+                  });
         }
 
         // 코인/연승 처리
@@ -836,7 +860,11 @@ async function handleTurnTimeout(io: Server, room: GameRoom) {
           const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
           player.socket.emit('stats_updated', { stats });
           if (i === 0 && opponent.userId) {
-            await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
+            await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult, {
+                    isRanked: room.isRanked,
+                    rankedMatchId: room.isRanked ? room.id : undefined,
+                    rankedGameIndex: room.isRanked ? room.rankedCurrentIndex : undefined,
+                  });
           }
         } catch (err) {
           console.error('Failed to update stats:', err);
@@ -860,7 +888,12 @@ async function handleTurnTimeout(io: Server, room: GameRoom) {
 async function tryRankedMatch(io: Server, player: RankedQueuePlayer) {
   // 대기열에서 본인 제외하고 매칭 가능한 상대 찾기
   const playerIndex = rankedQueue.findIndex(p => p.id === player.id);
-  if (playerIndex === -1) return; // 이미 대기열에서 나감
+  if (playerIndex === -1) {
+    console.log(`🔍 [tryRankedMatch] Player ${player.nickname} not in queue anymore`);
+    return; // 이미 대기열에서 나감
+  }
+
+  console.log(`🔍 [tryRankedMatch] Queue size: ${rankedQueue.length}, Players: ${rankedQueue.map(p => `${p.nickname}(${p.elo})`).join(', ')}`);
 
   const now = Date.now();
   const waitTime = now - player.joinedAt;
@@ -877,8 +910,11 @@ async function tryRankedMatch(io: Server, player: RankedQueuePlayer) {
     const opponent = rankedQueue[i];
     const eloDiff = Math.abs(player.elo - opponent.elo);
 
+    console.log(`🔍 [tryRankedMatch] Checking ${player.nickname}(${player.elo}) vs ${opponent.nickname}(${opponent.elo}), diff: ${eloDiff}, range: ${eloRange}`);
+
     if (eloDiff <= eloRange) {
       // 매칭 성공! 대기열에서 제거
+      console.log(`✅ [tryRankedMatch] Match found! ${player.nickname} vs ${opponent.nickname}`);
       rankedQueue.splice(Math.max(playerIndex, i), 1);
       rankedQueue.splice(Math.min(playerIndex, i), 1);
 
@@ -889,6 +925,7 @@ async function tryRankedMatch(io: Server, player: RankedQueuePlayer) {
   }
 
   // 매칭 못 찾으면 5초 후 재시도
+  console.log(`⏳ [tryRankedMatch] No match for ${player.nickname}, retrying in 5s...`);
   setTimeout(() => tryRankedMatch(io, player), 5000);
 }
 
@@ -957,9 +994,32 @@ async function startRankedMatch(io: Server, player1: RankedQueuePlayer, player2:
 }
 
 // 랭크전 개별 게임 시작
-function startRankedGame(io: Server, room: GameRoom) {
+async function startRankedGame(io: Server, room: GameRoom) {
+  console.log(`🎮 [startRankedGame] Called for room ${room.id}, gameIndex: ${room.rankedCurrentIndex}, players in room: ${room.players.length}`);
+
+  if (!room.rankedGames || room.rankedCurrentIndex === undefined) {
+    console.log(`❌ [startRankedGame] Invalid room state - rankedGames: ${room.rankedGames}, rankedCurrentIndex: ${room.rankedCurrentIndex}`);
+    return;
+  }
+
   const gameType = room.rankedGames![room.rankedCurrentIndex!];
   const isHardcore = rankedService.isHardcoreGame(gameType);
+
+  // 프로필 설정 및 연승 정보 조회
+  const playerProfiles = await Promise.all(
+    room.players.map(async (p) => {
+      const profile = p.userId ? await shopService.getUserProfileSettings(p.userId) : null;
+      const streak = p.userId ? await coinService.getStreak(p.userId) : { currentStreak: 0 };
+      return {
+        id: p.id,
+        nickname: p.nickname,
+        userId: p.userId,
+        avatarUrl: p.avatarUrl,
+        streak: streak.currentStreak,
+        profileSettings: profile,
+      };
+    })
+  );
 
   room.gameType = gameType;
   room.isHardcore = isHardcore;
@@ -985,6 +1045,7 @@ function startRankedGame(io: Server, room: GameRoom) {
   }
 
   // 게임 시작 알림
+  console.log(`📤 [startRankedGame] Emitting ranked_game_start to room ${room.id}: gameIndex=${room.rankedCurrentIndex}, gameType=${gameType}`);
   io.to(room.id).emit('ranked_game_start', {
     gameIndex: room.rankedCurrentIndex,
     gameType,
@@ -992,46 +1053,67 @@ function startRankedGame(io: Server, room: GameRoom) {
     results: room.rankedResults,
   });
 
-  // 게임 타입별 시작
-  if (gameType === 'reaction') {
-    io.to(room.id).emit('game_start', { gameType: 'reaction' });
-    setTimeout(() => startReactionRound(io, room), 1000);
-  } else if (gameType === 'rps') {
-    io.to(room.id).emit('game_start', { gameType: 'rps' });
-    setTimeout(() => startRpsRound(io, room), 1000);
-  } else if (gameType === 'speedtap') {
-    io.to(room.id).emit('game_start', { gameType: 'speedtap' });
-    setTimeout(() => startSpeedTapRound(io, room), 1000);
-  } else if (gameType === 'sequence') {
-    const seqGame = room.game as SequenceGame;
-    io.to(room.id).emit('game_start', {
-      gameType: 'sequence',
-      gridSize: seqGame.getGridSize(),
-      sequence: seqGame.getSequence(),
-      level: seqGame.getCurrentLevel(),
-      showDelay: seqGame.getShowDelay(),
-      isHardcore: seqGame.getIsHardcore(),
-      timeLimit: seqGame.getTimeLimit(),
+  // 클라이언트가 게임 화면으로 이동할 시간을 주고 match_found + game_start 전송
+  setTimeout(() => {
+    console.log(`📤 [startRankedGame] Emitting match_found to room ${room.id} (1.5s after ranked_game_start)`);
+    console.log(`📤 [startRankedGame] Players in room: ${room.players.map(p => p.nickname).join(', ')}`);
+    // GameProvider를 위한 match_found 이벤트 전송 (프로필 정보 포함)
+    io.to(room.id).emit('match_found', {
+      roomId: room.id,
+      players: playerProfiles,
+      isRanked: true,
+      isHardcore,
     });
-  } else if (gameType === 'stroop') {
-    const stroopGame = room.game as StroopGame;
-    io.to(room.id).emit('game_start', {
-      gameType: 'stroop',
-      isHardcore: stroopGame.getIsHardcore(),
-      colors: stroopGame.getColors(),
-    });
-    setTimeout(() => startStroopRound(io, room), 1000);
-  } else {
-    // 턴제 게임
-    startTurnTimer(io, room);
-    const turnGame = room.game as TicTacToeGame | InfiniteTicTacToeGame | GomokuGame;
-    io.to(room.id).emit('game_start', {
-      currentTurn: room.players[0].id,
-      board: turnGame?.getBoard(),
-      turnTimeLimit: getTurnTimeLimit(room),
-      turnStartTime: room.turnStartTime,
-    });
-  }
+    console.log(`📤 [startRankedGame] match_found emitted`);
+
+    // 게임 타입별 시작
+    console.log(`📤 [startRankedGame] Emitting game_start for gameType=${gameType}`);
+    if (gameType === 'reaction') {
+      io.to(room.id).emit('game_start', { gameType: 'reaction' });
+      console.log(`📤 [startRankedGame] game_start emitted for reaction`);
+      setTimeout(() => startReactionRound(io, room), 1000);
+    } else if (gameType === 'rps') {
+      io.to(room.id).emit('game_start', { gameType: 'rps' });
+      console.log(`📤 [startRankedGame] game_start emitted for rps`);
+      setTimeout(() => startRpsRound(io, room), 1000);
+    } else if (gameType === 'speedtap') {
+      io.to(room.id).emit('game_start', { gameType: 'speedtap' });
+      console.log(`📤 [startRankedGame] game_start emitted for speedtap`);
+      setTimeout(() => startSpeedTapRound(io, room), 1000);
+    } else if (gameType === 'sequence') {
+      const seqGame = room.game as SequenceGame;
+      io.to(room.id).emit('game_start', {
+        gameType: 'sequence',
+        gridSize: seqGame.getGridSize(),
+        sequence: seqGame.getSequence(),
+        level: seqGame.getCurrentLevel(),
+        showDelay: seqGame.getShowDelay(),
+        isHardcore: seqGame.getIsHardcore(),
+        timeLimit: seqGame.getTimeLimit(),
+      });
+      console.log(`📤 [startRankedGame] game_start emitted for sequence`);
+    } else if (gameType === 'stroop') {
+      const stroopGame = room.game as StroopGame;
+      io.to(room.id).emit('game_start', {
+        gameType: 'stroop',
+        isHardcore: stroopGame.getIsHardcore(),
+        colors: stroopGame.getColors(),
+      });
+      console.log(`📤 [startRankedGame] game_start emitted for stroop`);
+      setTimeout(() => startStroopRound(io, room), 1000);
+    } else {
+      // 턴제 게임
+      startTurnTimer(io, room);
+      const turnGame = room.game as TicTacToeGame | InfiniteTicTacToeGame | GomokuGame;
+      io.to(room.id).emit('game_start', {
+        currentTurn: room.players[0].id,
+        board: turnGame?.getBoard(),
+        turnTimeLimit: getTurnTimeLimit(room),
+        turnStartTime: room.turnStartTime,
+      });
+      console.log(`📤 [startRankedGame] game_start emitted for turn-based game (${gameType})`);
+    }
+  }, 1500); // 1.5초 딜레이
 
   console.log(`🎮 Ranked game ${room.rankedCurrentIndex! + 1}/3 started: ${gameType} ${isHardcore ? '(하드코어)' : ''}`);
 }
@@ -1064,17 +1146,47 @@ async function handleRankedGameEnd(io: Server, room: GameRoom, winnerIndex: numb
 
   console.log(`🏆 Ranked game ${room.rankedCurrentIndex! + 1}/3 ended: ${room.gameType} - Score: ${player1Wins}-${player2Wins}`);
 
-  // 2승 달성 체크
+  // 3판이 모두 끝났는지 확인
+  const allGamesPlayed = room.rankedResults!.length >= 3;
+
+  // 2승 달성 체크 또는 3판 모두 종료
   if (player1Wins >= 2 || player2Wins >= 2) {
-    // Bo3 종료
+    // Bo3 종료 - 2승 달성
     await finishRankedMatch(io, room, player1Wins >= 2 ? 0 : 1);
+  } else if (allGamesPlayed) {
+    // 3판 모두 종료됨 - 무승부가 있어서 2승에 도달 못함
+    // 더 많이 이긴 사람이 승자, 동점이면 LP 높은 쪽이 패배 (30% 페널티)
+    if (player1Wins > player2Wins) {
+      console.log(`🏆 Ranked match ended by win count: Player 1 wins (${player1Wins}-${player2Wins})`);
+      await finishRankedMatch(io, room, 0);
+    } else if (player2Wins > player1Wins) {
+      console.log(`🏆 Ranked match ended by win count: Player 2 wins (${player1Wins}-${player2Wins})`);
+      await finishRankedMatch(io, room, 1);
+    } else {
+      // 완전 동점 (예: 1-1-1 무승부) - LP 높은 쪽이 패배 (30% 페널티)
+      console.log(`🤝 Ranked match is a draw (${player1Wins}-${player2Wins}) - higher ELO loses with 30% penalty`);
+      await finishRankedMatchAsDraw(io, room);
+    }
   } else {
     // 다음 게임
     room.rankedCurrentIndex!++;
     room.status = 'finished'; // 잠시 finished로 설정
 
-    // 3초 후 다음 게임 시작
-    setTimeout(() => startRankedGame(io, room), 3000);
+    console.log(`⏳ [handleRankedGameEnd] Scheduling next game (index ${room.rankedCurrentIndex}) in 5 seconds...`);
+    console.log(`⏳ [handleRankedGameEnd] Next game will be: ${room.rankedGames![room.rankedCurrentIndex!]}`);
+    console.log(`⏳ [handleRankedGameEnd] Players still in room: ${room.players.map(p => `${p.nickname} (${p.id})`).join(', ')}`);
+
+    // 5초 후 다음 게임 시작 (클라이언트가 게임 화면에서 나올 시간 확보)
+    setTimeout(() => {
+      console.log(`🎮 [handleRankedGameEnd] Starting next game now for room ${room.id}`);
+      console.log(`🎮 [handleRankedGameEnd] Room still exists: ${rooms.has(room.id)}`);
+      console.log(`🎮 [handleRankedGameEnd] Players count: ${room.players.length}`);
+      if (room.players.length < 2) {
+        console.log(`❌ [handleRankedGameEnd] Not enough players! Aborting next game.`);
+        return;
+      }
+      startRankedGame(io, room);
+    }, 5000);
   }
 }
 
@@ -1119,6 +1231,72 @@ async function finishRankedMatch(io: Server, room: GameRoom, winnerIndex: number
   console.log(`   ${loser.nickname} loses (${result.loserEloChange} ELO)`);
 }
 
+// 랭크 매치 무승부 종료 (LP 높은 쪽이 30% 페널티로 패배)
+async function finishRankedMatchAsDraw(io: Server, room: GameRoom) {
+  room.status = 'finished';
+  clearTurnTimer(room);
+  clearRoundTimer(room);
+
+  const player1 = room.players[0];
+  const player2 = room.players[1];
+
+  if (!player1.userId || !player2.userId) {
+    console.error('Ranked match finished but players missing userId');
+    return;
+  }
+
+  // 두 플레이어의 현재 ELO 조회
+  const player1Stats = await rankedService.getRankedStats(player1.userId);
+  const player2Stats = await rankedService.getRankedStats(player2.userId);
+
+  // LP가 높은 쪽이 패자, 낮은 쪽이 승자
+  let winner: typeof player1;
+  let loser: typeof player1;
+  let winnerStats: typeof player1Stats;
+  let loserStats: typeof player1Stats;
+
+  if (player1Stats.elo >= player2Stats.elo) {
+    // Player1이 ELO가 높거나 같으면 Player1이 패배
+    winner = player2;
+    loser = player1;
+    winnerStats = player2Stats;
+    loserStats = player1Stats;
+  } else {
+    // Player2가 ELO가 높으면 Player2가 패배
+    winner = player1;
+    loser = player2;
+    winnerStats = player1Stats;
+    loserStats = player2Stats;
+  }
+
+  // 무승부이므로 30% 페널티만 적용
+  const result = await rankedService.updateRankedResultAsDraw(
+    winner.userId!,
+    loser.userId!,
+    room.rankedResults!.map(r => ({
+      gameType: r.gameType,
+      winnerId: r.winnerId!,
+    }))
+  );
+
+  // 결과 알림
+  io.to(room.id).emit('ranked_match_end', {
+    winnerId: winner.userId,
+    winnerNickname: winner.nickname,
+    loserId: loser.userId,
+    loserNickname: loser.nickname,
+    results: room.rankedResults,
+    winnerStats: result.winnerStats,
+    loserStats: result.loserStats,
+    winnerEloChange: result.winnerEloChange,
+    loserEloChange: result.loserEloChange,
+    isDraw: true,  // 무승부 플래그
+  });
+
+  console.log(`🤝 Ranked match draw: ${winner.nickname} wins (higher ELO opponent) (+${result.winnerEloChange} ELO)`);
+  console.log(`   ${loser.nickname} loses with 30% penalty (${result.loserEloChange} ELO)`);
+}
+
 export function setupSocketHandlers(io: Server) {
   io.on('connection', (socket: Socket) => {
     console.log(`👤 Player connected: ${socket.id}`);
@@ -1160,14 +1338,14 @@ export function setupSocketHandlers(io: Server) {
     });
 
     // 게임 매칭 요청
-    socket.on('find_match', async (data: { gameType: string; isHardcore?: boolean }) => {
+    socket.on('find_match', async (data: { gameType: string; isHardcore?: boolean; isInfinite?: boolean }) => {
       if (!currentPlayer) {
         socket.emit('error', { message: 'Please join lobby first' });
         return;
       }
 
-      const { gameType, isHardcore = false } = data;
-      const queueKey = getQueueKey(gameType, isHardcore);
+      const { gameType, isHardcore = false, isInfinite = false } = data;
+      const queueKey = getQueueKey(gameType, isHardcore, isInfinite);
 
       if (!matchQueues.has(queueKey)) {
         matchQueues.set(queueKey, []);
@@ -1180,18 +1358,21 @@ export function setupSocketHandlers(io: Server) {
         const opponent = queue.shift()!;
 
         // 방 생성
-        const roomId = `${gameType}_${isHardcore ? 'hc_' : ''}${Date.now()}`;
+        const roomId = `${gameType}_${isInfinite ? 'inf_' : ''}${isHardcore ? 'hc_' : ''}${Date.now()}`;
         const room: GameRoom = {
           id: roomId,
-          gameType,
+          gameType: isInfinite ? 'infinite_tictactoe' : gameType,  // 무한모드면 게임타입 변경
           players: [opponent, currentPlayer],
           game: null,
           status: 'waiting',
           isHardcore,
+          isInfinite,
         };
 
         // 게임 초기화
-        if (gameType === 'tictactoe') {
+        if (gameType === 'tictactoe' && isInfinite) {
+          room.game = new InfiniteTicTacToeGame();
+        } else if (gameType === 'tictactoe') {
           room.game = new TicTacToeGame();
         } else if (gameType === 'infinite_tictactoe') {
           room.game = new InfiniteTicTacToeGame();
@@ -1233,8 +1414,9 @@ export function setupSocketHandlers(io: Server) {
         // 매칭 성공 알림
         io.to(roomId).emit('match_found', {
           roomId,
-          gameType,
+          gameType: room.gameType,  // 무한모드면 infinite_tictactoe
           isHardcore,
+          isInfinite,
           players: [
             { id: opponent.id, nickname: opponent.nickname, userId: opponent.userId, avatarUrl: opponent.avatarUrl, streak: opponentStreak.currentStreak, profileSettings: opponentProfile },
             { id: currentPlayer.id, nickname: currentPlayer.nickname, userId: currentPlayer.userId, avatarUrl: currentPlayer.avatarUrl, streak: currentPlayerStreak.currentStreak, profileSettings: currentPlayerProfile },
@@ -1242,7 +1424,7 @@ export function setupSocketHandlers(io: Server) {
           dailyMatchCount: dailyMatchCount + 1,  // 이번 게임 포함
         });
 
-        console.log(`🎯 Match found: ${opponent.nickname} vs ${currentPlayer.nickname} ${isHardcore ? '(하드코어)' : ''}`);
+        console.log(`🎯 Match found: ${opponent.nickname} vs ${currentPlayer.nickname} ${isInfinite ? '(무한)' : ''} ${isHardcore ? '(하드코어)' : ''}`);
         console.log(`🎮 gameType: '${gameType}'`);
 
         // 게임 시작
@@ -1311,9 +1493,9 @@ export function setupSocketHandlers(io: Server) {
     });
 
     // 매칭 취소
-    socket.on('cancel_match', (data: { gameType: string; isHardcore?: boolean }) => {
-      const { gameType, isHardcore = false } = data;
-      const queueKey = getQueueKey(gameType, isHardcore);
+    socket.on('cancel_match', (data: { gameType: string; isHardcore?: boolean; isInfinite?: boolean }) => {
+      const { gameType, isHardcore = false, isInfinite = false } = data;
+      const queueKey = getQueueKey(gameType, isHardcore, isInfinite);
       const queue = matchQueues.get(queueKey);
       if (queue) {
         const index = queue.findIndex(p => p.id === socket.id);
@@ -1382,7 +1564,11 @@ export function setupSocketHandlers(io: Server) {
 
                 // 게임 기록 저장 (첫 번째 플레이어만 저장하면 됨)
                 if (i === 0 && opponent.userId) {
-                  await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
+                  await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult, {
+                    isRanked: room.isRanked,
+                    rankedMatchId: room.isRanked ? room.id : undefined,
+                    rankedGameIndex: room.isRanked ? room.rankedCurrentIndex : undefined,
+                  });
                 }
 
                 // 코인/연승 처리
@@ -1467,7 +1653,11 @@ export function setupSocketHandlers(io: Server) {
 
                 // 게임 기록 저장 (첫 번째 플레이어만 저장하면 됨)
                 if (i === 0 && opponent.userId) {
-                  await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
+                  await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult, {
+                    isRanked: room.isRanked,
+                    rankedMatchId: room.isRanked ? room.id : undefined,
+                    rankedGameIndex: room.isRanked ? room.rankedCurrentIndex : undefined,
+                  });
                 }
 
                 // 코인/연승 처리
@@ -1561,7 +1751,11 @@ export function setupSocketHandlers(io: Server) {
 
                 // 게임 기록 저장 (첫 번째 플레이어만 저장하면 됨)
                 if (i === 0 && opponent.userId) {
-                  await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult);
+                  await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult, {
+                    isRanked: room.isRanked,
+                    rankedMatchId: room.isRanked ? room.id : undefined,
+                    rankedGameIndex: room.isRanked ? room.rankedCurrentIndex : undefined,
+                  });
                 }
 
                 // 코인/연승 처리
@@ -2477,7 +2671,10 @@ export function setupSocketHandlers(io: Server) {
 
     // 랭크 매칭 찾기
     socket.on('find_ranked_match', async () => {
+      console.log(`🎮 [find_ranked_match] Called by socket ${socket.id}, currentPlayer:`, currentPlayer?.nickname, 'userId:', currentPlayer?.userId);
+
       if (!currentPlayer?.userId) {
+        console.log(`❌ [find_ranked_match] No userId for socket ${socket.id}`);
         socket.emit('error', { message: '로그인이 필요합니다.' });
         return;
       }
@@ -2485,12 +2682,15 @@ export function setupSocketHandlers(io: Server) {
       // 이미 대기열에 있는지 확인
       const existingIndex = rankedQueue.findIndex(p => p.id === socket.id);
       if (existingIndex !== -1) {
+        console.log(`⚠️ [find_ranked_match] ${currentPlayer.nickname} already in queue`);
         socket.emit('waiting_for_ranked_match', { message: '이미 매칭 대기 중입니다.' });
         return;
       }
 
       // 랭크 통계 조회
+      console.log(`📊 [find_ranked_match] Getting stats for userId ${currentPlayer.userId}`);
       const stats = await rankedService.getRankedStats(currentPlayer.userId);
+      console.log(`📊 [find_ranked_match] Stats:`, stats);
 
       // 대기열에 추가
       const queuePlayer: RankedQueuePlayer = {
@@ -3004,20 +3204,53 @@ export function setupSocketHandlers(io: Server) {
           if (leavingPlayer && remainingPlayer) {
             // 먼저 상태를 finished로 변경 (두 번째 나가는 사람이 중복 기록 안 되게)
             room.status = 'finished';
+            clearRoundTimer(room);
 
             try {
-              // 탈주자: 패배 기록 (경험치 없음)
-              if (leavingPlayer.userId) {
-                await statsService.recordGameResultNoExp(leavingPlayer.userId, room.gameType, 'loss');
-                if (remainingPlayer.userId) {
-                  await statsService.saveGameRecordNoExp(leavingPlayer.userId, remainingPlayer.userId, room.gameType, 'loss');
+              // 랭크전인 경우 특별 처리
+              if (room.isRanked && leavingPlayer.userId && remainingPlayer.userId) {
+                console.log(`🚪 [Ranked] Player quit: ${leavingPlayer.nickname} left, ${remainingPlayer.nickname} wins by forfeit`);
+
+                // 탈주자는 패배, 남은 플레이어는 승리로 ELO 업데이트
+                const result = await rankedService.updateRankedResult(
+                  remainingPlayer.userId,
+                  leavingPlayer.userId,
+                  room.rankedResults?.map(r => ({
+                    gameType: r.gameType,
+                    winnerId: r.winnerId!,
+                  })) || []
+                );
+
+                // 랭크 매치 종료 이벤트 전송 (남은 플레이어에게)
+                io.to(room.id).emit('ranked_match_end', {
+                  winnerId: remainingPlayer.userId,
+                  winnerNickname: remainingPlayer.nickname,
+                  loserId: leavingPlayer.userId,
+                  loserNickname: leavingPlayer.nickname,
+                  results: room.rankedResults || [],
+                  winnerStats: result.winnerStats,
+                  loserStats: result.loserStats,
+                  winnerEloChange: result.winnerEloChange,
+                  loserEloChange: result.loserEloChange,
+                  isForfeit: true,
+                });
+
+                console.log(`🏆 [Ranked] ${remainingPlayer.nickname} wins by forfeit! (+${result.winnerEloChange} ELO)`);
+              } else {
+                // 일반 게임: 기존 로직
+                // 탈주자: 패배 기록 (경험치 없음)
+                if (leavingPlayer.userId) {
+                  await statsService.recordGameResultNoExp(leavingPlayer.userId, room.gameType, 'loss');
+                  if (remainingPlayer.userId) {
+                    await statsService.saveGameRecordNoExp(leavingPlayer.userId, remainingPlayer.userId, room.gameType, 'loss');
+                  }
                 }
+                // 남은 플레이어: 승리 기록 (경험치 없음)
+                if (remainingPlayer.userId) {
+                  await statsService.recordGameResultNoExp(remainingPlayer.userId, room.gameType, 'win');
+                }
+                console.log(`🚪 Player quit: ${leavingPlayer.nickname} left, ${remainingPlayer.nickname} wins (no exp)`);
               }
-              // 남은 플레이어: 승리 기록 (경험치 없음)
-              if (remainingPlayer.userId) {
-                await statsService.recordGameResultNoExp(remainingPlayer.userId, room.gameType, 'win');
-              }
-              console.log(`🚪 Player quit: ${leavingPlayer.nickname} left, ${remainingPlayer.nickname} wins (no exp)`);
             } catch (err) {
               console.error('Failed to record quit game:', err);
             }
