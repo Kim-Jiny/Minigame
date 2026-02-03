@@ -11,7 +11,11 @@
     "start": "node dist/index.js",
     "test": "echo \"No tests yet\" && exit 0"
   },
-  "keywords": ["minigame", "socket.io", "tictactoe"],
+  "keywords": [
+    "minigame",
+    "socket.io",
+    "tictactoe"
+  ],
   "author": "",
   "license": "ISC",
   "description": "Minigame server with real-time multiplayer support",
@@ -33,6 +37,7 @@
     "@types/node": "^25.1.0",
     "@types/pg": "^8.11.11",
     "nodemon": "^3.1.11",
+    "socket.io-client": "^4.8.3",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   }
