@@ -79,6 +79,22 @@ class _FriendsScreenState extends State<FriendsScreen> {
             labelText: '친구 코드',
             hintText: 'ABCD1234',
             prefixIcon: const Icon(Icons.tag),
+            suffixIcon: IconButton(
+              icon: const Icon(Icons.paste),
+              tooltip: '붙여넣기',
+              onPressed: () async {
+                final data = await Clipboard.getData(Clipboard.kTextPlain);
+                if (data?.text != null) {
+                  final text = data!.text!.trim().toUpperCase();
+                  if (text.length <= 8) {
+                    _friendCodeController.text = text;
+                    _friendCodeController.selection = TextSelection.fromPosition(
+                      TextPosition(offset: text.length),
+                    );
+                  }
+                }
+              },
+            ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
             ),
