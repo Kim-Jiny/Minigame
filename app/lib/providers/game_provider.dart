@@ -165,9 +165,9 @@ class GameProvider extends ChangeNotifier {
     _socketService.on('match_found', (data) {
       debugPrint('🎮 match_found 전체 데이터: $data');
 
-      // 초대 게임이고 이미 playing 상태면 무시 (initializeInvitationGame에서 이미 처리됨)
-      if (data['isInvitation'] == true && _status == GameStatus.playing) {
-        debugPrint('🎮 match_found 무시: 초대 게임이 이미 초기화됨');
+      // 초대 게임이고 이미 playing 상태면서 roomId가 설정되어 있으면 무시
+      if (data['isInvitation'] == true && _status == GameStatus.playing && _roomId != null) {
+        debugPrint('🎮 match_found 무시: 초대 게임이 이미 초기화됨 (roomId=$_roomId)');
         return;
       }
 
@@ -199,7 +199,14 @@ class GameProvider extends ChangeNotifier {
       if (opponent['profileSettings'] != null) {
         _opponentProfileSettings = UserProfileSettings.fromJson(opponent['profileSettings']);
       }
-      debugPrint('🎮 match_found - isInvitation: ${data['isInvitation']}, isHardcore: ${data['isHardcore']}, myStreak: $_myStreak, opponentStreak: $_opponentStreak');
+
+      // 초대 게임인 경우 서버에 roomId 설정 알림 (disconnect 처리용)
+      if (_isInvitationGame && _roomId != null) {
+        _socketService.emit('set_room_id', {'roomId': _roomId});
+        debugPrint('🎮 set_room_id emitted: $_roomId');
+      }
+
+      debugPrint('🎮 match_found - isInvitation: ${data['isInvitation']}, isHardcore: ${data['isHardcore']}, roomId: $_roomId, myStreak: $_myStreak, opponentStreak: $_opponentStreak');
 
       notifyListeners();
     });
@@ -404,7 +411,49 @@ class GameProvider extends ChangeNotifier {
       _startCountdownTimer();
     }
 
-    debugPrint('🎮 initializeInvitationGame complete: status=$_status, isMyTurn=$isMyTurn');
+    // 서버에 roomId 설정 알림 (disconnect 처리용)
+    _socketService.emit('set_room_id', {'roomId': _roomId});
+    debugPrint('🎮 set_room_id emitted: $_roomId');
+
+    debugPrint('🎮 initializeInvitationGame complete: status=$_status, isMyTurn=$isMyTurn, roomId=$_roomId');
+    notifyListeners();
+  }
+
+  // 비보드 게임(reaction, rps, speedtap, sequence, stroop)용 초대 게임 초기화
+  void initializeNonBoardInvitationGame({
+    required String roomId,
+    required List<dynamic> players,
+  }) {
+    debugPrint('🎮 initializeNonBoardInvitationGame called');
+    debugPrint('🎮 roomId: $roomId');
+    debugPrint('🎮 players: $players');
+
+    _roomId = roomId;
+    _myId = _socketService.socket?.id;
+
+    final opponent = players.firstWhere((p) => p['id'] != _myId);
+    final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
+    _opponentNickname = opponent['nickname'];
+    _opponentAvatarUrl = opponent['avatarUrl'];
+    _opponentUserId = opponent['userId'];
+    _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
+    _isInvitationGame = true;
+
+    // 프로필 설정
+    if (me != null && me['profileSettings'] != null) {
+      _myProfileSettings = UserProfileSettings.fromJson(me['profileSettings']);
+    }
+    if (opponent['profileSettings'] != null) {
+      _opponentProfileSettings = UserProfileSettings.fromJson(opponent['profileSettings']);
+    }
+
+    _status = GameStatus.matched;  // 비보드 게임은 match_found/game_start에서 playing으로 변경
+
+    // 서버에 roomId 설정 알림 (disconnect 처리용)
+    _socketService.emit('set_room_id', {'roomId': _roomId});
+    debugPrint('🎮 set_room_id emitted: $_roomId');
+
+    debugPrint('🎮 initializeNonBoardInvitationGame complete: status=$_status, roomId=$_roomId');
     notifyListeners();
   }
 
@@ -431,6 +480,12 @@ class GameProvider extends ChangeNotifier {
   void makeMove(int position) {
     if (_status != GameStatus.playing || !isMyTurn) return;
 
+    if (_roomId == null) {
+      debugPrint('🚨 makeMove error: _roomId is null! status=$_status, myId=$_myId');
+      return;
+    }
+
+    debugPrint('🎮 makeMove: position=$position, roomId=$_roomId');
     _socketService.emit('game_action', {
       'roomId': _roomId,
       'action': {'position': position},

@@ -77,40 +77,62 @@ class _LobbyScreenState extends State<LobbyScreen> {
     };
 
     // 게임 시작 (초대 수락 후)
-    friendProvider.onGameStart = (gameType, roomId, gameState) {
+    friendProvider.onGameStart = (gameType, roomId, gameState, shouldNavigate) {
+      debugPrint('🎮 onGameStart: gameType=$gameType, roomId=$roomId, shouldNavigate=$shouldNavigate, mounted=$mounted');
       if (mounted) {
-        // 게임 상태가 포함되어 있으면 직접 초기화 (이벤트 리스너 타이밍 문제 방지)
-        if (gameState != null) {
-          final gameProvider = context.read<GameProvider>();
-          gameProvider.initializeInvitationGame(
+        final gameProvider = context.read<GameProvider>();
+
+        // 턴제 게임인 경우만 initializeInvitationGame 호출 (currentTurn, board 필요)
+        final isBoardGame = gameType == 'tictactoe' ||
+                            gameType == 'infinite_tictactoe' ||
+                            gameType == 'gomoku';
+
+        if (gameState != null && isBoardGame) {
+          final currentTurn = gameState['currentTurn'] as String?;
+          final board = gameState['board'] as List<dynamic>?;
+
+          if (currentTurn != null && board != null) {
+            gameProvider.initializeInvitationGame(
+              roomId: roomId,
+              players: gameState['players'] as List<dynamic>,
+              currentTurn: currentTurn,
+              board: board,
+              turnTimeLimit: gameState['turnTimeLimit'] as int?,
+              turnStartTime: gameState['turnStartTime'] as int?,
+            );
+          } else {
+            debugPrint('🎮 onGameStart: currentTurn or board is null, skipping initializeInvitationGame');
+          }
+        } else if (gameState != null && !isBoardGame) {
+          // 비보드 게임의 경우: roomId와 기본 정보만 설정
+          gameProvider.initializeNonBoardInvitationGame(
             roomId: roomId,
             players: gameState['players'] as List<dynamic>,
-            currentTurn: gameState['currentTurn'] as String,
-            board: gameState['board'] as List<dynamic>,
-            turnTimeLimit: gameState['turnTimeLimit'] as int?,
-            turnStartTime: gameState['turnStartTime'] as int?,
           );
         }
 
-        String route = '/game/$gameType';
-        if (gameType == 'infinite_tictactoe') {
-          route = '/game/infinite_tictactoe';
-        } else if (gameType == 'tictactoe') {
-          route = '/game/tictactoe';
-        } else if (gameType == 'gomoku') {
-          route = '/game/gomoku';
-        } else if (gameType == 'reaction') {
-          route = '/game/reaction';
-        } else if (gameType == 'rps') {
-          route = '/game/rps';
-        } else if (gameType == 'speedtap') {
-          route = '/game/speedtap';
-        } else if (gameType == 'sequence') {
-          route = '/game/sequence';
-        } else if (gameType == 'stroop') {
-          route = '/game/stroop';
+        // 초대자는 이미 게임 화면에 있으므로 네비게이션 스킵
+        if (shouldNavigate) {
+          String route = '/game/$gameType';
+          if (gameType == 'infinite_tictactoe') {
+            route = '/game/infinite_tictactoe';
+          } else if (gameType == 'tictactoe') {
+            route = '/game/tictactoe';
+          } else if (gameType == 'gomoku') {
+            route = '/game/gomoku';
+          } else if (gameType == 'reaction') {
+            route = '/game/reaction';
+          } else if (gameType == 'rps') {
+            route = '/game/rps';
+          } else if (gameType == 'speedtap') {
+            route = '/game/speedtap';
+          } else if (gameType == 'sequence') {
+            route = '/game/sequence';
+          } else if (gameType == 'stroop') {
+            route = '/game/stroop';
+          }
+          Navigator.pushNamed(context, route);
         }
-        Navigator.pushNamed(context, route);
       }
     };
   }

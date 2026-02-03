@@ -150,8 +150,8 @@ class FriendProvider extends ChangeNotifier {
 
   // 초대 받았을 때 콜백
   Function(Invitation)? onInvitationReceived;
-  // 게임 시작 콜백 (초대 수락 후) - gameState 포함
-  Function(String gameType, String roomId, Map<String, dynamic>? gameState)? onGameStart;
+  // 게임 시작 콜백 (초대 수락 후) - gameState 포함, shouldNavigate: 화면 전환 필요 여부
+  Function(String gameType, String roomId, Map<String, dynamic>? gameState, bool shouldNavigate)? onGameStart;
   // 친구 요청 받았을 때 콜백
   Function(String fromNickname)? onFriendRequestReceived;
 
@@ -351,11 +351,12 @@ class FriendProvider extends ChangeNotifier {
       _isLoading = false;
       if (data['success'] == true) {
         // 게임 시작 콜백 호출 (게임 상태 포함)
+        // 수락자는 게임 화면으로 이동 필요
         final roomId = data['roomId'] as String?;
         final gameType = data['gameType'] as String?;
         final gameState = data['gameState'] as Map<String, dynamic>?;
         if (roomId != null && gameType != null) {
-          onGameStart?.call(gameType, roomId, gameState);
+          onGameStart?.call(gameType, roomId, gameState, true);
         }
       } else {
         _error = data['message'];
@@ -386,7 +387,8 @@ class FriendProvider extends ChangeNotifier {
       final gameType = data['gameType'] as String?;
       final gameState = data['gameState'] as Map<String, dynamic>?;
       if (roomId != null && gameType != null) {
-        onGameStart?.call(gameType, roomId, gameState);
+        // 초대자는 이미 게임 화면에 있으므로 네비게이션 불필요
+        onGameStart?.call(gameType, roomId, gameState, false);
       }
     });
 

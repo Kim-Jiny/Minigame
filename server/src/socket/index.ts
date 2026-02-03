@@ -1337,6 +1337,12 @@ export function setupSocketHandlers(io: Server) {
       console.log(`🎮 ${data.nickname} joined lobby`);
     });
 
+    // 방 ID 설정 (초대 게임에서 초대자용)
+    socket.on('set_room_id', (data: { roomId: string }) => {
+      console.log(`🏠 set_room_id: ${currentPlayer?.nickname} -> ${data.roomId}`);
+      currentRoomId = data.roomId;
+    });
+
     // 게임 매칭 요청
     socket.on('find_match', async (data: { gameType: string; isHardcore?: boolean; isInfinite?: boolean }) => {
       if (!currentPlayer) {
