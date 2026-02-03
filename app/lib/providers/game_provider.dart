@@ -164,6 +164,13 @@ class GameProvider extends ChangeNotifier {
 
     _socketService.on('match_found', (data) {
       debugPrint('🎮 match_found 전체 데이터: $data');
+
+      // 초대 게임이고 이미 playing 상태면 무시 (initializeInvitationGame에서 이미 처리됨)
+      if (data['isInvitation'] == true && _status == GameStatus.playing) {
+        debugPrint('🎮 match_found 무시: 초대 게임이 이미 초기화됨');
+        return;
+      }
+
       _status = GameStatus.matched;
       _roomId = data['roomId'];
       final players = data['players'] as List;
