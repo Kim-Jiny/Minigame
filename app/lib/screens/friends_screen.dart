@@ -18,6 +18,19 @@ class _FriendsScreenState extends State<FriendsScreen> {
   bool _inviteHardcoreMode = false;
 
   @override
+  void initState() {
+    super.initState();
+    // 화면 진입 시 서버에서 데이터 새로고침
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final friendProvider = context.read<FriendProvider>();
+      friendProvider.getFriends();
+      friendProvider.getFriendRequests();
+      friendProvider.getInvitations();
+      friendProvider.getUnreadCounts();
+    });
+  }
+
+  @override
   void dispose() {
     _friendCodeController.dispose();
     super.dispose();
@@ -384,7 +397,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
           },
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
