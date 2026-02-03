@@ -319,15 +319,11 @@ class FriendProvider extends ChangeNotifier {
       notifyListeners();
     });
 
-    // 초대 결과
+    // 초대 결과 (게임 화면에서 자체 SnackBar를 표시하므로 successMessage는 설정하지 않음)
     _socketService.on('invite_result', (data) {
       _isLoading = false;
-      if (data['success'] == true) {
-        _successMessage = '초대를 보냈습니다.';
-        _error = null;
-      } else {
+      if (data['success'] != true) {
         _error = data['message'];
-        _successMessage = null;
       }
       notifyListeners();
     });
