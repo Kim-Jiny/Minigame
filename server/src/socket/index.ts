@@ -14,6 +14,37 @@ import { messageService } from '../services/messageService';
 import { coinService } from '../services/coinService';
 import { shopService } from '../services/shopService';
 import { rankedService, RANKED_GAMES, HARDCORE_GAMES } from '../services/rankedService';
+import { getPool } from '../config/database';
+
+// 유저 접속 기록 저장
+async function saveUserSession(
+  userId: number,
+  ipAddress: string,
+  deviceInfo: {
+    platform?: string;
+    osVersion?: string;
+    deviceModel?: string;
+    appVersion?: string;
+    buildNumber?: string;
+  }
+) {
+  const pool = getPool();
+  if (!pool) return;
+
+  await pool.query(
+    `INSERT INTO user_sessions (user_id, ip_address, platform, os_version, device_model, app_version, build_number)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      userId,
+      ipAddress,
+      deviceInfo.platform || null,
+      deviceInfo.osVersion || null,
+      deviceInfo.deviceModel || null,
+      deviceInfo.appVersion || null,
+      deviceInfo.buildNumber || null,
+    ]
+  );
+}
 
 interface Player {
   id: string;
@@ -1306,7 +1337,18 @@ export function setupSocketHandlers(io: Server) {
     let currentRoomId: string | null = null;
 
     // 로비 입장
-    socket.on('join_lobby', async (data: { nickname: string; userId?: number; avatarUrl?: string }) => {
+    socket.on('join_lobby', async (data: {
+      nickname: string;
+      userId?: number;
+      avatarUrl?: string;
+      deviceInfo?: {
+        platform?: string;
+        osVersion?: string;
+        deviceModel?: string;
+        appVersion?: string;
+        buildNumber?: string;
+      };
+    }) => {
       console.log(`📥 join_lobby received:`, { nickname: data.nickname, userId: data.userId });
 
       currentPlayer = {
@@ -1328,6 +1370,19 @@ export function setupSocketHandlers(io: Server) {
           console.log(`🔑 Friend code for user ${data.userId}: ${code}`);
         } catch (error) {
           console.error('Failed to generate friend code:', error);
+        }
+
+        // 접속 기록 저장
+        if (data.deviceInfo) {
+          try {
+            const ipAddress = socket.handshake.headers['x-forwarded-for'] as string ||
+                              socket.handshake.address ||
+                              'unknown';
+            await saveUserSession(data.userId, ipAddress, data.deviceInfo);
+            console.log(`📱 Session saved for user ${data.userId}: ${data.deviceInfo.platform} ${data.deviceInfo.osVersion}`);
+          } catch (error) {
+            console.error('Failed to save user session:', error);
+          }
         }
       } else {
         console.log(`⚠️ No userId provided for ${data.nickname}`);

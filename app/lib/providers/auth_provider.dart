@@ -6,6 +6,7 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart' as kakao;
 import '../services/socket_service.dart';
 import '../services/api_service.dart';
+import '../services/device_info_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   final SocketService _socketService = SocketService();
@@ -51,11 +52,13 @@ class AuthProvider extends ChangeNotifier {
   void _connectSocket() {
     _socketService.connect();
 
-    _socketService.on('connect', (_) {
+    _socketService.on('connect', (_) async {
+      final deviceInfo = await DeviceInfoService().getDeviceInfo();
       _socketService.emit('join_lobby', {
         'nickname': _nickname,
         'userId': _userId,
         'avatarUrl': _avatarUrl,
+        'deviceInfo': deviceInfo,
       });
       _socketId = _socketService.socket?.id;
       notifyListeners();
@@ -67,13 +70,19 @@ class AuthProvider extends ChangeNotifier {
     });
 
     if (_socketService.isConnected) {
-      _socketService.emit('join_lobby', {
-        'nickname': _nickname,
-        'userId': _userId,
-        'avatarUrl': _avatarUrl,
-      });
-      _socketId = _socketService.socket?.id;
+      _emitJoinLobby();
     }
+  }
+
+  Future<void> _emitJoinLobby() async {
+    final deviceInfo = await DeviceInfoService().getDeviceInfo();
+    _socketService.emit('join_lobby', {
+      'nickname': _nickname,
+      'userId': _userId,
+      'avatarUrl': _avatarUrl,
+      'deviceInfo': deviceInfo,
+    });
+    _socketId = _socketService.socket?.id;
   }
 
   Future<void> _saveUserInfo(UserInfo user) async {
@@ -287,5 +296,48 @@ class AuthProvider extends ChangeNotifier {
     try {
       await kakao.UserApi.instance.logout();
     } catch (_) {}
+  }
+
+  // 회원 탈퇴
+  Future<bool> deleteAccount() async {
+    try {
+      _isLoading = true;
+      _error = null;
+      notifyListeners();
+
+      await _apiService.deleteAccount();
+
+      // 로그아웃 처리
+      _userId = null;
+      _nickname = null;
+      _email = null;
+      _avatarUrl = null;
+      _socketId = null;
+      _isLoggedIn = false;
+
+      _socketService.disconnect();
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+
+      // 소셜 로그인 로그아웃
+      try {
+        await _googleSignIn.signOut();
+      } catch (_) {}
+
+      try {
+        await kakao.UserApi.instance.logout();
+      } catch (_) {}
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = '회원 탈퇴 실패: $e';
+      debugPrint(_error);
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 }

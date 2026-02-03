@@ -238,6 +238,57 @@ export async function setupDatabase() {
       CREATE INDEX IF NOT EXISTS idx_user_ranked_stats_user_id ON user_ranked_stats(user_id);
       CREATE INDEX IF NOT EXISTS idx_ranked_matches_player1 ON ranked_matches(player1_id);
       CREATE INDEX IF NOT EXISTS idx_ranked_matches_player2 ON ranked_matches(player2_id);
+
+      -- 유저 접속 기록 테이블
+      CREATE TABLE IF NOT EXISTS user_sessions (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        ip_address VARCHAR(45),
+        platform VARCHAR(20),
+        os_version VARCHAR(50),
+        device_model VARCHAR(100),
+        app_version VARCHAR(20),
+        build_number VARCHAR(20),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- 접속 기록 인덱스
+      CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_user_sessions_created_at ON user_sessions(created_at);
+
+      -- 문의 테이블
+      CREATE TABLE IF NOT EXISTS inquiries (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        category VARCHAR(30) NOT NULL,
+        title VARCHAR(100) NOT NULL,
+        content TEXT NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        reply TEXT,
+        replied_at TIMESTAMP,
+        is_read BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- is_read 컬럼 추가 (기존 테이블용)
+      ALTER TABLE inquiries ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE;
+
+      -- 문의 인덱스
+      CREATE INDEX IF NOT EXISTS idx_inquiries_user_id ON inquiries(user_id);
+      CREATE INDEX IF NOT EXISTS idx_inquiries_status ON inquiries(status);
+
+      -- 관리자 계정 테이블
+      CREATE TABLE IF NOT EXISTS admin_accounts (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(50) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- 초기 관리자 계정 (jiny/1204)
+      INSERT INTO admin_accounts (username, password)
+      VALUES ('jiny', '1204')
+      ON CONFLICT (username) DO NOTHING;
     `);
 
     console.log('✅ Database tables ready');
