@@ -11,6 +11,8 @@ import 'services/remote_config_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/lobby_screen.dart';
 import 'screens/maintenance_screen.dart';
+import 'screens/server_loading_screen.dart';
+import 'services/socket_service.dart';
 import 'games/tictactoe/tictactoe_screen.dart';
 import 'games/infinite_tictactoe/infinite_tictactoe_screen.dart';
 import 'games/gomoku/gomoku_screen.dart';
@@ -134,8 +136,45 @@ class MinigameApp extends StatelessWidget {
   }
 }
 
-class AuthWrapper extends StatelessWidget {
+class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
+
+  @override
+  State<AuthWrapper> createState() => _AuthWrapperState();
+}
+
+class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
+  bool _serverConnected = false;
+  final SocketService _socketService = SocketService();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // 백그라운드에서 포어그라운드로 돌아올 때
+    if (state == AppLifecycleState.resumed) {
+      // 서버 연결이 끊어졌으면 로딩 화면으로
+      if (_serverConnected && !_socketService.isConnected) {
+        setState(() => _serverConnected = false);
+      }
+    }
+  }
+
+  void _onServerConnected() {
+    if (mounted) {
+      setState(() => _serverConnected = true);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -156,6 +195,12 @@ class AuthWrapper extends StatelessWidget {
             context.read<StatsProvider>().initialize();
             context.read<ShopProvider>().initialize();
           });
+
+          // 서버 연결 대기
+          if (!_serverConnected) {
+            return ServerLoadingScreen(onConnected: _onServerConnected);
+          }
+
           return const LobbyScreen();
         }
         return const LoginScreen();
