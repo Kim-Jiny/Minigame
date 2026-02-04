@@ -1,0 +1,21 @@
+name: Keep Server Alive
+
+on:
+  schedule:
+    # 14분마다 실행 (Render 무료 플랜은 15분 후 슬립)
+    - cron: '*/14 * * * *'
+  workflow_dispatch:  # 수동 실행 가능
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Server
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" https://minigame-server-jfep.onrender.com/)
+          echo "Server response: $response"
+          if [ "$response" = "200" ]; then
+            echo "✅ Server is awake!"
+          else
+            echo "⚠️ Server returned: $response"
+          fi
