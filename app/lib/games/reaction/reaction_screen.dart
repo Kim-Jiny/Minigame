@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
+import '../../providers/game_provider.dart';
 import '../../providers/shop_provider.dart';
 import '../../services/socket_service.dart';
 import '../../config/app_config.dart';
@@ -78,7 +79,31 @@ class _ReactionScreenState extends State<ReactionScreen> {
       _myNickname = auth.nickname;
       _myAvatarUrl = auth.avatarUrl;
       _setupSocketListeners();
+
+      // 초대 게임인 경우 GameProvider에서 초기 상태 가져오기
+      _initFromGameProvider();
     });
+  }
+
+  void _initFromGameProvider() {
+    try {
+      final game = context.read<GameProvider>();
+      if (game.isInvitationGame && game.roomId != null && game.opponentNickname != null) {
+        debugPrint('🎮 ReactionScreen: 초대 게임 초기화 from GameProvider');
+        setState(() {
+          _roomId = game.roomId;
+          _opponentNickname = game.opponentNickname;
+          _opponentAvatarUrl = game.opponentAvatarUrl;
+          _opponentUserId = game.opponentUserId;
+          _isInvitationGame = true;
+          _status = ReactionGameStatus.matched;
+          _opponentProfileSettings = game.opponentProfileSettings;
+          _myProfileSettings = game.myProfileSettings;
+        });
+      }
+    } catch (e) {
+      debugPrint('🎮 ReactionScreen: GameProvider 초기화 실패: $e');
+    }
   }
 
   @override
