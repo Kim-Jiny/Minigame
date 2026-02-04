@@ -518,6 +518,11 @@ class FriendProvider extends ChangeNotifier {
   }
 
   void inviteToGame(int friendId, String gameType, {bool isHardcore = false}) {
+    // 중복 초대 방지
+    if (_isLoading) {
+      debugPrint('🚫 inviteToGame: 이미 초대 진행 중');
+      return;
+    }
     _isLoading = true;
     _error = null;
     _successMessage = null;

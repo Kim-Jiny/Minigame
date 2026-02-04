@@ -15,9 +15,21 @@ export interface Invitation {
 
 export const invitationService = {
   // 초대 생성
-  async createInvitation(inviterId: number, inviteeId: number, gameType: string, isHardcore: boolean = false): Promise<Invitation> {
+  async createInvitation(inviterId: number, inviteeId: number, gameType: string, isHardcore: boolean = false): Promise<Invitation | null> {
     const pool = getPool();
     if (!pool) throw new Error('Database not connected');
+
+    // 최근 5초 내에 같은 상대에게 보낸 pending 초대가 있으면 중복 방지
+    const recentInvite = await pool.query(
+      `SELECT id FROM game_invitations
+       WHERE inviter_id = $1 AND invitee_id = $2 AND status = 'pending'
+       AND created_at > NOW() - INTERVAL '5 seconds'`,
+      [inviterId, inviteeId]
+    );
+    if (recentInvite.rows.length > 0) {
+      console.log(`🚫 Duplicate invitation blocked: ${inviterId} -> ${inviteeId}`);
+      return null;
+    }
 
     // 기존 pending 초대가 있으면 만료 처리
     await pool.query(

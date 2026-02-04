@@ -2384,6 +2384,12 @@ export function setupSocketHandlers(io: Server) {
           data.isHardcore
         );
 
+        // 중복 초대 차단됨
+        if (!invitation) {
+          socket.emit('invite_result', { success: false, message: '이미 초대를 보냈습니다.' });
+          return;
+        }
+
         socket.emit('invite_result', { success: true, invitation });
 
         // 상대방에게 초대 알림
