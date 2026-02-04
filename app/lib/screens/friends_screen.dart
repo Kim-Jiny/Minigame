@@ -22,6 +22,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
     // 화면 진입 시 서버에서 데이터 새로고침
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final friendProvider = context.read<FriendProvider>();
+      friendProvider.getMyFriendCode();
       friendProvider.getFriends();
       friendProvider.getFriendRequests();
       friendProvider.getInvitations();
