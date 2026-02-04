@@ -154,6 +154,10 @@ class FriendProvider extends ChangeNotifier {
   Function(String gameType, String roomId, Map<String, dynamic>? gameState, bool shouldNavigate)? onGameStart;
   // 친구 요청 받았을 때 콜백
   Function(String fromNickname)? onFriendRequestReceived;
+  // 초대 만료 콜백
+  Function(String message)? onInvitationExpired;
+  // 초대 전송 실패 콜백 (busy 등)
+  Function(String message, String? reason)? onInviteFailed;
 
   String? get myFriendCode => _myFriendCode;
   List<Friend> get friends => _friends;
@@ -324,7 +328,24 @@ class FriendProvider extends ChangeNotifier {
       _isLoading = false;
       if (data['success'] != true) {
         _error = data['message'];
+        final reason = data['reason'] as String?;
+        onInviteFailed?.call(data['message'] ?? '초대 실패', reason);
       }
+      notifyListeners();
+    });
+
+    // 초대 만료
+    _socketService.on('invitation_expired', (data) {
+      final invitationId = data['invitationId'] as int?;
+      final message = data['message'] as String? ?? '초대가 만료되었습니다.';
+
+      // 초대 목록에서 제거
+      if (invitationId != null) {
+        _invitations.removeWhere((i) => i.id == invitationId);
+      }
+
+      // 콜백 호출
+      onInvitationExpired?.call(message);
       notifyListeners();
     });
 
@@ -569,6 +590,7 @@ class FriendProvider extends ChangeNotifier {
     _socketService.off('decline_invitation_result');
     _socketService.off('invitation_declined');
     _socketService.off('invitation_accepted');
+    _socketService.off('invitation_expired');
     _socketService.off('unread_counts');
     _socketService.off('new_message');
     super.dispose();

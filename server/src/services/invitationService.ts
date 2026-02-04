@@ -150,5 +150,18 @@ export const invitationService = {
     );
 
     return { success: true, message: '초대를 거절했습니다.' };
+  },
+
+  // 초대 만료
+  async expireInvitation(invitationId: number): Promise<{success: boolean; message: string}> {
+    const pool = getPool();
+    if (!pool) throw new Error('Database not connected');
+
+    await pool.query(
+      `UPDATE game_invitations SET status = 'expired' WHERE id = $1 AND status = 'pending'`,
+      [invitationId]
+    );
+
+    return { success: true, message: '초대가 만료되었습니다.' };
   }
 };

@@ -94,6 +94,11 @@ const rooms = new Map<string, GameRoom>();
 const matchQueues = new Map<string, Player[]>();
 // 유저 ID별 소켓 매핑 (초대 알림용)
 const userSockets = new Map<number, Socket>();
+// 유저 ID별 현재 게임 룸 매핑 (게임 중인지 확인용)
+const userRooms = new Map<number, string>();
+// 초대 타임아웃 관리 (invitationId -> timeout)
+const invitationTimeouts = new Map<number, NodeJS.Timeout>();
+const INVITATION_TIMEOUT_MS = 30000; // 30초
 
 function getQueueKey(gameType: string, isHardcore: boolean, isInfinite: boolean = false): string {
   let key = gameType;
@@ -1458,6 +1463,10 @@ export function setupSocketHandlers(io: Server) {
         socket.join(roomId);
         currentRoomId = roomId;
 
+        // 유저별 현재 게임 룸 기록
+        if (currentPlayer.userId) userRooms.set(currentPlayer.userId, roomId);
+        if (opponent.userId) userRooms.set(opponent.userId, roomId);
+
         // 연승 정보 조회
         const opponentStreak = opponent.userId ? await coinService.getStreak(opponent.userId) : { currentStreak: 0 };
         const currentPlayerStreak = currentPlayer.userId ? await coinService.getStreak(currentPlayer.userId) : { currentStreak: 0 };
@@ -2343,6 +2352,23 @@ export function setupSocketHandlers(io: Server) {
       }
 
       try {
+        // 상대방이 온라인인지 확인
+        const friendSocket = userSockets.get(data.friendId);
+        if (!friendSocket) {
+          socket.emit('invite_result', { success: false, message: '상대방이 오프라인입니다.' });
+          return;
+        }
+
+        // 상대방이 게임 중인지 확인
+        const friendRoomId = userRooms.get(data.friendId);
+        if (friendRoomId) {
+          const friendRoom = rooms.get(friendRoomId);
+          if (friendRoom && (friendRoom.status === 'playing' || friendRoom.status === 'waiting')) {
+            socket.emit('invite_result', { success: false, message: '상대방이 게임 중입니다.', reason: 'busy' });
+            return;
+          }
+        }
+
         const invitation = await invitationService.createInvitation(
           currentPlayer.userId,
           data.friendId,
@@ -2353,10 +2379,36 @@ export function setupSocketHandlers(io: Server) {
         socket.emit('invite_result', { success: true, invitation });
 
         // 상대방에게 초대 알림
-        const friendSocket = userSockets.get(data.friendId);
-        if (friendSocket) {
-          friendSocket.emit('game_invitation', { invitation });
-        }
+        friendSocket.emit('game_invitation', { invitation });
+
+        // 초대 타임아웃 설정 (30초)
+        const timeoutId = setTimeout(async () => {
+          // 초대가 아직 pending 상태인지 확인
+          const currentInvitation = await invitationService.getInvitation(invitation.id);
+          if (currentInvitation && currentInvitation.status === 'pending') {
+            // 초대 만료 처리
+            await invitationService.expireInvitation(invitation.id);
+
+            // 초대자에게 만료 알림
+            socket.emit('invitation_expired', {
+              invitationId: invitation.id,
+              friendNickname: currentInvitation.inviteeNickname,
+              message: '초대가 만료되었습니다.'
+            });
+
+            // 피초대자에게도 알림 (초대 목록에서 제거)
+            const inviteeSocket = userSockets.get(data.friendId);
+            if (inviteeSocket) {
+              inviteeSocket.emit('invitation_expired', {
+                invitationId: invitation.id,
+                message: '초대가 만료되었습니다.'
+              });
+            }
+          }
+          invitationTimeouts.delete(invitation.id);
+        }, INVITATION_TIMEOUT_MS);
+
+        invitationTimeouts.set(invitation.id, timeoutId);
       } catch (error) {
         socket.emit('invite_result', { success: false, message: '초대 전송 실패' });
       }
@@ -2451,6 +2503,17 @@ export function setupSocketHandlers(io: Server) {
         inviterSocket!.join(roomId);
         socket.join(roomId);
         currentRoomId = roomId;
+
+        // 유저별 현재 게임 룸 기록
+        if (currentPlayer.userId) userRooms.set(currentPlayer.userId, roomId);
+        if (invitation.inviterId) userRooms.set(invitation.inviterId, roomId);
+
+        // 초대 타임아웃 정리
+        const timeoutId = invitationTimeouts.get(data.invitationId);
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          invitationTimeouts.delete(data.invitationId);
+        }
 
         room.status = 'playing';
 
@@ -2712,6 +2775,13 @@ export function setupSocketHandlers(io: Server) {
         const invitation = await invitationService.getInvitation(data.invitationId);
         const result = await invitationService.declineInvitation(data.invitationId);
         socket.emit('decline_invitation_result', result);
+
+        // 초대 타임아웃 정리
+        const timeoutId = invitationTimeouts.get(data.invitationId);
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          invitationTimeouts.delete(data.invitationId);
+        }
 
         // 초대한 사람에게 알림
         if (invitation) {
@@ -3331,6 +3401,12 @@ export function setupSocketHandlers(io: Server) {
           rooms.delete(roomId);
         }
       }
+
+      // 유저 룸 매핑 정리
+      if (currentPlayer?.userId) {
+        userRooms.delete(currentPlayer.userId);
+      }
+
       currentRoomId = null;
     }
   });

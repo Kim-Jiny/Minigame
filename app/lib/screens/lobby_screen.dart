@@ -77,6 +77,30 @@ class _LobbyScreenState extends State<LobbyScreen> {
       }
     };
 
+    // 초대 만료
+    friendProvider.onInvitationExpired = (message) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    };
+
+    // 초대 실패 (오프라인, 게임 중 등)
+    friendProvider.onInviteFailed = (message, reason) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: reason == 'busy' ? Colors.orange : Colors.red,
+          ),
+        );
+      }
+    };
+
     // 게임 시작 (초대 수락 후)
     friendProvider.onGameStart = (gameType, roomId, gameState, shouldNavigate) {
       debugPrint('🎮 onGameStart: gameType=$gameType, roomId=$roomId, shouldNavigate=$shouldNavigate, mounted=$mounted');
