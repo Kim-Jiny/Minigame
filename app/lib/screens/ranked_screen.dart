@@ -76,6 +76,14 @@ class _RankedScreenState extends State<RankedScreen> {
     debugPrint('🎮 [Listener] _isNavigating=$_isNavigating');
     debugPrint('🎮 [Listener] score=${ranked.score}');
 
+    // waitingNextGame 상태에서는 네비게이션 상태 리셋 (다음 게임 네비게이션 가능하도록)
+    // 중요: 여기서 리셋해야 ranked_game_start 이벤트 시 다음 게임으로 이동 가능
+    if (ranked.matchStatus == RankedMatchStatus.waitingNextGame) {
+      debugPrint('🎮 [Listener] waitingNextGame - resetting navigation state for next game');
+      _isNavigating = false;
+      // _lastNavigatedGameIndex는 유지하여 같은 게임 중복 네비게이션 방지
+    }
+
     // playing 상태이고 게임이 있고 아직 해당 게임으로 이동하지 않았으면 네비게이션
     final shouldNavigate = ranked.matchStatus == RankedMatchStatus.playing &&
         ranked.currentGame != null &&

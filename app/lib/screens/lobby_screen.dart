@@ -21,6 +21,7 @@ class LobbyScreen extends StatefulWidget {
 
 class _LobbyScreenState extends State<LobbyScreen> {
   int _currentIndex = 0;
+  String? _lastProcessedInvitationRoomId; // 중복 초대 게임 처리 방지
 
   @override
   void initState() {
@@ -79,8 +80,22 @@ class _LobbyScreenState extends State<LobbyScreen> {
     // 게임 시작 (초대 수락 후)
     friendProvider.onGameStart = (gameType, roomId, gameState, shouldNavigate) {
       debugPrint('🎮 onGameStart: gameType=$gameType, roomId=$roomId, shouldNavigate=$shouldNavigate, mounted=$mounted');
+
+      // 중복 처리 방지: 같은 roomId로 이미 처리된 경우 스킵
+      if (_lastProcessedInvitationRoomId == roomId) {
+        debugPrint('🎮 onGameStart: 이미 처리된 roomId, 스킵');
+        return;
+      }
+      _lastProcessedInvitationRoomId = roomId;
+
       if (mounted) {
         final gameProvider = context.read<GameProvider>();
+
+        // 이미 게임이 진행 중이면 스킵 (중복 이벤트 처리 방지)
+        if (gameProvider.roomId == roomId && gameProvider.status == GameStatus.playing) {
+          debugPrint('🎮 onGameStart: 이미 해당 roomId로 게임 진행 중, 스킵');
+          return;
+        }
 
         // 턴제 게임인 경우만 initializeInvitationGame 호출 (currentTurn, board 필요)
         final isBoardGame = gameType == 'tictactoe' ||

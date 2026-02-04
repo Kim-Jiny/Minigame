@@ -164,9 +164,14 @@ class GameProvider extends ChangeNotifier {
 
     _socketService.on('match_found', (data) {
       debugPrint('🎮 match_found 전체 데이터: $data');
+      debugPrint('🎮 match_found 현재 상태: status=$_status, roomId=$_roomId');
 
-      // 초대 게임이고 이미 playing 상태면서 roomId가 설정되어 있으면 무시
-      if (data['isInvitation'] == true && _status == GameStatus.playing && _roomId != null) {
+      // 초대 게임이고 이미 playing 또는 matched 상태면서 같은 roomId면 무시
+      final incomingRoomId = data['roomId'] as String?;
+      if (data['isInvitation'] == true &&
+          (_status == GameStatus.playing || _status == GameStatus.matched) &&
+          _roomId != null &&
+          _roomId == incomingRoomId) {
         debugPrint('🎮 match_found 무시: 초대 게임이 이미 초기화됨 (roomId=$_roomId)');
         return;
       }
@@ -213,6 +218,14 @@ class GameProvider extends ChangeNotifier {
 
     _socketService.on('game_start', (data) {
       debugPrint('🎮 game_start 데이터: $data');
+      debugPrint('🎮 game_start 현재 상태: status=$_status, roomId=$_roomId, isInvitation=$_isInvitationGame');
+
+      // 초대 게임이고 이미 playing 상태면 중복 game_start 무시
+      if (_isInvitationGame && _status == GameStatus.playing) {
+        debugPrint('🎮 game_start 무시: 초대 게임이 이미 playing 상태');
+        return;
+      }
+
       _status = GameStatus.playing;
       _currentTurn = data['currentTurn'];
       // board가 있는 게임만 처리 (틱택토, 오목 등)
