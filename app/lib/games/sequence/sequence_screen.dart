@@ -190,6 +190,10 @@ class _SequenceScreenState extends State<SequenceScreen>
           debugPrint('game_start ignored: not waiting for rematch');
           return;
         }
+        // 게임 시작 시 모든 SnackBar 제거 (중복 알림 방지)
+        if (mounted) {
+          ScaffoldMessenger.of(context).clearSnackBars();
+        }
         debugPrint('🎮 Starting sequence game!');
         setState(() {
           _gridSize = data['gridSize'] ?? 9;
@@ -282,6 +286,8 @@ class _SequenceScreenState extends State<SequenceScreen>
         _status = SequenceGameStatus.finished;
         _winnerId = _myId;
         _opponentLeft = true;
+        _rematchWaiting = false;
+        _opponentWantsRematch = false;
       });
     });
 
@@ -440,6 +446,10 @@ class _SequenceScreenState extends State<SequenceScreen>
     if (_roomId != null) {
       _socketService.emit('leave_room', {'roomId': _roomId});
     }
+    // GameProvider 상태도 초기화
+    try {
+      context.read<GameProvider>().reset();
+    } catch (_) {}
     _reset();
   }
 
@@ -521,151 +531,160 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   void _showFriendInviteDialog(BuildContext context) {
-    final friendProvider = context.read<FriendProvider>();
-    final onlineFriends = friendProvider.friends.where((f) => f.isOnline).toList();
+    // 친구 목록 새로고침
+    context.read<FriendProvider>().getFriends();
+
     final theme = _theme;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.6,
-        ),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // 핸들
-            Container(
-              margin: const EdgeInsets.only(top: 12),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
-              ),
+      builder: (dialogContext) => Consumer<FriendProvider>(
+        builder: (context, friendProvider, child) {
+          final onlineFriends = friendProvider.friends.where((f) => f.isOnline).toList();
+
+          return Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(dialogContext).size.height * 0.6,
             ),
-            // 헤더
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Row(
-                children: [
-                  Icon(Icons.person_add, color: _isHardcore ? Colors.red : theme.primary),
-                  const SizedBox(width: 12),
-                  const Text(
-                    '친구 초대',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 핸들
+                Container(
+                  margin: const EdgeInsets.only(top: 12),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                  const Spacer(),
-                  if (_isHardcore)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.red.shade50,
-                        borderRadius: BorderRadius.circular(12),
+                ),
+                // 헤더
+                Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Row(
+                    children: [
+                      Icon(Icons.person_add, color: _isHardcore ? Colors.red : theme.primary),
+                      const SizedBox(width: 12),
+                      const Text(
+                        '친구 초대',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.local_fire_department, size: 16, color: Colors.red.shade400),
-                          const SizedBox(width: 4),
-                          Text('하드코어', style: TextStyle(fontSize: 12, color: Colors.red.shade400, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            // 친구 목록
-            Flexible(
-              child: onlineFriends.isEmpty
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(40),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.person_off, size: 48, color: Colors.grey.shade400),
-                            const SizedBox(height: 16),
-                            Text(
-                              '온라인 친구가 없습니다',
-                              style: TextStyle(color: Colors.grey.shade600),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  : ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: onlineFriends.length,
-                      itemBuilder: (context, index) {
-                        final friend = onlineFriends[index];
-                        return ListTile(
-                          leading: Stack(
+                      const Spacer(),
+                      if (_isHardcore)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              CircleAvatar(
-                                backgroundColor: (_isHardcore ? Colors.red : theme.primary).withValues(alpha: 0.2),
-                                child: Text(
-                                  friend.nickname.isNotEmpty ? friend.nickname[0].toUpperCase() : '?',
-                                  style: TextStyle(color: _isHardcore ? Colors.red : theme.primary),
-                                ),
-                              ),
-                              Positioned(
-                                right: 0,
-                                bottom: 0,
-                                child: Container(
-                                  width: 12,
-                                  height: 12,
-                                  decoration: BoxDecoration(
-                                    color: Colors.green,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: Colors.white, width: 2),
-                                  ),
-                                ),
-                              ),
+                              Icon(Icons.local_fire_department, size: 16, color: Colors.red.shade400),
+                              const SizedBox(width: 4),
+                              Text('하드코어', style: TextStyle(fontSize: 12, color: Colors.red.shade400, fontWeight: FontWeight.bold)),
                             ],
                           ),
-                          title: Text(friend.nickname, style: const TextStyle(fontWeight: FontWeight.w600)),
-                          subtitle: friend.memo != null && friend.memo!.isNotEmpty
-                              ? Text(friend.memo!, style: TextStyle(color: Colors.grey.shade600, fontSize: 12))
-                              : null,
-                          trailing: ElevatedButton(
-                            onPressed: () {
-                              friendProvider.inviteToGame(
-                                friend.id,
-                                AppConfig.gameTypeSequence,
-                                isHardcore: _isHardcore,
-                              );
-                              Navigator.pop(context);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('${friend.nickname}님에게 초대를 보냈습니다!'),
-                                  backgroundColor: Colors.green,
+                        ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                // 친구 목록
+                Flexible(
+                  child: onlineFriends.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(40),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.person_off, size: 48, color: Colors.grey.shade400),
+                                const SizedBox(height: 16),
+                                Text(
+                                  '온라인 친구가 없습니다',
+                                  style: TextStyle(color: Colors.grey.shade600),
                                 ),
-                              );
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _isHardcore ? Colors.red : theme.primary,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(20),
-                              ),
+                              ],
                             ),
-                            child: const Text('초대'),
                           ),
-                        );
-                      },
-                    ),
+                        )
+                      : ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: onlineFriends.length,
+                          itemBuilder: (context, index) {
+                            final friend = onlineFriends[index];
+                            return ListTile(
+                              leading: Stack(
+                                children: [
+                                  CircleAvatar(
+                                    backgroundColor: (_isHardcore ? Colors.red : theme.primary).withValues(alpha: 0.2),
+                                    child: Text(
+                                      friend.nickname.isNotEmpty ? friend.nickname[0].toUpperCase() : '?',
+                                      style: TextStyle(color: _isHardcore ? Colors.red : theme.primary),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    right: 0,
+                                    bottom: 0,
+                                    child: Container(
+                                      width: 12,
+                                      height: 12,
+                                      decoration: BoxDecoration(
+                                        color: Colors.green,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.white, width: 2),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              title: Text(friend.nickname, style: const TextStyle(fontWeight: FontWeight.w600)),
+                              subtitle: friend.memo != null && friend.memo!.isNotEmpty
+                                  ? Text(friend.memo!, style: TextStyle(color: Colors.grey.shade600, fontSize: 12))
+                                  : null,
+                              trailing: ElevatedButton(
+                                onPressed: () {
+                                  friendProvider.inviteToGame(
+                                    friend.id,
+                                    AppConfig.gameTypeSequence,
+                                    isHardcore: _isHardcore,
+                                  );
+                                  Navigator.pop(dialogContext);
+                                  // 기존 SnackBar 제거 후 새 알림 표시 (중복 방지)
+                                  ScaffoldMessenger.of(context).clearSnackBars();
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('${friend.nickname}님에게 초대를 보냈습니다!'),
+                                      backgroundColor: Colors.green,
+                                    ),
+                                  );
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: _isHardcore ? Colors.red : theme.primary,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                ),
+                                child: const Text('초대'),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+                SizedBox(height: MediaQuery.of(dialogContext).padding.bottom + 16),
+              ],
             ),
-            SizedBox(height: MediaQuery.of(context).padding.bottom + 16),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

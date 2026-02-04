@@ -2558,18 +2558,21 @@ export function setupSocketHandlers(io: Server) {
             }
           });
 
-          io.to(roomId).emit('match_found', {
-            roomId,
-            gameType: invitation.gameType,
-            isInvitation: true,
-            players
-          });
+          // 클라이언트가 게임 화면으로 이동하고 소켓 리스너를 설정할 시간을 줌
+          setTimeout(() => {
+            io.to(roomId).emit('match_found', {
+              roomId,
+              gameType: invitation.gameType,
+              isInvitation: true,
+              players
+            });
 
-          io.to(roomId).emit('game_start', {
-            gameType: 'reaction',
-          });
+            io.to(roomId).emit('game_start', {
+              gameType: 'reaction',
+            });
 
-          setTimeout(() => startReactionRound(io, room), 1000);
+            setTimeout(() => startReactionRound(io, room), 1000);
+          }, 500);
         } else if (invitation.gameType === 'rps') {
           // 가위바위보 게임
           socket.emit('accept_invitation_result', {
@@ -2592,18 +2595,21 @@ export function setupSocketHandlers(io: Server) {
             }
           });
 
-          io.to(roomId).emit('match_found', {
-            roomId,
-            gameType: invitation.gameType,
-            isInvitation: true,
-            players
-          });
+          // 클라이언트가 게임 화면으로 이동하고 소켓 리스너를 설정할 시간을 줌
+          setTimeout(() => {
+            io.to(roomId).emit('match_found', {
+              roomId,
+              gameType: invitation.gameType,
+              isInvitation: true,
+              players
+            });
 
-          io.to(roomId).emit('game_start', {
-            gameType: 'rps',
-          });
+            io.to(roomId).emit('game_start', {
+              gameType: 'rps',
+            });
 
-          setTimeout(() => startRpsRound(io, room), 1000);
+            setTimeout(() => startRpsRound(io, room), 1000);
+          }, 500);
         } else if (invitation.gameType === 'speedtap') {
           // 스피드탭 게임
           socket.emit('accept_invitation_result', {
@@ -2626,18 +2632,21 @@ export function setupSocketHandlers(io: Server) {
             }
           });
 
-          io.to(roomId).emit('match_found', {
-            roomId,
-            gameType: invitation.gameType,
-            isInvitation: true,
-            players
-          });
+          // 클라이언트가 게임 화면으로 이동하고 소켓 리스너를 설정할 시간을 줌
+          setTimeout(() => {
+            io.to(roomId).emit('match_found', {
+              roomId,
+              gameType: invitation.gameType,
+              isInvitation: true,
+              players
+            });
 
-          io.to(roomId).emit('game_start', {
-            gameType: 'speedtap',
-          });
+            io.to(roomId).emit('game_start', {
+              gameType: 'speedtap',
+            });
 
-          setTimeout(() => startSpeedTapRound(io, room), 1000);
+            setTimeout(() => startSpeedTapRound(io, room), 1000);
+          }, 500);
         } else if (invitation.gameType === 'sequence') {
           // 순서 기억하기 게임
           const seqGame = room.game as SequenceGame;
@@ -2661,22 +2670,25 @@ export function setupSocketHandlers(io: Server) {
             }
           });
 
-          io.to(roomId).emit('match_found', {
-            roomId,
-            gameType: invitation.gameType,
-            isInvitation: true,
-            players
-          });
+          // 클라이언트가 게임 화면으로 이동하고 소켓 리스너를 설정할 시간을 줌
+          setTimeout(() => {
+            io.to(roomId).emit('match_found', {
+              roomId,
+              gameType: invitation.gameType,
+              isInvitation: true,
+              players
+            });
 
-          io.to(roomId).emit('game_start', {
-            gameType: 'sequence',
-            gridSize: seqGame.getGridSize(),
-            sequence: seqGame.getSequence(),
-            level: seqGame.getCurrentLevel(),
-            showDelay: seqGame.getShowDelay(),
-            isHardcore: seqGame.getIsHardcore(),
-            timeLimit: seqGame.getTimeLimit(),
-          });
+            io.to(roomId).emit('game_start', {
+              gameType: 'sequence',
+              gridSize: seqGame.getGridSize(),
+              sequence: seqGame.getSequence(),
+              level: seqGame.getCurrentLevel(),
+              showDelay: seqGame.getShowDelay(),
+              isHardcore: seqGame.getIsHardcore(),
+              timeLimit: seqGame.getTimeLimit(),
+            });
+          }, 500);
         } else if (invitation.gameType === 'stroop') {
           // 스트룹 게임
           const stroopGame = room.game as StroopGame;
@@ -2700,28 +2712,29 @@ export function setupSocketHandlers(io: Server) {
             }
           });
 
-          io.to(roomId).emit('match_found', {
-            roomId,
-            gameType: invitation.gameType,
-            isInvitation: true,
-            isHardcore,
-            players
-          });
+          // 클라이언트가 게임 화면으로 이동하고 소켓 리스너를 설정할 시간을 줌
+          setTimeout(() => {
+            io.to(roomId).emit('match_found', {
+              roomId,
+              gameType: invitation.gameType,
+              isInvitation: true,
+              isHardcore,
+              players
+            });
 
-          io.to(roomId).emit('game_start', {
-            gameType: 'stroop',
-            isHardcore: stroopGame.getIsHardcore(),
-            colors: stroopGame.getColors(),
-          });
+            io.to(roomId).emit('game_start', {
+              gameType: 'stroop',
+              isHardcore: stroopGame.getIsHardcore(),
+              colors: stroopGame.getColors(),
+            });
 
-          setTimeout(() => startStroopRound(io, room), 1000);
+            setTimeout(() => startStroopRound(io, room), 1000);
+          }, 500);
         } else {
           // 턴제 게임
-          startTurnTimer(io, room);
           const turnGame = room.game as TicTacToeGame | InfiniteTicTacToeGame | GomokuGame;
           const gameBoard = turnGame?.getBoard();
           const currentTurn = inviterPlayer.id;
-          const turnStartTime = room.turnStartTime;
 
           // 초대 받은 사람에게 게임 상태 포함해서 전송
           socket.emit('accept_invitation_result', {
@@ -2735,7 +2748,7 @@ export function setupSocketHandlers(io: Server) {
               board: gameBoard,
               isInvitation: true,
               turnTimeLimit: getTurnTimeLimit(room),
-              turnStartTime,
+              turnStartTime: null,
             }
           });
 
@@ -2751,27 +2764,34 @@ export function setupSocketHandlers(io: Server) {
               board: gameBoard,
               isInvitation: true,
               turnTimeLimit: getTurnTimeLimit(room),
-              turnStartTime,
+              turnStartTime: null,
             }
           });
 
-          // 양쪽에 매칭 성공 알림 (기존 리스너용)
-          io.to(roomId).emit('match_found', {
-            roomId,
-            gameType: invitation.gameType,
-            isInvitation: true,
-            players
-          });
+          // 클라이언트가 게임 화면으로 이동하고 소켓 리스너를 설정할 시간을 줌
+          setTimeout(() => {
+            // 턴 타이머는 match_found/game_start 전송 직전에 시작
+            startTurnTimer(io, room);
+            const turnStartTime = room.turnStartTime;
 
-          // 게임 시작 (기존 리스너용)
-          io.to(roomId).emit('game_start', {
-            currentTurn,
-            board: gameBoard,
-            turnTimeLimit: getTurnTimeLimit(room),
-            turnStartTime,
-          });
+            // 양쪽에 매칭 성공 알림 (기존 리스너용)
+            io.to(roomId).emit('match_found', {
+              roomId,
+              gameType: invitation.gameType,
+              isInvitation: true,
+              players
+            });
 
-          console.log(`🎮 Invitation game started: ${inviterPlayer.nickname} vs ${currentPlayer.nickname}`);
+            // 게임 시작 (기존 리스너용)
+            io.to(roomId).emit('game_start', {
+              currentTurn,
+              board: gameBoard,
+              turnTimeLimit: getTurnTimeLimit(room),
+              turnStartTime,
+            });
+
+            console.log(`🎮 Invitation game started: ${inviterPlayer.nickname} vs ${currentPlayer?.nickname}`);
+          }, 500);
         }
       } catch (error) {
         socket.emit('accept_invitation_result', { success: false, message: '초대 수락 실패' });
