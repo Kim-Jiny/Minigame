@@ -119,7 +119,14 @@ class _StroopScreenState extends State<StroopScreen>
   void _initFromGameProvider() {
     try {
       final game = context.read<GameProvider>();
-      if (game.isInvitationGame && game.roomId != null && game.opponentNickname != null) {
+      debugPrint('🎮 StroopScreen _initFromGameProvider: isInvitation=${game.isInvitationGame}, roomId=${game.roomId}, opponentNickname=${game.opponentNickname}, status=${game.status}');
+      // GameProvider의 status가 matched 또는 playing일 때만 초대 게임으로 인식
+      // (이전 게임 상태가 남아있는 경우 방지)
+      final isActiveInvitation = game.isInvitationGame &&
+          game.roomId != null &&
+          game.opponentNickname != null &&
+          (game.status == GameStatus.matched || game.status == GameStatus.playing);
+      if (isActiveInvitation) {
         debugPrint('🎮 StroopScreen: 초대 게임 초기화 from GameProvider');
         setState(() {
           _roomId = game.roomId;

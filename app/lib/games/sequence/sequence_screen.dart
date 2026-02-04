@@ -104,7 +104,12 @@ class _SequenceScreenState extends State<SequenceScreen>
   void _initFromGameProvider() {
     try {
       final game = context.read<GameProvider>();
-      if (game.isInvitationGame && game.roomId != null && game.opponentNickname != null) {
+      debugPrint('🎮 SequenceScreen _initFromGameProvider: isInvitation=${game.isInvitationGame}, roomId=${game.roomId}, opponentNickname=${game.opponentNickname}, status=${game.status}');
+      final isActiveInvitation = game.isInvitationGame &&
+          game.roomId != null &&
+          game.opponentNickname != null &&
+          (game.status == GameStatus.matched || game.status == GameStatus.playing);
+      if (isActiveInvitation) {
         debugPrint('🎮 SequenceScreen: 초대 게임 초기화 from GameProvider');
         setState(() {
           _roomId = game.roomId;
