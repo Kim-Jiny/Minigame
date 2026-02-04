@@ -302,6 +302,39 @@ class _SequenceScreenState extends State<SequenceScreen>
     _socketService.on('rematch_cancelled', (_) {
       setState(() => _opponentWantsRematch = false);
     });
+
+    // 에러 처리 (방이 없어진 경우 등)
+    _socketService.on('error', (data) {
+      final message = data['message'] ?? '';
+      if (message.toString().contains('Invalid room') ||
+          message.toString().contains('not in progress')) {
+        _handleRoomInvalid();
+      }
+    });
+  }
+
+  void _handleRoomInvalid() {
+    if (!mounted || _hasScheduledPop) return;
+    _hasScheduledPop = true;
+
+    _showTimer?.cancel();
+    _countdownTimer?.cancel();
+    _feedbackTimer?.cancel();
+
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('연결이 끊어져 게임이 종료되었습니다.'),
+        backgroundColor: Colors.orange,
+      ),
+    );
+
+    // GameProvider 초기화 후 로비로 이동
+    try {
+      context.read<GameProvider>().reset();
+    } catch (_) {}
+
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   void _removeSocketListeners() {
@@ -317,6 +350,7 @@ class _SequenceScreenState extends State<SequenceScreen>
     _socketService.off('rematch_waiting');
     _socketService.off('rematch_requested');
     _socketService.off('rematch_cancelled');
+    _socketService.off('error');
   }
 
   void _showSequence() {

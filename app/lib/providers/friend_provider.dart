@@ -408,8 +408,8 @@ class FriendProvider extends ChangeNotifier {
       final gameType = data['gameType'] as String?;
       final gameState = data['gameState'] as Map<String, dynamic>?;
       if (roomId != null && gameType != null) {
-        // 초대자는 이미 게임 화면에 있으므로 네비게이션 불필요
-        onGameStart?.call(gameType, roomId, gameState, false);
+        // 초대자도 게임 화면으로 이동 (로비에서 초대한 경우)
+        onGameStart?.call(gameType, roomId, gameState, true);
       }
     });
 
