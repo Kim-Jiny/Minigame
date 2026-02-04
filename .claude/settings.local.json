@@ -44,7 +44,30 @@
       "Bash(git add:*)",
       "Bash(git commit -m \"$\\(cat <<''EOF''\nRender 배포 설정 및 스피드탭 카운트다운 추가\n\n- render.yaml 추가 \\(Render 배포 설정\\)\n- package.json에 Node 버전 명시\n- 스피드탭 3-2-1 카운트다운 UI 추가\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git push:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git checkout:*)",
+      "Bash(git rm:*)",
+      "Bash(node:*)",
+      "Bash(export DATABASE_URL=\"postgresql://jiny@localhost:5432/minigame\")",
+      "Bash(git reset:*)",
+      "Bash(git pull:*)",
+      "Bash(git merge:*)",
+      "Bash(xargs -I {} sh -c 'cat /proc/{}/fd/1 2>/dev/null')",
+      "Bash(dart run:*)",
+      "Bash(flutter pub run:*)",
+      "Bash(npx tsc:*)",
+      "Bash(pm2 restart:*)",
+      "Bash(flutter pub add:*)",
+      "Bash(openssl x509:*)",
+      "Bash(./gradlew:*)",
+      "Bash(unzip:*)",
+      "Bash($ANDROID_HOME/build-tools/35.0.0/apksigner sign --ks android/app/upload-keystore.jks --ks-key-alias upload --ks-pass pass:9512042 --key-pass pass:9512042 --out build/app/outputs/flutter-apk/app-release-signed.apk build/app/outputs/flutter-apk/app-release.apk)",
+      "Bash(flutter doctor:*)",
+      "Bash(/Users/jiny/Library/Android/sdk/build-tools/35.0.0/apksigner sign --ks android/app/upload-keystore.jks --ks-key-alias upload --ks-pass pass:9512042 --key-pass pass:9512042 --out build/app/outputs/flutter-apk/app-release-signed.apk build/app/outputs/flutter-apk/app-release.apk)",
+      "Bash(/Users/jiny/Library/Android/sdk/build-tools/35.0.0/apksigner verify:*)",
+      "Bash(jarsigner:*)",
+      "Bash(npx pm2:*)",
+      "Bash(gh repo view:*)"
     ]
   }
 }

@@ -23,9 +23,13 @@ class SocketService {
 
   void connect() {
     final serverUrl = AppConfig.serverUrl;
+    print('🔌 SocketService.connect() called, serverUrl=$serverUrl');
 
     // 이미 같은 URL로 연결되어 있으면 스킵
-    if (_socket != null && _currentServerUrl == serverUrl) return;
+    if (_socket != null && _currentServerUrl == serverUrl) {
+      print('🔌 Already connected to $serverUrl, skipping');
+      return;
+    }
 
     // URL이 변경되었으면 기존 연결 종료
     if (_socket != null && _currentServerUrl != serverUrl) {
@@ -49,7 +53,7 @@ class SocketService {
 
     _socket!.onConnect((_) {
       _isConnected = true;
-      print('Connected to server');
+      print('🔌 Connected to server! isConnected=$_isConnected');
     });
 
     _socket!.onDisconnect((_) {
@@ -58,7 +62,7 @@ class SocketService {
     });
 
     _socket!.onConnectError((error) {
-      print('Connection error: $error');
+      print('🔌 Connection error: $error');
       _handleConnectionError();
     });
   }
@@ -148,7 +152,7 @@ class SocketService {
     });
 
     _socket!.onConnectError((error) {
-      print('Connection error: $error');
+      print('🔌 Connection error: $error');
       _handleConnectionError();
     });
   }

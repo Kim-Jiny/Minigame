@@ -205,6 +205,7 @@ class FriendProvider extends ChangeNotifier {
 
     // 친구 코드 응답
     _socketService.on('friend_code', (data) {
+      debugPrint('📥 Received friend_code: ${data['code']}');
       _myFriendCode = data['code'];
       notifyListeners();
     });
@@ -436,6 +437,7 @@ class FriendProvider extends ChangeNotifier {
   }
 
   void getMyFriendCode() {
+    debugPrint('📤 Emitting get_friend_code');
     _socketService.emit('get_friend_code', {});
   }
 

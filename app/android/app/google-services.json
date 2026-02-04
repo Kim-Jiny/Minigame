@@ -18,6 +18,14 @@
           "client_type": 1,
           "android_info": {
             "package_name": "com.minigame.minigameApp",
+            "certificate_hash": "8ea5876c20b36c433ad3fee315cec3814e910706"
+          }
+        },
+        {
+          "client_id": "78188753964-7a9kbjhutgjhkg4l8nc9a4n3hdronkr0.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.minigame.minigameApp",
             "certificate_hash": "92c790774fb6743a6d5b1721992bb4f57c790c01"
           }
         },

@@ -45,6 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Google Sign-In Client ID -->
+	<key>GIDClientID</key>
+	<string>78188753964-01gk9ujf39v2veunn4hltfr60jtk8vsq.apps.googleusercontent.com</string>
 	<!-- URL Schemes for Social Login -->
 	<key>CFBundleURLTypes</key>
 	<array>
@@ -54,7 +57,7 @@
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.584396058369-k4cf23c2n2hmv4ms74kumplvi4pn0ghg</string>
+				<string>com.googleusercontent.apps.78188753964-01gk9ujf39v2veunn4hltfr60jtk8vsq</string>
 			</array>
 		</dict>
 		<!-- Kakao -->

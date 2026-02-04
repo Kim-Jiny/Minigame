@@ -13,6 +13,10 @@ val keystorePropertiesFile = rootProject.file("key.properties")
 val keystoreProperties = Properties()
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+    println("✅ key.properties loaded from: ${keystorePropertiesFile.absolutePath}")
+    println("   storeFile: ${keystoreProperties["storeFile"]}")
+} else {
+    println("❌ key.properties not found at: ${keystorePropertiesFile.absolutePath}")
 }
 
 android {
@@ -31,10 +35,10 @@ android {
 
     signingConfigs {
         create("release") {
-            keyAlias = keystoreProperties["keyAlias"] as String?
-            keyPassword = keystoreProperties["keyPassword"] as String?
-            storeFile = keystoreProperties["storeFile"]?.let { file(it as String) }
-            storePassword = keystoreProperties["storePassword"] as String?
+            storeFile = file("upload-keystore.jks")
+            storePassword = "9512042"
+            keyAlias = "upload"
+            keyPassword = "9512042"
         }
     }
 
@@ -50,8 +54,10 @@ android {
     }
 
     buildTypes {
-        release {
+        getByName("release") {
             signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
