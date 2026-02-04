@@ -1041,6 +1041,14 @@ async function startRankedGame(io: Server, room: GameRoom) {
   const gameType = room.rankedGames![room.rankedCurrentIndex!];
   const isHardcore = rankedService.isHardcoreGame(gameType);
 
+  // 플레이어들을 다시 방에 join (이전 게임 화면에서 나갈 때 leave 했을 수 있음)
+  for (const player of room.players) {
+    if (player.socket && player.socket.connected) {
+      player.socket.join(room.id);
+      console.log(`🔄 [startRankedGame] Re-joined player ${player.nickname} to room ${room.id}`);
+    }
+  }
+
   // 프로필 설정 및 연승 정보 조회
   const playerProfiles = await Promise.all(
     room.players.map(async (p) => {
@@ -3390,15 +3398,32 @@ export function setupSocketHandlers(io: Server) {
 
         socket.leave(roomId);
 
-        // 상대방에게 알림
-        socket.to(roomId).emit('opponent_left', {
-          message: 'Opponent has left the game',
-        });
+        // 랭크전에서 다음 게임 대기 중이면 플레이어 제거 안 함
+        // (다음 게임 시작 시 다시 join 할 것)
+        const isRankedWaitingNextGame = room.isRanked &&
+          room.status === 'finished' &&
+          room.rankedResults &&
+          room.rankedResults.length < 3 &&
+          !room.rankedResults.some(() => {
+            const p1Wins = room.rankedResults!.filter(r => r.winnerId === room.players[0]?.userId).length;
+            const p2Wins = room.rankedResults!.filter(r => r.winnerId === room.players[1]?.userId).length;
+            return p1Wins >= 2 || p2Wins >= 2;
+          });
 
-        // 방 정리
-        room.players = room.players.filter(p => p.id !== socket.id);
-        if (room.players.length === 0) {
-          rooms.delete(roomId);
+        if (isRankedWaitingNextGame) {
+          console.log(`🎮 [leaveRoom] Ranked game waiting for next game, keeping player in room`);
+          // 소켓은 나가지만 플레이어 목록은 유지
+        } else {
+          // 상대방에게 알림
+          socket.to(roomId).emit('opponent_left', {
+            message: 'Opponent has left the game',
+          });
+
+          // 방 정리
+          room.players = room.players.filter(p => p.id !== socket.id);
+          if (room.players.length === 0) {
+            rooms.delete(roomId);
+          }
         }
       }
 
