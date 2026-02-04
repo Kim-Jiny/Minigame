@@ -289,6 +289,7 @@ class _StroopScreenState extends State<StroopScreen>
     });
 
     _socketService.on('game_end', (data) {
+      debugPrint('🎨 StroopScreen game_end received: $data');
       _hardcoreTimer?.cancel();
       setState(() {
         _status = StroopGameStatus.finished;
@@ -296,6 +297,7 @@ class _StroopScreenState extends State<StroopScreen>
         _isDraw = data['isDraw'] ?? false;
         _scores = List<int>.from(data['scores'] ?? [0, 0]);
       });
+      debugPrint('🎨 StroopScreen status changed to finished');
     });
 
     _socketService.on('opponent_left', (_) {

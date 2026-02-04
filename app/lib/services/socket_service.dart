@@ -79,13 +79,32 @@ class SocketService {
 
     for (final entry in _pendingListeners.entries) {
       final event = entry.key;
-      for (final callback in entry.value) {
-        print('📡 Registering pending listener for: $event');
-        _socket!.on(event, (data) {
-          print('📡 Received event: $event');
-          callback(data);
-        });
+      final pendingCallbacks = entry.value;
+      if (pendingCallbacks.isEmpty) continue;
+
+      print('📡 Registering ${pendingCallbacks.length} pending listener(s) for: $event');
+
+      // pending 리스너들을 active로 이동
+      _activeListeners[event] ??= [];
+      for (final cb in pendingCallbacks) {
+        if (!_activeListeners[event]!.contains(cb)) {
+          _activeListeners[event]!.add(cb);
+        }
       }
+
+      // 통합 핸들러 등록
+      _socket!.off(event);
+      _socket!.on(event, (data) {
+        print('📡 Received event: $event');
+        final callbacks = List<Function(dynamic)>.from(_activeListeners[event] ?? []);
+        for (final cb in callbacks) {
+          try {
+            cb(data);
+          } catch (e) {
+            print('📡 Error in listener for $event: $e');
+          }
+        }
+      });
     }
     _pendingListeners.clear();
   }
@@ -143,12 +162,18 @@ class SocketService {
       final callbacks = entry.value;
       if (callbacks.isEmpty) continue;
 
-      // 기존 리스너 제거 후 첫 번째 콜백만 등록 (중복 방지)
+      // 기존 리스너 제거 후 모든 콜백을 처리하는 통합 핸들러 등록
       _socket!.off(event);
-      final callback = callbacks.first;
       _socket!.on(event, (data) {
         print('📡 Received event: $event');
-        callback(data);
+        final callbacksCopy = List<Function(dynamic)>.from(callbacks);
+        for (final cb in callbacksCopy) {
+          try {
+            cb(data);
+          } catch (e) {
+            print('📡 Error in listener for $event: $e');
+          }
+        }
       });
     }
   }
@@ -169,27 +194,65 @@ class SocketService {
   void on(String event, Function(dynamic) callback) {
     print('📡 Setting up listener for: $event');
 
-    // 기존 리스너 제거 (중복 방지)
-    _socket?.off(event);
-    _activeListeners.remove(event);
-    _pendingListeners.remove(event);
+    // 기존 리스너 목록에 추가 (여러 컴포넌트가 동시에 리스닝 가능)
+    _activeListeners[event] ??= [];
 
-    // 새 리스너 저장 (재연결 시 사용)
-    _activeListeners[event] = [callback];
+    // 이미 같은 콜백이 있으면 중복 추가 방지
+    if (!_activeListeners[event]!.contains(callback)) {
+      _activeListeners[event]!.add(callback);
+    }
 
     if (_socket != null) {
-      // 소켓이 있으면 바로 등록
+      // 소켓의 기존 리스너를 제거하고 통합 핸들러로 재등록
+      _socket!.off(event);
       _socket!.on(event, (data) {
         print('📡 Received event: $event');
-        callback(data);
+        // 등록된 모든 콜백 호출
+        final callbacks = List<Function(dynamic)>.from(_activeListeners[event] ?? []);
+        for (final cb in callbacks) {
+          try {
+            cb(data);
+          } catch (e) {
+            print('📡 Error in listener for $event: $e');
+          }
+        }
       });
     } else {
       // 소켓이 없으면 버퍼링
       print('📡 Buffering listener for: $event (socket not ready)');
-      _pendingListeners[event] = [callback];
+      _pendingListeners[event] ??= [];
+      if (!_pendingListeners[event]!.contains(callback)) {
+        _pendingListeners[event]!.add(callback);
+      }
     }
   }
 
+  /// 특정 이벤트의 특정 콜백만 제거
+  void offCallback(String event, Function(dynamic) callback) {
+    _activeListeners[event]?.remove(callback);
+    _pendingListeners[event]?.remove(callback);
+
+    // 소켓 리스너 재등록 (남은 콜백들을 위해)
+    if (_socket != null && (_activeListeners[event]?.isNotEmpty ?? false)) {
+      _socket!.off(event);
+      _socket!.on(event, (data) {
+        print('📡 Received event: $event');
+        final callbacks = List<Function(dynamic)>.from(_activeListeners[event] ?? []);
+        for (final cb in callbacks) {
+          try {
+            cb(data);
+          } catch (e) {
+            print('📡 Error in listener for $event: $e');
+          }
+        }
+      });
+    } else if (_socket != null) {
+      // 남은 콜백이 없으면 리스너 제거
+      _socket!.off(event);
+    }
+  }
+
+  /// 특정 이벤트의 모든 리스너 제거 (주의: 다른 컴포넌트의 리스너도 제거됨)
   void off(String event) {
     _socket?.off(event);
     _pendingListeners.remove(event);
