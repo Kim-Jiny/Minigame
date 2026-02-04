@@ -18,16 +18,23 @@ class SocketService {
   // 연결된 리스너들 저장 (재연결 시 사용)
   final Map<String, List<Function(dynamic)>> _activeListeners = {};
 
-  bool get isConnected => _isConnected;
+  bool get isConnected => _socket?.connected ?? false;
   io.Socket? get socket => _socket;
 
   void connect() {
     final serverUrl = AppConfig.serverUrl;
     print('🔌 SocketService.connect() called, serverUrl=$serverUrl');
 
-    // 이미 같은 URL로 연결되어 있으면 스킵
-    if (_socket != null && _currentServerUrl == serverUrl) {
+    // 이미 같은 URL로 연결되어 있고 실제로 연결된 상태면 스킵
+    if (_socket != null && _currentServerUrl == serverUrl && (_socket!.connected)) {
       print('🔌 Already connected to $serverUrl, skipping');
+      return;
+    }
+
+    // 소켓은 있지만 연결이 끊어진 경우 재연결 시도
+    if (_socket != null && _currentServerUrl == serverUrl && !(_socket!.connected)) {
+      print('🔌 Socket exists but disconnected, reconnecting...');
+      _socket!.connect();
       return;
     }
 

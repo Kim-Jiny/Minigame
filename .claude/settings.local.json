@@ -67,7 +67,8 @@
       "Bash(/Users/jiny/Library/Android/sdk/build-tools/35.0.0/apksigner verify:*)",
       "Bash(jarsigner:*)",
       "Bash(npx pm2:*)",
-      "Bash(gh repo view:*)"
+      "Bash(gh repo view:*)",
+      "Bash(gh run list:*)"
     ]
   }
 }

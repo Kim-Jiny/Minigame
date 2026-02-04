@@ -146,6 +146,7 @@ class AuthWrapper extends StatefulWidget {
 class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
   bool _serverConnected = false;
   final SocketService _socketService = SocketService();
+  DateTime? _pausedAt;
 
   @override
   void initState() {
@@ -161,12 +162,26 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // 백그라운드에서 포어그라운드로 돌아올 때
-    if (state == AppLifecycleState.resumed) {
-      // 서버 연결이 끊어졌으면 로딩 화면으로
-      if (_serverConnected && !_socketService.isConnected) {
-        setState(() => _serverConnected = false);
+    if (state == AppLifecycleState.paused) {
+      _pausedAt = DateTime.now();
+    } else if (state == AppLifecycleState.resumed && _serverConnected) {
+      // 소켓 연결 확인 및 재연결 (SocketService가 알아서 처리)
+      _socketService.connect();
+
+      // 30초 이상 백그라운드에 있었으면 연결 상태 체크
+      final pausedDuration = _pausedAt != null
+          ? DateTime.now().difference(_pausedAt!).inSeconds
+          : 0;
+
+      if (pausedDuration >= 30) {
+        // 3초 후 연결 상태 체크
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted && !_socketService.isConnected) {
+            setState(() => _serverConnected = false);
+          }
+        });
       }
+      _pausedAt = null;
     }
   }
 
