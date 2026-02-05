@@ -58,20 +58,7 @@ class SocketService {
     // 대기 중이던 리스너들 등록
     _registerPendingListeners();
 
-    _socket!.onConnect((_) {
-      _isConnected = true;
-      print('🔌 Connected to server! isConnected=$_isConnected');
-    });
-
-    _socket!.onDisconnect((_) {
-      _isConnected = false;
-      print('Disconnected from server');
-    });
-
-    _socket!.onConnectError((error) {
-      print('🔌 Connection error: $error');
-      _handleConnectionError();
-    });
+    _registerConnectionHandlers(_socket!);
   }
 
   /// 연결 오류 발생 시 처리
@@ -148,19 +135,39 @@ class SocketService {
     // 기존 리스너들 다시 등록
     _reregisterActiveListeners();
 
-    _socket!.onConnect((_) {
+    _registerConnectionHandlers(_socket!);
+  }
+
+  void _registerConnectionHandlers(io.Socket socket) {
+    socket.onConnect((_) {
       _isConnected = true;
-      print('Connected to new server: $newUrl');
+      print('🔌 Connected to server! isConnected=$_isConnected');
     });
 
-    _socket!.onDisconnect((_) {
+    socket.onDisconnect((_) {
       _isConnected = false;
       print('Disconnected from server');
     });
 
-    _socket!.onConnectError((error) {
+    socket.onConnectError((error) {
       print('🔌 Connection error: $error');
       _handleConnectionError();
+    });
+
+    socket.on('reconnect_attempt', (attempt) {
+      print('🔁 Reconnect attempt: $attempt');
+    });
+
+    socket.on('reconnect', (attempt) {
+      print('🔁 Reconnected after $attempt attempt(s)');
+    });
+
+    socket.on('reconnect_error', (error) {
+      print('🔁 Reconnect error: $error');
+    });
+
+    socket.on('reconnect_failed', (_) {
+      print('🔁 Reconnect failed');
     });
   }
 

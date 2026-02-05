@@ -5,7 +5,9 @@ import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
 import '../../providers/game_provider.dart';
 import '../../providers/shop_provider.dart';
+import '../../providers/ranked_provider.dart';
 import '../../services/socket_service.dart';
+import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
@@ -36,7 +38,9 @@ class RpsScreen extends StatefulWidget {
 
 class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMixin {
   final SocketService _socketService = SocketService();
+  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
   bool _hasScheduledPop = false;  // 중복 pop 방지
+  bool _isExitDialogOpen = false;  // 나가기 다이얼로그 열림 상태
 
   RpsGameStatus _status = RpsGameStatus.idle;
 
@@ -134,7 +138,7 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
   void dispose() {
     _countdownTimer?.cancel();
     _animController.dispose();
-    _removeSocketListeners();
+    _socketListeners.offAll();
     super.dispose();
   }
 
@@ -155,11 +159,11 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
   }
 
   void _setupSocketListeners() {
-    _socketService.on('waiting_for_match', (_) {
+    _socketListeners.on('waiting_for_match', (_) {
       setState(() => _status = RpsGameStatus.searching);
     });
 
-    _socketService.on('match_found', (data) {
+    _socketListeners.on('match_found', (data) {
       final players = data['players'] as List;
       final opponent = players.firstWhere((p) => p['id'] != _myId);
       final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
@@ -182,7 +186,7 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
       });
     });
 
-    _socketService.on('game_start', (data) {
+    _socketListeners.on('game_start', (data) {
       if (data['gameType'] == 'rps') {
         // finished 상태에서 재경기 요청 안 했으면 무시
         if (_status == RpsGameStatus.finished && !_rematchWaiting) {
@@ -215,7 +219,7 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
       }
     });
 
-    _socketService.on('rps_round_start', (data) {
+    _socketListeners.on('rps_round_start', (data) {
       final timeLimit = data['timeLimit'] as int? ?? 10000;
       setState(() {
         // rps_round_start가 오면 확실히 게임 중인 상태
@@ -233,13 +237,13 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
       _startCountdown(timeLimit ~/ 1000);
     });
 
-    _socketService.on('rps_player_chosen', (data) {
+    _socketListeners.on('rps_player_chosen', (data) {
       if (data['playerId'] != _myId) {
         setState(() => _opponentChosen = true);
       }
     });
 
-    _socketService.on('rps_round_result', (data) {
+    _socketListeners.on('rps_round_result', (data) {
       _stopCountdown();
       setState(() {
         _lastPlayer0Choice = data['player0Choice'];
@@ -251,14 +255,14 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
       });
     });
 
-    _socketService.on('rps_round_timeout', (data) {
+    _socketListeners.on('rps_round_timeout', (data) {
       _stopCountdown();
       setState(() {
         _waitingForResult = false;
       });
     });
 
-    _socketService.on('game_end', (data) {
+    _socketListeners.on('game_end', (data) {
       _stopCountdown();
       setState(() {
         _status = RpsGameStatus.finished;
@@ -270,7 +274,12 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
       });
     });
 
-    _socketService.on('opponent_left', (_) {
+    _socketListeners.on('opponent_left', (data) {
+      // 나가기 다이얼로그가 열려있으면 먼저 닫기
+      if (_isExitDialogOpen && mounted) {
+        Navigator.of(context).pop();
+        _isExitDialogOpen = false;
+      }
       setState(() {
         _status = RpsGameStatus.finished;
         _winnerId = _myId;
@@ -278,22 +287,32 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
         _rematchWaiting = false;
         _opponentWantsRematch = false;
       });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(widget.isRanked
+              ? '상대가 나가서 게임이 종료되었습니다. 승리!'
+              : '상대방이 나갔습니다.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
     });
 
-    _socketService.on('rematch_waiting', (data) {
+    _socketListeners.on('rematch_waiting', (data) {
       setState(() => _rematchWaiting = data['waiting'] ?? false);
     });
 
-    _socketService.on('rematch_requested', (_) {
+    _socketListeners.on('rematch_requested', (_) {
       setState(() => _opponentWantsRematch = true);
     });
 
-    _socketService.on('rematch_cancelled', (_) {
+    _socketListeners.on('rematch_cancelled', (_) {
       setState(() => _opponentWantsRematch = false);
     });
 
     // 에러 처리 (방이 없어진 경우 등)
-    _socketService.on('error', (data) {
+    _socketListeners.on('error', (data) {
       final message = data['message'] ?? '';
       if (message.toString().contains('Invalid room') ||
           message.toString().contains('not in progress')) {
@@ -320,22 +339,6 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
     } catch (_) {}
 
     Navigator.of(context).popUntil((route) => route.isFirst);
-  }
-
-  void _removeSocketListeners() {
-    _socketService.off('waiting_for_match');
-    _socketService.off('match_found');
-    _socketService.off('game_start');
-    _socketService.off('rps_round_start');
-    _socketService.off('rps_player_chosen');
-    _socketService.off('rps_round_result');
-    _socketService.off('rps_round_timeout');
-    _socketService.off('game_end');
-    _socketService.off('opponent_left');
-    _socketService.off('rematch_waiting');
-    _socketService.off('rematch_requested');
-    _socketService.off('rematch_cancelled');
-    _socketService.off('error');
   }
 
   void _findMatch() {
@@ -382,8 +385,14 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
   }
 
   void _leaveGame() {
-    if (_roomId != null) {
-      _socketService.emit('leave_room', {'roomId': _roomId});
+    String? roomId = _roomId;
+    if (widget.isRanked && roomId == null) {
+      try {
+        roomId = context.read<RankedProvider>().roomId;
+      } catch (_) {}
+    }
+    if (roomId != null) {
+      _socketService.emit('leave_room', {'roomId': roomId});
     }
     // GameProvider 상태도 초기화
     try {
@@ -1466,8 +1475,9 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
             _status == RpsGameStatus.searching ||
             _status == RpsGameStatus.matched);
 
-    // 랭크전 대기 중이면 경고 없이 나가기
+    // 랭크전 대기 중이면 경고 없이 나가기 (하지만 leave_room은 보내야 함)
     if (isRankedWaiting) {
+      _leaveGame();
       Navigator.pop(context);
       return;
     }
@@ -1479,6 +1489,7 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
       return;
     }
 
+    _isExitDialogOpen = true;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -1514,6 +1525,6 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
           ),
         ],
       ),
-    );
+    ).then((_) => _isExitDialogOpen = false);
   }
 }

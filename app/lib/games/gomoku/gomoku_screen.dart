@@ -4,6 +4,8 @@ import '../../providers/game_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
 import '../../providers/shop_provider.dart';
+import '../../providers/ranked_provider.dart';
+import '../../services/socket_service.dart';
 import '../../config/app_config.dart';
 import '../../widgets/game_player_profile.dart';
 import '../../utils/game_theme.dart';
@@ -1003,13 +1005,24 @@ class _GomokuScreenState extends State<GomokuScreen> {
       return;
     }
 
-    // 랭크전 대기 중이면 경고 없이 나가기
+    // 랭크전 대기 중이면 경고 없이 나가기 (하지만 leave_room은 보내야 함)
     final isRankedWaiting = widget.isRanked &&
         (game.status == GameStatus.idle ||
             game.status == GameStatus.searching ||
             game.status == GameStatus.matched);
 
     if (isRankedWaiting) {
+      // 랭크전에서는 RankedProvider의 roomId를 사용해야 함
+      String? roomId = game.roomId;
+      if (widget.isRanked && roomId == null) {
+        try {
+          roomId = context.read<RankedProvider>().roomId;
+        } catch (_) {}
+      }
+      if (roomId != null) {
+        SocketService().emit('leave_room', {'roomId': roomId});
+      }
+      game.reset();
       Navigator.pop(context);
       return;
     }

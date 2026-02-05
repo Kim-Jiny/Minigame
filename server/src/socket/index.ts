@@ -991,6 +991,10 @@ async function startRankedMatch(io: Server, player1: RankedQueuePlayer, player2:
   player1.socket.join(roomId);
   player2.socket.join(roomId);
 
+  // 유저별 현재 게임 룸 기록 (랭크전용)
+  if (player1.userId) userRooms.set(player1.userId, roomId);
+  if (player2.userId) userRooms.set(player2.userId, roomId);
+
   // 랭크 통계 조회
   const player1Stats = await rankedService.getRankedStats(player1.userId!);
   const player2Stats = await rankedService.getRankedStats(player2.userId!);
@@ -1031,7 +1035,13 @@ async function startRankedMatch(io: Server, player1: RankedQueuePlayer, player2:
 
 // 랭크전 개별 게임 시작
 async function startRankedGame(io: Server, room: GameRoom) {
-  console.log(`🎮 [startRankedGame] Called for room ${room.id}, gameIndex: ${room.rankedCurrentIndex}, players in room: ${room.players.length}`);
+  console.log(`🎮 [startRankedGame] Called for room ${room.id}, gameIndex: ${room.rankedCurrentIndex}, players in room: ${room.players.length}, status: ${room.status}`);
+
+  // 플레이어가 부족한 경우 게임 시작 취소 (한 명이 나간 경우)
+  if (room.players.length < 2) {
+    console.log(`❌ [startRankedGame] Not enough players in room ${room.id} (${room.players.length}), aborting game start`);
+    return;
+  }
 
   if (!room.rankedGames || room.rankedCurrentIndex === undefined) {
     console.log(`❌ [startRankedGame] Invalid room state - rankedGames: ${room.rankedGames}, rankedCurrentIndex: ${room.rankedCurrentIndex}`);
@@ -1099,6 +1109,11 @@ async function startRankedGame(io: Server, room: GameRoom) {
 
   // 클라이언트가 게임 화면으로 이동할 시간을 주고 match_found + game_start 전송
   setTimeout(() => {
+    // 플레이어가 나갔는지 다시 확인
+    if (room.status === 'finished' || room.players.length < 2) {
+      console.log(`❌ [startRankedGame] Room ${room.id} is no longer valid (status: ${room.status}, players: ${room.players.length}), aborting match_found/game_start`);
+      return;
+    }
     console.log(`📤 [startRankedGame] Emitting match_found to room ${room.id} (1.5s after ranked_game_start)`);
     console.log(`📤 [startRankedGame] Players in room: ${room.players.map(p => p.nickname).join(', ')}`);
     // GameProvider를 위한 match_found 이벤트 전송 (프로필 정보 포함)
@@ -1166,7 +1181,9 @@ async function startRankedGame(io: Server, room: GameRoom) {
 async function handleRankedGameEnd(io: Server, room: GameRoom, winnerIndex: number | null) {
   if (!room.isRanked) return;
 
-  const winnerId = winnerIndex !== null ? room.players[winnerIndex].userId : null;
+  // 플레이어가 나갔을 수 있으므로 안전하게 접근
+  const winnerPlayer = winnerIndex !== null ? room.players[winnerIndex] : null;
+  const winnerId = winnerPlayer?.userId ?? null;
 
   // 결과 기록
   room.rankedResults!.push({
@@ -1174,16 +1191,18 @@ async function handleRankedGameEnd(io: Server, room: GameRoom, winnerIndex: numb
     winnerId: winnerId ?? null,
   });
 
-  // 현재 스코어 계산
-  const player1Wins = room.rankedResults!.filter(r => r.winnerId === room.players[0].userId).length;
-  const player2Wins = room.rankedResults!.filter(r => r.winnerId === room.players[1].userId).length;
+  // 현재 스코어 계산 (플레이어가 나갔을 수 있으므로 안전하게 접근)
+  const player1Id = room.players[0]?.userId;
+  const player2Id = room.players[1]?.userId;
+  const player1Wins = room.rankedResults!.filter(r => r.winnerId === player1Id).length;
+  const player2Wins = room.rankedResults!.filter(r => r.winnerId === player2Id).length;
 
   // 게임 결과 알림
   io.to(room.id).emit('ranked_game_end', {
     gameIndex: room.rankedCurrentIndex,
     gameType: room.gameType,
     winnerId: winnerId,
-    winnerNickname: winnerIndex !== null ? room.players[winnerIndex].nickname : null,
+    winnerNickname: winnerPlayer?.nickname ?? null,
     results: room.rankedResults,
     score: [player1Wins, player2Wins],
   });
@@ -2240,15 +2259,15 @@ export function setupSocketHandlers(io: Server) {
     // 친구 삭제
     socket.on('remove_friend', async (data: { friendId: number }) => {
       if (!currentPlayer?.userId) {
-        socket.emit('remove_friend_result', { success: false, message: '로그인이 필요합니다.' });
+        socket.emit('remove_friend_result', { success: false, message: '로그인이 필요합니다.', friendId: data.friendId });
         return;
       }
 
       try {
         const result = await friendService.removeFriend(currentPlayer.userId, data.friendId);
-        socket.emit('remove_friend_result', result);
+        socket.emit('remove_friend_result', { ...result, friendId: data.friendId });
       } catch (error) {
-        socket.emit('remove_friend_result', { success: false, message: '친구 삭제 실패' });
+        socket.emit('remove_friend_result', { success: false, message: '친구 삭제 실패', friendId: data.friendId });
       }
     });
 
@@ -3350,8 +3369,9 @@ export function setupSocketHandlers(io: Server) {
       }
 
       // 진행 중인 게임에서 제거
-      if (currentRoomId) {
-        leaveRoom(socket, currentRoomId);
+      const roomId = currentRoomId ?? (currentPlayer?.userId ? userRooms.get(currentPlayer.userId) : null);
+      if (roomId) {
+        leaveRoom(socket, roomId);
       }
     });
 
@@ -3360,6 +3380,49 @@ export function setupSocketHandlers(io: Server) {
       if (room) {
         // 타이머 정리
         clearTurnTimer(room);
+        let handledRankedForfeit = false;
+
+        // 랭크전 매칭 직후 (게임 시작 전) 퇴장 처리
+        if (room.isRanked && room.status === 'waiting') {
+          const leavingPlayer = room.players.find(p => p.id === socket.id);
+          const remainingPlayer = room.players.find(p => p.id !== socket.id);
+
+          if (leavingPlayer && remainingPlayer && leavingPlayer.userId && remainingPlayer.userId) {
+            room.status = 'finished';
+            try {
+              console.log(`🚪 [Ranked] Player quit before game start: ${leavingPlayer.nickname} left, ${remainingPlayer.nickname} wins by forfeit`);
+
+              const result = await rankedService.updateRankedResult(
+                remainingPlayer.userId,
+                leavingPlayer.userId,
+                []
+              );
+
+              socket.to(room.id).emit('opponent_left', {
+                message: 'Opponent has left before game start',
+                isForfeit: true,
+              });
+
+              io.to(room.id).emit('ranked_match_end', {
+                winnerId: remainingPlayer.userId,
+                winnerNickname: remainingPlayer.nickname,
+                loserId: leavingPlayer.userId,
+                loserNickname: leavingPlayer.nickname,
+                results: [],
+                winnerStats: result.winnerStats,
+                loserStats: result.loserStats,
+                winnerEloChange: result.winnerEloChange,
+                loserEloChange: result.loserEloChange,
+                isForfeit: true,
+              });
+
+              console.log(`🏆 [Ranked] ${remainingPlayer.nickname} wins by forfeit before game start! (+${result.winnerEloChange} ELO)`);
+              handledRankedForfeit = true;
+            } catch (err) {
+              console.error('Failed to record ranked forfeit before game start:', err);
+            }
+          }
+        }
 
         // 게임 중이었다면 탈주 처리 (전적 기록, 경험치 없음)
         if (room.status === 'playing') {
@@ -3386,6 +3449,12 @@ export function setupSocketHandlers(io: Server) {
                   })) || []
                 );
 
+                // 게임 화면에 상대 퇴장 알림 (게임 화면 즉시 종료용)
+                socket.to(room.id).emit('opponent_left', {
+                  message: 'Opponent has left the ranked game',
+                  isForfeit: true,
+                });
+
                 // 랭크 매치 종료 이벤트 전송 (남은 플레이어에게)
                 io.to(room.id).emit('ranked_match_end', {
                   winnerId: remainingPlayer.userId,
@@ -3401,6 +3470,7 @@ export function setupSocketHandlers(io: Server) {
                 });
 
                 console.log(`🏆 [Ranked] ${remainingPlayer.nickname} wins by forfeit! (+${result.winnerEloChange} ELO)`);
+                handledRankedForfeit = true;
               } else {
                 // 일반 게임: 기존 로직
                 // 탈주자: 패배 기록 (경험치 없음)
@@ -3422,11 +3492,61 @@ export function setupSocketHandlers(io: Server) {
           }
         }
 
+        // 랭크전 다음 게임 대기 중 탈주 처리 (이미 forfeit 처리되지 않은 경우만)
+        if (!handledRankedForfeit &&
+            room.isRanked &&
+            room.status === 'finished' &&
+            room.rankedResults &&
+            room.rankedResults.length < 3) {
+          const leavingPlayer = room.players.find(p => p.id === socket.id);
+          const remainingPlayer = room.players.find(p => p.id !== socket.id);
+
+          if (leavingPlayer && remainingPlayer && leavingPlayer.userId && remainingPlayer.userId) {
+            try {
+              console.log(`🚪 [Ranked] Player quit during waiting: ${leavingPlayer.nickname} left, ${remainingPlayer.nickname} wins by forfeit`);
+
+              const result = await rankedService.updateRankedResult(
+                remainingPlayer.userId,
+                leavingPlayer.userId,
+                room.rankedResults?.map(r => ({
+                  gameType: r.gameType,
+                  winnerId: r.winnerId!,
+                })) || []
+              );
+
+              // 게임 화면에 상대 퇴장 알림
+              socket.to(room.id).emit('opponent_left', {
+                message: 'Opponent has left during waiting',
+                isForfeit: true,
+              });
+
+              io.to(room.id).emit('ranked_match_end', {
+                winnerId: remainingPlayer.userId,
+                winnerNickname: remainingPlayer.nickname,
+                loserId: leavingPlayer.userId,
+                loserNickname: leavingPlayer.nickname,
+                results: room.rankedResults || [],
+                winnerStats: result.winnerStats,
+                loserStats: result.loserStats,
+                winnerEloChange: result.winnerEloChange,
+                loserEloChange: result.loserEloChange,
+                isForfeit: true,
+              });
+
+              console.log(`🏆 [Ranked] ${remainingPlayer.nickname} wins by forfeit during waiting! (+${result.winnerEloChange} ELO)`);
+              handledRankedForfeit = true;
+            } catch (err) {
+              console.error('Failed to record ranked forfeit during waiting:', err);
+            }
+          }
+        }
+
         socket.leave(roomId);
 
         // 랭크전에서 다음 게임 대기 중이면 플레이어 제거 안 함
         // (다음 게임 시작 시 다시 join 할 것)
-        const isRankedWaitingNextGame = room.isRanked &&
+        const isRankedWaitingNextGame = !handledRankedForfeit &&
+          room.isRanked &&
           room.status === 'finished' &&
           room.rankedResults &&
           room.rankedResults.length < 3 &&
@@ -3436,14 +3556,26 @@ export function setupSocketHandlers(io: Server) {
             return p1Wins >= 2 || p2Wins >= 2;
           });
 
+        if (handledRankedForfeit) {
+          // 남은 플레이어도 방에서 제거하고 방 정리
+          for (const player of room.players) {
+            try {
+              player.socket.leave(roomId);
+            } catch (_) {}
+          }
+          room.players = [];
+        }
+
         if (isRankedWaitingNextGame) {
           console.log(`🎮 [leaveRoom] Ranked game waiting for next game, keeping player in room`);
           // 소켓은 나가지만 플레이어 목록은 유지
         } else {
-          // 상대방에게 알림
-          socket.to(roomId).emit('opponent_left', {
-            message: 'Opponent has left the game',
-          });
+          if (!handledRankedForfeit) {
+            // 상대방에게 알림
+            socket.to(roomId).emit('opponent_left', {
+              message: 'Opponent has left the game',
+            });
+          }
 
           // 방 정리
           room.players = room.players.filter(p => p.id !== socket.id);

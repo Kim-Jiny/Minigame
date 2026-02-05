@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../services/socket_service.dart';
+import '../services/socket_listener_registry.dart';
 import '../main.dart';
 
 class ServerLoadingScreen extends StatefulWidget {
@@ -16,6 +17,7 @@ class ServerLoadingScreen extends StatefulWidget {
 class _ServerLoadingScreenState extends State<ServerLoadingScreen>
     with SingleTickerProviderStateMixin {
   final SocketService _socketService = SocketService();
+  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
   Timer? _checkTimer;
   int _dots = 0;
   Timer? _dotsTimer;
@@ -56,13 +58,13 @@ class _ServerLoadingScreenState extends State<ServerLoadingScreen>
     debugPrint('🔌 ServerLoadingScreen: 연결 확인 시작, isConnected=${_socketService.isConnected}');
 
     // connect 이벤트 리스닝
-    _socketService.on('connect', (_) {
+    _socketListeners.on('connect', (_) {
       debugPrint('🔌 ServerLoadingScreen: connect 이벤트 수신');
       _onConnected();
     });
 
     // lobby_joined 이벤트도 리스닝 (서버 연결 확인용)
-    _socketService.on('lobby_joined', (_) {
+    _socketListeners.on('lobby_joined', (_) {
       debugPrint('🔌 ServerLoadingScreen: lobby_joined 이벤트 수신');
       _onConnected();
     });
@@ -92,8 +94,7 @@ class _ServerLoadingScreenState extends State<ServerLoadingScreen>
   void _onConnected() {
     debugPrint('🔌 ServerLoadingScreen: _onConnected 호출, mounted=$mounted');
     _checkTimer?.cancel();
-    _socketService.off('connect');
-    _socketService.off('lobby_joined');
+    _socketListeners.offAll();
     if (mounted) {
       widget.onConnected();
     }
@@ -104,6 +105,7 @@ class _ServerLoadingScreenState extends State<ServerLoadingScreen>
     _checkTimer?.cancel();
     _dotsTimer?.cancel();
     _pulseController.dispose();
+    _socketListeners.offAll();
     super.dispose();
   }
 

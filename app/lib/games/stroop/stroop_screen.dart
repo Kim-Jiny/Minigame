@@ -5,7 +5,9 @@ import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
 import '../../providers/game_provider.dart';
 import '../../providers/shop_provider.dart';
+import '../../providers/ranked_provider.dart';
 import '../../services/socket_service.dart';
+import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
@@ -32,7 +34,9 @@ class StroopScreen extends StatefulWidget {
 class _StroopScreenState extends State<StroopScreen>
     with SingleTickerProviderStateMixin {
   final SocketService _socketService = SocketService();
+  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
   bool _hasScheduledPop = false;  // 중복 pop 방지
+  bool _isExitDialogOpen = false;  // 나가기 다이얼로그 열림 상태
 
   StroopGameStatus _status = StroopGameStatus.idle;
 
@@ -148,16 +152,16 @@ class _StroopScreenState extends State<StroopScreen>
   void dispose() {
     _hardcoreTimer?.cancel();
     _animController.dispose();
-    _removeSocketListeners();
+    _socketListeners.offAll();
     super.dispose();
   }
 
   void _setupSocketListeners() {
-    _socketService.on('waiting_for_match', (_) {
+    _socketListeners.on('waiting_for_match', (_) {
       setState(() => _status = StroopGameStatus.searching);
     });
 
-    _socketService.on('match_found', (data) {
+    _socketListeners.on('match_found', (data) {
       final players = data['players'] as List;
       final opponent = players.firstWhere((p) => p['id'] != _myId);
       final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
@@ -184,7 +188,7 @@ class _StroopScreenState extends State<StroopScreen>
       });
     });
 
-    _socketService.on('game_start', (data) {
+    _socketListeners.on('game_start', (data) {
       debugPrint('game_start received: $data');
       if (data['gameType'] == 'stroop') {
         // finished 상태에서 재경기 요청 안 했으면 무시
@@ -210,7 +214,7 @@ class _StroopScreenState extends State<StroopScreen>
       }
     });
 
-    _socketService.on('stroop_show', (data) {
+    _socketListeners.on('stroop_show', (data) {
       debugPrint('🎨 stroop_show received: $data');
       debugPrint('🎨 current status: $_status, mounted: $mounted');
 
@@ -240,7 +244,7 @@ class _StroopScreenState extends State<StroopScreen>
       }
     });
 
-    _socketService.on('stroop_result', (data) {
+    _socketListeners.on('stroop_result', (data) {
       debugPrint('🎨 stroop_result received: $data');
 
       if (!mounted) return;
@@ -299,7 +303,7 @@ class _StroopScreenState extends State<StroopScreen>
       }
     });
 
-    _socketService.on('game_end', (data) {
+    _socketListeners.on('game_end', (data) {
       debugPrint('🎨 StroopScreen game_end received: $data');
       _hardcoreTimer?.cancel();
       setState(() {
@@ -311,7 +315,12 @@ class _StroopScreenState extends State<StroopScreen>
       debugPrint('🎨 StroopScreen status changed to finished');
     });
 
-    _socketService.on('opponent_left', (_) {
+    _socketListeners.on('opponent_left', (data) {
+      // 나가기 다이얼로그가 열려있으면 먼저 닫기
+      if (_isExitDialogOpen && mounted) {
+        Navigator.of(context).pop();
+        _isExitDialogOpen = false;
+      }
       _hardcoreTimer?.cancel();
       setState(() {
         _status = StroopGameStatus.finished;
@@ -320,22 +329,32 @@ class _StroopScreenState extends State<StroopScreen>
         _rematchWaiting = false;
         _opponentWantsRematch = false;
       });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(widget.isRanked
+              ? '상대가 나가서 게임이 종료되었습니다. 승리!'
+              : '상대방이 나갔습니다.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
     });
 
-    _socketService.on('rematch_waiting', (data) {
+    _socketListeners.on('rematch_waiting', (data) {
       setState(() => _rematchWaiting = data['waiting'] ?? false);
     });
 
-    _socketService.on('rematch_requested', (_) {
+    _socketListeners.on('rematch_requested', (_) {
       setState(() => _opponentWantsRematch = true);
     });
 
-    _socketService.on('rematch_cancelled', (_) {
+    _socketListeners.on('rematch_cancelled', (_) {
       setState(() => _opponentWantsRematch = false);
     });
 
     // 에러 처리 (방이 없어진 경우 등)
-    _socketService.on('error', (data) {
+    _socketListeners.on('error', (data) {
       final message = data['message'] ?? '';
       if (message.toString().contains('Invalid room') ||
           message.toString().contains('not in progress')) {
@@ -364,20 +383,6 @@ class _StroopScreenState extends State<StroopScreen>
     } catch (_) {}
 
     Navigator.of(context).popUntil((route) => route.isFirst);
-  }
-
-  void _removeSocketListeners() {
-    _socketService.off('waiting_for_match');
-    _socketService.off('match_found');
-    _socketService.off('game_start');
-    _socketService.off('stroop_show');
-    _socketService.off('stroop_result');
-    _socketService.off('game_end');
-    _socketService.off('opponent_left');
-    _socketService.off('rematch_waiting');
-    _socketService.off('rematch_requested');
-    _socketService.off('rematch_cancelled');
-    _socketService.off('error');
   }
 
   void _startHardcoreTimer() {
@@ -432,8 +437,14 @@ class _StroopScreenState extends State<StroopScreen>
   }
 
   void _leaveGame() {
-    if (_roomId != null) {
-      _socketService.emit('leave_room', {'roomId': _roomId});
+    String? roomId = _roomId;
+    if (widget.isRanked && roomId == null) {
+      try {
+        roomId = context.read<RankedProvider>().roomId;
+      } catch (_) {}
+    }
+    if (roomId != null) {
+      _socketService.emit('leave_room', {'roomId': roomId});
     }
     // GameProvider 상태도 초기화
     try {
@@ -1579,8 +1590,9 @@ class _StroopScreenState extends State<StroopScreen>
             _status == StroopGameStatus.searching ||
             _status == StroopGameStatus.matched);
 
-    // 랭크전 대기 중이면 경고 없이 나가기
+    // 랭크전 대기 중이면 경고 없이 나가기 (하지만 leave_room은 보내야 함)
     if (isRankedWaiting) {
+      _leaveGame();
       Navigator.pop(context);
       return;
     }
@@ -1592,6 +1604,7 @@ class _StroopScreenState extends State<StroopScreen>
       return;
     }
 
+    _isExitDialogOpen = true;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -1627,6 +1640,6 @@ class _StroopScreenState extends State<StroopScreen>
           ),
         ],
       ),
-    );
+    ).then((_) => _isExitDialogOpen = false);
   }
 }

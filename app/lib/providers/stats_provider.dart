@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../services/socket_service.dart';
+import '../services/socket_listener_registry.dart';
 
 class GameRecord {
   final int id;
@@ -132,6 +133,7 @@ class GameStats {
 
 class StatsProvider extends ChangeNotifier {
   final SocketService _socketService = SocketService();
+  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
 
   List<GameStats> _allStats = [];
   List<GameRecord> _recentRecords = [];
@@ -166,8 +168,15 @@ class StatsProvider extends ChangeNotifier {
   }
 
   void _setupSocketListeners() {
+    // 로비 재입장 시 데이터 동기화
+    _socketListeners.on('lobby_joined', (_) {
+      getAllStats();
+      getMileage();
+      getRecentRecords();
+    });
+
     // 모든 통계 응답
-    _socketService.on('all_stats', (data) {
+    _socketListeners.on('all_stats', (data) {
       _allStats = (data['stats'] as List)
           .map((s) => GameStats.fromJson(s))
           .toList();
@@ -176,7 +185,7 @@ class StatsProvider extends ChangeNotifier {
     });
 
     // 최근 기록 응답
-    _socketService.on('recent_records', (data) {
+    _socketListeners.on('recent_records', (data) {
       _recentRecords = (data['records'] as List)
           .map((r) => GameRecord.fromJson(r))
           .toList();
@@ -184,7 +193,7 @@ class StatsProvider extends ChangeNotifier {
     });
 
     // 특정 게임 통계 응답
-    _socketService.on('game_stats', (data) {
+    _socketListeners.on('game_stats', (data) {
       if (data['stats'] != null) {
         final stats = GameStats.fromJson(data['stats']);
         final index = _allStats.indexWhere((s) => s.gameType == stats.gameType);
@@ -199,7 +208,7 @@ class StatsProvider extends ChangeNotifier {
     });
 
     // 통계 업데이트 (게임 종료 시)
-    _socketService.on('stats_updated', (data) {
+    _socketListeners.on('stats_updated', (data) {
       if (data['stats'] != null) {
         final stats = GameStats.fromJson(data['stats']);
         final index = _allStats.indexWhere((s) => s.gameType == stats.gameType);
@@ -213,13 +222,13 @@ class StatsProvider extends ChangeNotifier {
     });
 
     // 마일리지 응답
-    _socketService.on('mileage', (data) {
+    _socketListeners.on('mileage', (data) {
       _mileage = data['mileage'] ?? 0;
       notifyListeners();
     });
 
     // 코인/연승 업데이트 (게임 종료 시)
-    _socketService.on('coins_updated', (data) {
+    _socketListeners.on('coins_updated', (data) {
       _mileage = data['coins'] ?? _mileage;
       _lastCoinsEarned = data['earned'] ?? 0;
       _currentStreak = data['streak'] ?? 0;
@@ -228,7 +237,7 @@ class StatsProvider extends ChangeNotifier {
     });
 
     // 광고 보상 결과
-    _socketService.on('ad_reward_result', (data) {
+    _socketListeners.on('ad_reward_result', (data) {
       _isLoading = false;
       if (data['success'] == true) {
         _mileage = data['mileage'] ?? _mileage;
@@ -242,7 +251,7 @@ class StatsProvider extends ChangeNotifier {
     });
 
     // 승률 초기화 결과
-    _socketService.on('reset_stats_result', (data) {
+    _socketListeners.on('reset_stats_result', (data) {
       _isLoading = false;
       if (data['success'] == true) {
         if (data['stats'] != null) {
@@ -315,14 +324,7 @@ class StatsProvider extends ChangeNotifier {
 
   @override
   void dispose() {
-    _socketService.off('all_stats');
-    _socketService.off('game_stats');
-    _socketService.off('stats_updated');
-    _socketService.off('recent_records');
-    _socketService.off('mileage');
-    _socketService.off('coins_updated');
-    _socketService.off('ad_reward_result');
-    _socketService.off('reset_stats_result');
+    _socketListeners.offAll();
     super.dispose();
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../services/socket_service.dart';
+import '../services/socket_listener_registry.dart';
 
 // 티어 정보
 class TierInfo {
@@ -171,6 +172,7 @@ enum RankedMatchStatus {
 
 class RankedProvider extends ChangeNotifier {
   final SocketService _socketService = SocketService();
+  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
 
   // 상태
   RankedStats? _stats = RankedStats.empty(); // 초기값으로 기본 stats 사용
@@ -243,13 +245,20 @@ class RankedProvider extends ChangeNotifier {
   // 소켓 리스너 재등록 (연결 상태 변경 후 필요)
   void ensureSocketListeners() {
     debugPrint('🎮 [RankedProvider] ensureSocketListeners called, initialized: $_listenersInitialized');
+    if (_listenersInitialized) return;
     _setupSocketListeners();
     _listenersInitialized = true;
   }
 
   void _setupSocketListeners() {
+    // 로비 재입장 시 데이터 동기화
+    _socketListeners.on('lobby_joined', (_) {
+      getRankedStats();
+      getMyRank();
+    });
+
     // 랭크 통계 응답
-    _socketService.on('ranked_stats', (data) {
+    _socketListeners.on('ranked_stats', (data) {
       if (data['stats'] != null) {
         _stats = RankedStats.fromJson(data['stats']);
       } else {
@@ -261,7 +270,7 @@ class RankedProvider extends ChangeNotifier {
     });
 
     // 리더보드 응답
-    _socketService.on('leaderboard', (data) {
+    _socketListeners.on('leaderboard', (data) {
       _leaderboard = (data['leaderboard'] as List?)
               ?.map((e) => LeaderboardEntry.fromJson(e))
               .toList() ??
@@ -271,25 +280,25 @@ class RankedProvider extends ChangeNotifier {
     });
 
     // 내 순위 응답
-    _socketService.on('my_rank', (data) {
+    _socketListeners.on('my_rank', (data) {
       _myRank = data['rank'];
       notifyListeners();
     });
 
     // 매칭 대기 중
-    _socketService.on('waiting_for_ranked_match', (data) {
+    _socketListeners.on('waiting_for_ranked_match', (data) {
       _matchStatus = RankedMatchStatus.searching;
       notifyListeners();
     });
 
     // 매칭 취소됨
-    _socketService.on('ranked_match_cancelled', (data) {
+    _socketListeners.on('ranked_match_cancelled', (data) {
       _matchStatus = RankedMatchStatus.idle;
       notifyListeners();
     });
 
     // 매칭 성공
-    _socketService.on('ranked_match_found', (data) {
+    _socketListeners.on('ranked_match_found', (data) {
       _matchStatus = RankedMatchStatus.found;
       _roomId = data['roomId'];
       _games = List<String>.from(data['games'] ?? []);
@@ -306,7 +315,7 @@ class RankedProvider extends ChangeNotifier {
     });
 
     // 랭크 게임 시작
-    _socketService.on('ranked_game_start', (data) {
+    _socketListeners.on('ranked_game_start', (data) {
       debugPrint('🎮 [RankedProvider] ranked_game_start received: $data');
       debugPrint('🎮 [RankedProvider] BEFORE - status: $_matchStatus, gameIndex: $_currentGameIndex, currentGame: $_currentGame');
       _matchStatus = RankedMatchStatus.playing;
@@ -325,7 +334,7 @@ class RankedProvider extends ChangeNotifier {
     });
 
     // 랭크 개별 게임 종료
-    _socketService.on('ranked_game_end', (data) {
+    _socketListeners.on('ranked_game_end', (data) {
       debugPrint('🎮 [RankedProvider] ranked_game_end received: $data');
       debugPrint('🎮 [RankedProvider] BEFORE - status: $_matchStatus, score: $_score');
       if (data['results'] != null) {
@@ -348,7 +357,7 @@ class RankedProvider extends ChangeNotifier {
     });
 
     // 랭크 매치 종료
-    _socketService.on('ranked_match_end', (data) {
+    _socketListeners.on('ranked_match_end', (data) {
       _matchStatus = RankedMatchStatus.finished;
       _matchWinnerId = data['winnerId'];
       _matchWinnerNickname = data['winnerNickname'];
@@ -456,15 +465,7 @@ class RankedProvider extends ChangeNotifier {
 
   @override
   void dispose() {
-    _socketService.off('ranked_stats');
-    _socketService.off('leaderboard');
-    _socketService.off('my_rank');
-    _socketService.off('waiting_for_ranked_match');
-    _socketService.off('ranked_match_cancelled');
-    _socketService.off('ranked_match_found');
-    _socketService.off('ranked_game_start');
-    _socketService.off('ranked_game_end');
-    _socketService.off('ranked_match_end');
+    _socketListeners.offAll();
     super.dispose();
   }
 }

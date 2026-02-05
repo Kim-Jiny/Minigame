@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../services/socket_service.dart';
+import '../services/socket_listener_registry.dart';
 import '../models/shop_item.dart';
 
 enum GameStatus {
@@ -13,6 +14,7 @@ enum GameStatus {
 
 class GameProvider extends ChangeNotifier {
   final SocketService _socketService = SocketService();
+  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
 
   GameStatus _status = GameStatus.idle;
   String? _roomId;
@@ -142,27 +144,24 @@ class GameProvider extends ChangeNotifier {
   /// 이 메서드를 호출하여 리스너를 재등록
   void ensureSocketListeners() {
     debugPrint('🎮 [GameProvider] ensureSocketListeners called, initialized: $_listenersInitialized');
-    if (!_listenersInitialized) {
-      _setupSocketListeners();
-      _listenersInitialized = true;
-    }
+    if (_listenersInitialized) return;
+    _setupSocketListeners();
+    _listenersInitialized = true;
   }
 
   void _setupSocketListeners() {
-    // 기존 리스너 제거 후 다시 등록
-    _removeSocketListeners();
     // 소켓 연결 시 myId 자동 설정
-    _socketService.on('lobby_joined', (_) {
+    _socketListeners.on('lobby_joined', (_) {
       _myId = _socketService.socket?.id;
     });
 
-    _socketService.on('waiting_for_match', (data) {
+    _socketListeners.on('waiting_for_match', (data) {
       debugPrint('🎮 [GameProvider] waiting_for_match received: $data');
       _status = GameStatus.searching;
       notifyListeners();
     });
 
-    _socketService.on('match_found', (data) {
+    _socketListeners.on('match_found', (data) {
       debugPrint('🎮 match_found 전체 데이터: $data');
       debugPrint('🎮 match_found 현재 상태: status=$_status, roomId=$_roomId');
 
@@ -216,7 +215,7 @@ class GameProvider extends ChangeNotifier {
       notifyListeners();
     });
 
-    _socketService.on('game_start', (data) {
+    _socketListeners.on('game_start', (data) {
       debugPrint('🎮 game_start 데이터: $data');
       debugPrint('🎮 game_start 현재 상태: status=$_status, roomId=$_roomId, isInvitation=$_isInvitationGame');
 
@@ -252,7 +251,7 @@ class GameProvider extends ChangeNotifier {
       notifyListeners();
     });
 
-    _socketService.on('game_update', (data) {
+    _socketListeners.on('game_update', (data) {
       _board = List<int?>.from(data['board']);
       _currentTurn = data['currentTurn'];
       _timeoutPlayerNickname = null;  // 타임아웃 알림 초기화
@@ -282,7 +281,7 @@ class GameProvider extends ChangeNotifier {
       notifyListeners();
     });
 
-    _socketService.on('game_end', (data) {
+    _socketListeners.on('game_end', (data) {
       _status = GameStatus.finished;
       // board가 있는 게임만 처리 (틱택토, 오목 등)
       if (data['board'] != null) {
@@ -295,7 +294,7 @@ class GameProvider extends ChangeNotifier {
       notifyListeners();
     });
 
-    _socketService.on('opponent_left', (data) {
+    _socketListeners.on('opponent_left', (data) {
       _status = GameStatus.finished;
       _winnerId = _myId; // 상대가 나가면 승리
       _rematchWaiting = false;
@@ -306,28 +305,28 @@ class GameProvider extends ChangeNotifier {
     });
 
     // 턴 타임아웃
-    _socketService.on('turn_timeout', (data) {
+    _socketListeners.on('turn_timeout', (data) {
       _timeoutPlayerNickname = data['playerNickname'];
       notifyListeners();
     });
 
     // 재경기 관련 리스너
-    _socketService.on('rematch_waiting', (data) {
+    _socketListeners.on('rematch_waiting', (data) {
       _rematchWaiting = data['waiting'] ?? false;
       notifyListeners();
     });
 
-    _socketService.on('rematch_requested', (data) {
+    _socketListeners.on('rematch_requested', (data) {
       _opponentWantsRematch = true;
       notifyListeners();
     });
 
-    _socketService.on('rematch_cancelled', (data) {
+    _socketListeners.on('rematch_cancelled', (data) {
       _opponentWantsRematch = false;
       notifyListeners();
     });
 
-    _socketService.on('error', (data) {
+    _socketListeners.on('error', (data) {
       debugPrint('Game error: ${data['message']}');
     });
   }
@@ -553,25 +552,10 @@ class GameProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _removeSocketListeners() {
-    _socketService.off('lobby_joined');
-    _socketService.off('waiting_for_match');
-    _socketService.off('match_found');
-    _socketService.off('game_start');
-    _socketService.off('game_update');
-    _socketService.off('game_end');
-    _socketService.off('opponent_left');
-    _socketService.off('turn_timeout');
-    _socketService.off('rematch_waiting');
-    _socketService.off('rematch_requested');
-    _socketService.off('rematch_cancelled');
-    _socketService.off('error');
-  }
-
   @override
   void dispose() {
     _stopCountdownTimer();
-    _removeSocketListeners();
+    _socketListeners.offAll();
     _listenersInitialized = false;
     super.dispose();
   }

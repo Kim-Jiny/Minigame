@@ -147,6 +147,7 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
   bool _serverConnected = false;
   final SocketService _socketService = SocketService();
   DateTime? _pausedAt;
+  bool _providersInitialized = false;
 
   @override
   void initState() {
@@ -205,11 +206,14 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
 
         if (auth.isLoggedIn) {
           // FriendProvider, StatsProvider, ShopProvider 초기화
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            context.read<FriendProvider>().initialize();
-            context.read<StatsProvider>().initialize();
-            context.read<ShopProvider>().initialize();
-          });
+          if (!_providersInitialized) {
+            _providersInitialized = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              context.read<FriendProvider>().initialize();
+              context.read<StatsProvider>().initialize();
+              context.read<ShopProvider>().initialize();
+            });
+          }
 
           // 서버 연결 대기
           if (!_serverConnected) {
@@ -218,6 +222,7 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
 
           return const LobbyScreen();
         }
+        _providersInitialized = false;
         return const LoginScreen();
       },
     );

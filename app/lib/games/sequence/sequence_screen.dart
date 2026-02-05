@@ -4,7 +4,9 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
 import '../../providers/game_provider.dart';
+import '../../providers/ranked_provider.dart';
 import '../../services/socket_service.dart';
+import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
 import '../../widgets/game_player_profile.dart';
@@ -32,7 +34,9 @@ class SequenceScreen extends StatefulWidget {
 class _SequenceScreenState extends State<SequenceScreen>
     with SingleTickerProviderStateMixin {
   final SocketService _socketService = SocketService();
+  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
   bool _hasScheduledPop = false;  // 중복 pop 방지
+  bool _isExitDialogOpen = false;  // 나가기 다이얼로그 열림 상태
 
   SequenceGameStatus _status = SequenceGameStatus.idle;
 
@@ -133,7 +137,7 @@ class _SequenceScreenState extends State<SequenceScreen>
     _feedbackTimer?.cancel();
     _countdownTimer?.cancel();
     _animController.dispose();
-    _removeSocketListeners();
+    _socketListeners.offAll();
     super.dispose();
   }
 
@@ -154,11 +158,11 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   void _setupSocketListeners() {
-    _socketService.on('waiting_for_match', (_) {
+    _socketListeners.on('waiting_for_match', (_) {
       setState(() => _status = SequenceGameStatus.searching);
     });
 
-    _socketService.on('match_found', (data) {
+    _socketListeners.on('match_found', (data) {
       final players = data['players'] as List;
       final opponent = players.firstWhere((p) => p['id'] != _myId);
       final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
@@ -181,7 +185,7 @@ class _SequenceScreenState extends State<SequenceScreen>
       });
     });
 
-    _socketService.on('game_start', (data) {
+    _socketListeners.on('game_start', (data) {
       debugPrint('🎮 game_start received: $data');
       debugPrint('🎮 gameType: ${data['gameType']}');
       if (data['gameType'] == 'sequence') {
@@ -218,7 +222,7 @@ class _SequenceScreenState extends State<SequenceScreen>
       }
     });
 
-    _socketService.on('sequence_show', (data) {
+    _socketListeners.on('sequence_show', (data) {
       setState(() {
         _sequence = List<int>.from(data['sequence']);
         _currentLevel = data['level'];
@@ -230,7 +234,7 @@ class _SequenceScreenState extends State<SequenceScreen>
       _showSequence();
     });
 
-    _socketService.on('sequence_timeout', (data) {
+    _socketListeners.on('sequence_timeout', (data) {
       final playerIndex = data['playerIndex'] as int;
       if (playerIndex == _myPlayerIndex) {
         _stopCountdown();
@@ -243,7 +247,7 @@ class _SequenceScreenState extends State<SequenceScreen>
       }
     });
 
-    _socketService.on('sequence_input', (data) {
+    _socketListeners.on('sequence_input', (data) {
       final playerIndex = data['playerIndex'] as int;
       final failed = data['failed'] as bool;
 
@@ -255,7 +259,7 @@ class _SequenceScreenState extends State<SequenceScreen>
       }
     });
 
-    _socketService.on('sequence_round_complete', (data) {
+    _socketListeners.on('sequence_round_complete', (data) {
       // 둘 다 성공 - 다음 라운드 대기
       setState(() {
         _myMaxLevel = _currentLevel;
@@ -263,7 +267,7 @@ class _SequenceScreenState extends State<SequenceScreen>
       });
     });
 
-    _socketService.on('game_end', (data) {
+    _socketListeners.on('game_end', (data) {
       _showTimer?.cancel();
       _stopCountdown();
       setState(() {
@@ -281,7 +285,12 @@ class _SequenceScreenState extends State<SequenceScreen>
       });
     });
 
-    _socketService.on('opponent_left', (_) {
+    _socketListeners.on('opponent_left', (data) {
+      // 나가기 다이얼로그가 열려있으면 먼저 닫기
+      if (_isExitDialogOpen && mounted) {
+        Navigator.of(context).pop();
+        _isExitDialogOpen = false;
+      }
       setState(() {
         _status = SequenceGameStatus.finished;
         _winnerId = _myId;
@@ -289,22 +298,32 @@ class _SequenceScreenState extends State<SequenceScreen>
         _rematchWaiting = false;
         _opponentWantsRematch = false;
       });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(widget.isRanked
+              ? '상대가 나가서 게임이 종료되었습니다. 승리!'
+              : '상대방이 나갔습니다.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
     });
 
-    _socketService.on('rematch_waiting', (data) {
+    _socketListeners.on('rematch_waiting', (data) {
       setState(() => _rematchWaiting = data['waiting'] ?? false);
     });
 
-    _socketService.on('rematch_requested', (_) {
+    _socketListeners.on('rematch_requested', (_) {
       setState(() => _opponentWantsRematch = true);
     });
 
-    _socketService.on('rematch_cancelled', (_) {
+    _socketListeners.on('rematch_cancelled', (_) {
       setState(() => _opponentWantsRematch = false);
     });
 
     // 에러 처리 (방이 없어진 경우 등)
-    _socketService.on('error', (data) {
+    _socketListeners.on('error', (data) {
       final message = data['message'] ?? '';
       if (message.toString().contains('Invalid room') ||
           message.toString().contains('not in progress')) {
@@ -337,21 +356,6 @@ class _SequenceScreenState extends State<SequenceScreen>
     Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
-  void _removeSocketListeners() {
-    _socketService.off('waiting_for_match');
-    _socketService.off('match_found');
-    _socketService.off('game_start');
-    _socketService.off('sequence_show');
-    _socketService.off('sequence_input');
-    _socketService.off('sequence_timeout');
-    _socketService.off('sequence_round_complete');
-    _socketService.off('game_end');
-    _socketService.off('opponent_left');
-    _socketService.off('rematch_waiting');
-    _socketService.off('rematch_requested');
-    _socketService.off('rematch_cancelled');
-    _socketService.off('error');
-  }
 
   void _showSequence() {
     debugPrint('🎮 _showSequence called! sequence: $_sequence');
@@ -477,8 +481,14 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   void _leaveGame() {
-    if (_roomId != null) {
-      _socketService.emit('leave_room', {'roomId': _roomId});
+    String? roomId = _roomId;
+    if (widget.isRanked && roomId == null) {
+      try {
+        roomId = context.read<RankedProvider>().roomId;
+      } catch (_) {}
+    }
+    if (roomId != null) {
+      _socketService.emit('leave_room', {'roomId': roomId});
     }
     // GameProvider 상태도 초기화
     try {
@@ -1581,8 +1591,9 @@ class _SequenceScreenState extends State<SequenceScreen>
             _status == SequenceGameStatus.searching ||
             _status == SequenceGameStatus.matched);
 
-    // 랭크전 대기 중이면 경고 없이 나가기
+    // 랭크전 대기 중이면 경고 없이 나가기 (하지만 leave_room은 보내야 함)
     if (isRankedWaiting) {
+      _leaveGame();
       Navigator.pop(context);
       return;
     }
@@ -1594,6 +1605,7 @@ class _SequenceScreenState extends State<SequenceScreen>
       return;
     }
 
+    _isExitDialogOpen = true;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -1629,6 +1641,6 @@ class _SequenceScreenState extends State<SequenceScreen>
           ),
         ],
       ),
-    );
+    ).then((_) => _isExitDialogOpen = false);
   }
 }

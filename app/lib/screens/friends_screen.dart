@@ -667,6 +667,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
     final avatarInfo = friend.profileSettings?.getAvatarInfo();
     final avatarEmoji = avatarInfo?.$1;
     final avatarBgColor = avatarInfo?.$2;
+    final isRemoving = friendProvider.isRemoving(friend.id);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -812,56 +813,76 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   ),
               ],
             ),
-            PopupMenuButton<String>(
-              onSelected: (value) {
-                if (value == 'memo') {
-                  _showEditMemoDialog(context, friend, friendProvider);
-                } else if (value == 'remove') {
-                  showDialog(
-                    context: context,
-                    builder: (context) => AlertDialog(
-                      title: const Text('친구 삭제'),
-                      content: Text('${friend.nickname}님을 친구 목록에서 삭제할까요?'),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('취소'),
-                        ),
-                        TextButton(
-                          onPressed: () {
-                            friendProvider.removeFriend(friend.id);
-                            Navigator.pop(context);
-                          },
-                          child: const Text('삭제', style: TextStyle(color: Colors.red)),
-                        ),
+            if (isRemoving)
+              const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              PopupMenuButton<String>(
+                onSelected: (value) {
+                  if (value == 'memo') {
+                    _showEditMemoDialog(context, friend, friendProvider);
+                  } else if (value == 'remove') {
+                    showDialog(
+                      context: context,
+                      builder: (context) => Consumer<FriendProvider>(
+                        builder: (context, provider, _) {
+                          final isRemoving = provider.isRemoving(friend.id);
+                          return AlertDialog(
+                            title: const Text('친구 삭제'),
+                            content: Text('${friend.nickname}님을 친구 목록에서 삭제할까요?'),
+                            actions: [
+                              TextButton(
+                                onPressed: isRemoving ? null : () => Navigator.pop(context),
+                                child: const Text('취소'),
+                              ),
+                              TextButton(
+                                onPressed: isRemoving
+                                    ? null
+                                    : () {
+                                        provider.removeFriend(friend.id);
+                                        Navigator.pop(context);
+                                      },
+                                child: isRemoving
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      )
+                                    : const Text('삭제', style: TextStyle(color: Colors.red)),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    );
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'memo',
+                    child: Row(
+                      children: [
+                        Icon(Icons.edit_note, size: 20),
+                        SizedBox(width: 8),
+                        Text('메모 수정'),
                       ],
                     ),
-                  );
-                }
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: 'memo',
-                  child: Row(
-                    children: [
-                      Icon(Icons.edit_note, size: 20),
-                      SizedBox(width: 8),
-                      Text('메모 수정'),
-                    ],
                   ),
-                ),
-                const PopupMenuItem(
-                  value: 'remove',
-                  child: Row(
-                    children: [
-                      Icon(Icons.person_remove, color: Colors.red, size: 20),
-                      SizedBox(width: 8),
-                      Text('친구 삭제'),
-                    ],
+                  const PopupMenuItem(
+                    value: 'remove',
+                    child: Row(
+                      children: [
+                        Icon(Icons.person_remove, color: Colors.red, size: 20),
+                        SizedBox(width: 8),
+                        Text('친구 삭제'),
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
           ],
         ),
       ),

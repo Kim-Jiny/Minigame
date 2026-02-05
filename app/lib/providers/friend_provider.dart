@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../services/socket_service.dart';
+import '../services/socket_listener_registry.dart';
 import '../models/shop_item.dart';
 
 class Friend {
@@ -136,6 +137,7 @@ class Invitation {
 
 class FriendProvider extends ChangeNotifier {
   final SocketService _socketService = SocketService();
+  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
 
   String? _myFriendCode;
   List<Friend> _friends = [];
@@ -147,6 +149,7 @@ class FriendProvider extends ChangeNotifier {
   String? _successMessage;
   bool _listenersInitialized = false;
   Map<int, int> _unreadCounts = {}; // friendId -> unread count
+  final Set<int> _pendingRemovals = {};
 
   // 초대 받았을 때 콜백
   Function(Invitation)? onInvitationReceived;
@@ -168,6 +171,7 @@ class FriendProvider extends ChangeNotifier {
   String? get error => _error;
   String? get successMessage => _successMessage;
   Map<int, int> get unreadCounts => _unreadCounts;
+  bool isRemoving(int friendId) => _pendingRemovals.contains(friendId);
   int get totalUnreadCount => _unreadCounts.values.fold(0, (sum, count) => sum + count);
   int get pendingRequestCount => _receivedRequests.length;
 
@@ -199,19 +203,19 @@ class FriendProvider extends ChangeNotifier {
 
   void _setupSocketListeners() {
     // 로비 입장 후 데이터 가져오기
-    _socketService.on('lobby_joined', (_) {
+    _socketListeners.on('lobby_joined', (_) {
       _fetchInitialData();
     });
 
     // 친구 코드 응답
-    _socketService.on('friend_code', (data) {
+    _socketListeners.on('friend_code', (data) {
       debugPrint('📥 Received friend_code: ${data['code']}');
       _myFriendCode = data['code'];
       notifyListeners();
     });
 
     // 친구 요청 결과
-    _socketService.on('friend_request_result', (data) {
+    _socketListeners.on('friend_request_result', (data) {
       _isLoading = false;
       if (data['success'] == true) {
         _successMessage = data['message'];
@@ -230,7 +234,7 @@ class FriendProvider extends ChangeNotifier {
     });
 
     // 친구 요청 받음 (실시간)
-    _socketService.on('friend_request_received', (data) {
+    _socketListeners.on('friend_request_received', (data) {
       final fromNickname = data['fromNickname'] as String;
       onFriendRequestReceived?.call(fromNickname);
       // 친구 요청 목록 새로고침
@@ -238,7 +242,7 @@ class FriendProvider extends ChangeNotifier {
     });
 
     // 친구 요청 목록 응답
-    _socketService.on('friend_requests_list', (data) {
+    _socketListeners.on('friend_requests_list', (data) {
       _receivedRequests = (data['received'] as List)
           .map((r) => FriendRequest.fromJson(r))
           .toList();
@@ -249,7 +253,7 @@ class FriendProvider extends ChangeNotifier {
     });
 
     // 친구 요청 수락/거절/취소 결과
-    _socketService.on('friend_request_action_result', (data) {
+    _socketListeners.on('friend_request_action_result', (data) {
       _isLoading = false;
       if (data['success'] == true) {
         _successMessage = data['message'];
@@ -268,7 +272,7 @@ class FriendProvider extends ChangeNotifier {
     });
 
     // 내가 보낸 친구 요청이 수락됨
-    _socketService.on('friend_request_accepted', (data) {
+    _socketListeners.on('friend_request_accepted', (data) {
       final newFriend = Friend(
         id: data['id'],
         nickname: data['nickname'],
@@ -284,7 +288,7 @@ class FriendProvider extends ChangeNotifier {
     });
 
     // 친구 목록 응답
-    _socketService.on('friends_list', (data) {
+    _socketListeners.on('friends_list', (data) {
       _friends = (data['friends'] as List)
           .map((f) => Friend.fromJson(f))
           .toList();
@@ -293,20 +297,30 @@ class FriendProvider extends ChangeNotifier {
     });
 
     // 친구 삭제 결과
-    _socketService.on('remove_friend_result', (data) {
+    _socketListeners.on('remove_friend_result', (data) {
+      final friendId = data['friendId'] as int?;
+      if (friendId != null) {
+        _pendingRemovals.remove(friendId);
+      } else {
+        _pendingRemovals.clear();
+      }
       _isLoading = false;
       if (data['success'] == true) {
         _successMessage = data['message'];
         _error = null;
+        // 성공 시 서버 상태로 동기화
+        getFriends();
       } else {
         _error = data['message'];
         _successMessage = null;
+        // 실패 시 서버 상태로 동기화
+        getFriends();
       }
       notifyListeners();
     });
 
     // 친구 메모 수정 결과
-    _socketService.on('update_friend_memo_result', (data) {
+    _socketListeners.on('update_friend_memo_result', (data) {
       _isLoading = false;
       if (data['success'] == true) {
         final friendId = data['friendId'] as int;
@@ -325,7 +339,7 @@ class FriendProvider extends ChangeNotifier {
     });
 
     // 초대 결과 (게임 화면에서 자체 SnackBar를 표시하므로 successMessage는 설정하지 않음)
-    _socketService.on('invite_result', (data) {
+    _socketListeners.on('invite_result', (data) {
       _isLoading = false;
       if (data['success'] != true) {
         _error = data['message'];
@@ -336,7 +350,7 @@ class FriendProvider extends ChangeNotifier {
     });
 
     // 초대 만료
-    _socketService.on('invitation_expired', (data) {
+    _socketListeners.on('invitation_expired', (data) {
       final invitationId = data['invitationId'] as int?;
       final message = data['message'] as String? ?? '초대가 만료되었습니다.';
 
@@ -351,7 +365,7 @@ class FriendProvider extends ChangeNotifier {
     });
 
     // 초대 목록 응답
-    _socketService.on('invitations_list', (data) {
+    _socketListeners.on('invitations_list', (data) {
       _invitations = (data['invitations'] as List)
           .map((i) => Invitation.fromJson(i))
           .toList();
@@ -359,7 +373,7 @@ class FriendProvider extends ChangeNotifier {
     });
 
     // 실시간 초대 받음
-    _socketService.on('game_invitation', (data) {
+    _socketListeners.on('game_invitation', (data) {
       final invitation = Invitation.fromJson(data['invitation']);
       _invitations.insert(0, invitation);
       notifyListeners();
@@ -369,7 +383,7 @@ class FriendProvider extends ChangeNotifier {
     });
 
     // 초대 수락 결과
-    _socketService.on('accept_invitation_result', (data) {
+    _socketListeners.on('accept_invitation_result', (data) {
       _isLoading = false;
       if (data['success'] == true) {
         // 게임 시작 콜백 호출 (게임 상태 포함)
@@ -387,7 +401,7 @@ class FriendProvider extends ChangeNotifier {
     });
 
     // 초대 거절 결과
-    _socketService.on('decline_invitation_result', (data) {
+    _socketListeners.on('decline_invitation_result', (data) {
       _isLoading = false;
       if (data['success'] == true) {
         _successMessage = '초대를 거절했습니다.';
@@ -398,13 +412,13 @@ class FriendProvider extends ChangeNotifier {
     });
 
     // 초대가 거절됨
-    _socketService.on('invitation_declined', (data) {
+    _socketListeners.on('invitation_declined', (data) {
       _error = '${data['declinedBy']}님이 초대를 거절했습니다.';
       notifyListeners();
     });
 
     // 초대가 수락됨 (초대자에게)
-    _socketService.on('invitation_accepted', (data) {
+    _socketListeners.on('invitation_accepted', (data) {
       final roomId = data['roomId'] as String?;
       final gameType = data['gameType'] as String?;
       final gameState = data['gameState'] as Map<String, dynamic>?;
@@ -415,7 +429,7 @@ class FriendProvider extends ChangeNotifier {
     });
 
     // 안 읽은 메시지 수
-    _socketService.on('unread_counts', (data) {
+    _socketListeners.on('unread_counts', (data) {
       debugPrint('📩 unread_counts received: $data');
       if (data['counts'] != null) {
         _unreadCounts = Map<int, int>.from(
@@ -427,7 +441,7 @@ class FriendProvider extends ChangeNotifier {
     });
 
     // 새 메시지 알림 (친구 탭 뱃지 업데이트용)
-    _socketService.on('new_message', (data) {
+    _socketListeners.on('new_message', (data) {
       if (data['message'] != null) {
         final senderId = data['message']['senderId'] as int;
         _unreadCounts[senderId] = (_unreadCounts[senderId] ?? 0) + 1;
@@ -501,11 +515,9 @@ class FriendProvider extends ChangeNotifier {
     _isLoading = true;
     _error = null;
     _successMessage = null;
+    _pendingRemovals.add(friendId);
     notifyListeners();
     _socketService.emit('remove_friend', {'friendId': friendId});
-    // 로컬에서도 즉시 제거
-    _friends.removeWhere((f) => f.id == friendId);
-    notifyListeners();
   }
 
   void updateFriendMemo(int friendId, String? memo) {
@@ -580,26 +592,7 @@ class FriendProvider extends ChangeNotifier {
 
   @override
   void dispose() {
-    _socketService.off('lobby_joined');
-    _socketService.off('friend_code');
-    _socketService.off('friend_request_result');
-    _socketService.off('friend_request_received');
-    _socketService.off('friend_requests_list');
-    _socketService.off('friend_request_action_result');
-    _socketService.off('friend_request_accepted');
-    _socketService.off('friends_list');
-    _socketService.off('remove_friend_result');
-    _socketService.off('update_friend_memo_result');
-    _socketService.off('invite_result');
-    _socketService.off('invitations_list');
-    _socketService.off('game_invitation');
-    _socketService.off('accept_invitation_result');
-    _socketService.off('decline_invitation_result');
-    _socketService.off('invitation_declined');
-    _socketService.off('invitation_accepted');
-    _socketService.off('invitation_expired');
-    _socketService.off('unread_counts');
-    _socketService.off('new_message');
+    _socketListeners.offAll();
     super.dispose();
   }
 }

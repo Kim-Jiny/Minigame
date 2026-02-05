@@ -5,11 +5,13 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart' as kakao;
 import '../services/socket_service.dart';
+import '../services/socket_listener_registry.dart';
 import '../services/api_service.dart';
 import '../services/device_info_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   final SocketService _socketService = SocketService();
+  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
   final ApiService _apiService = ApiService();
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     serverClientId: '78188753964-2seg33bne8kp65o2h6ts7e99fji52dg6.apps.googleusercontent.com',
@@ -49,25 +51,32 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _handleConnect(dynamic _) async {
+    final deviceInfo = await DeviceInfoService().getDeviceInfo();
+    _socketService.emit('join_lobby', {
+      'nickname': _nickname,
+      'userId': _userId,
+      'avatarUrl': _avatarUrl,
+      'deviceInfo': deviceInfo,
+    });
+    _socketId = _socketService.socket?.id;
+    notifyListeners();
+  }
+
+  void _handleLobbyJoined(dynamic _) {
+    _socketId = _socketService.socket?.id;
+    notifyListeners();
+  }
+
+  void _ensureSocketListeners() {
+    _socketListeners.on('connect', _handleConnect);
+    _socketListeners.on('lobby_joined', _handleLobbyJoined);
+  }
+
   void _connectSocket() {
     _socketService.connect();
 
-    _socketService.on('connect', (_) async {
-      final deviceInfo = await DeviceInfoService().getDeviceInfo();
-      _socketService.emit('join_lobby', {
-        'nickname': _nickname,
-        'userId': _userId,
-        'avatarUrl': _avatarUrl,
-        'deviceInfo': deviceInfo,
-      });
-      _socketId = _socketService.socket?.id;
-      notifyListeners();
-    });
-
-    _socketService.on('lobby_joined', (_) {
-      _socketId = _socketService.socket?.id;
-      notifyListeners();
-    });
+    _ensureSocketListeners();
 
     if (_socketService.isConnected) {
       _emitJoinLobby();

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/socket_service.dart';
+import '../services/socket_listener_registry.dart';
 import '../providers/friend_provider.dart';
 
 class Message {
@@ -49,6 +50,7 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final SocketService _socketService = SocketService();
+  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<Message> _messages = [];
@@ -66,7 +68,11 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _setupSocketListeners() {
-    _socketService.on('messages_list', (data) {
+    _socketListeners.on('lobby_joined', (_) {
+      _loadMessages();
+    });
+
+    _socketListeners.on('messages_list', (data) {
       if (data['friendId'] == widget.friend.id) {
         setState(() {
           _messages.clear();
@@ -79,7 +85,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     });
 
-    _socketService.on('send_message_result', (data) {
+    _socketListeners.on('send_message_result', (data) {
       if (data['success'] == true && data['message'] != null) {
         final msg = Message.fromJson(data['message']);
         if (msg.receiverId == widget.friend.id) {
@@ -91,7 +97,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     });
 
-    _socketService.on('new_message', (data) {
+    _socketListeners.on('new_message', (data) {
       if (data['message'] != null) {
         final msg = Message.fromJson(data['message']);
         if (msg.senderId == widget.friend.id) {
@@ -137,9 +143,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
-    _socketService.off('messages_list');
-    _socketService.off('send_message_result');
-    _socketService.off('new_message');
+    _socketListeners.offAll();
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
