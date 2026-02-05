@@ -15,6 +15,12 @@ class ShopScreen extends StatefulWidget {
 class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   ShopItem? _lastPurchasedItem; // 마지막 구매 시도한 아이템
+  static const Color _bgTop = Color(0xFFFDF6E3);
+  static const Color _bgBottom = Color(0xFFF8FAFF);
+  static const Color _panel = Color(0xFFFFFFFF);
+  static const Color _panelAlt = Color(0xFFF1F5FF);
+  static const Color _gold = Color(0xFFF7C948);
+  static const Color _goldDeep = Color(0xFFE5B13F);
 
   final List<_TabInfo> _tabs = [
     _TabInfo(Icons.auto_awesome, '프레임', const Color(0xFF9B59B6)),
@@ -39,7 +45,7 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
+      backgroundColor: _bgBottom,
       body: Consumer2<ShopProvider, StatsProvider>(
         builder: (context, shopProvider, statsProvider, child) {
           // 메시지 표시
@@ -72,7 +78,15 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
             }
           });
 
-          return NestedScrollView(
+          return Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [_bgTop, _bgBottom],
+              ),
+            ),
+            child: NestedScrollView(
             headerSliverBuilder: (context, innerBoxIsScrolled) {
               return [
                 // 커스텀 AppBar
@@ -80,11 +94,14 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
                   expandedHeight: 140,
                   floating: false,
                   pinned: true,
-                  backgroundColor: const Color(0xFF2C3E50),
+                  backgroundColor: _bgTop,
                   flexibleSpace: FlexibleSpaceBar(
                     background: _buildCoinHeader(statsProvider),
                   ),
-                  title: innerBoxIsScrolled ? const Text('코인 샵') : null,
+                  title: innerBoxIsScrolled
+                      ? const Text('코인 샵', style: TextStyle(color: Color(0xFF2D2D2D)))
+                      : null,
+                  iconTheme: const IconThemeData(color: Color(0xFF2D2D2D)),
                   leading: IconButton(
                     icon: const Icon(Icons.arrow_back),
                     onPressed: () => Navigator.pop(context),
@@ -97,17 +114,17 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
                     TabBar(
                       controller: _tabController,
                       isScrollable: true,
-                      labelColor: Colors.white,
-                      unselectedLabelColor: Colors.white60,
+                      labelColor: const Color(0xFF2D2D2D),
+                      unselectedLabelColor: Colors.black45,
                       indicatorSize: TabBarIndicatorSize.tab,
                       dividerColor: Colors.transparent,
                       indicator: BoxDecoration(
                         borderRadius: BorderRadius.circular(25),
-                        color: Colors.white.withValues(alpha: 0.2),
+                        color: Colors.black.withValues(alpha: 0.08),
                       ),
                       tabs: _tabs.map((tab) => _buildTab(tab)).toList(),
                     ),
-                    const Color(0xFF2C3E50),
+                    _bgTop,
                   ),
                 ),
               ];
@@ -122,6 +139,7 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
                 _buildTicketList(shopProvider, statsProvider),
               ],
             ),
+          ),
           );
         },
       ),
@@ -157,7 +175,7 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF2C3E50), Color(0xFF4A6572)],
+          colors: [_panel, _panelAlt],
         ),
       ),
       child: SafeArea(
@@ -173,19 +191,19 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Colors.amber.shade400, Colors.amber.shade700],
+                      gradient: const LinearGradient(
+                        colors: [_gold, _goldDeep],
                       ),
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.amber.withValues(alpha: 0.4),
+                          color: _gold.withValues(alpha: 0.4),
                           blurRadius: 15,
                           spreadRadius: 2,
                         ),
                       ],
                     ),
-                    child: const Icon(Icons.monetization_on, color: Colors.white, size: 32),
+                    child: const Icon(Icons.monetization_on, color: Color(0xFF3A2A00), size: 32),
                   ),
                   const SizedBox(width: 16),
                   Column(
@@ -193,12 +211,12 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
                     children: [
                       const Text(
                         '보유 코인',
-                        style: TextStyle(color: Colors.white60, fontSize: 14),
+                        style: TextStyle(color: Colors.black54, fontSize: 14),
                       ),
                       Text(
                         '${statsProvider.mileage}',
                         style: const TextStyle(
-                          color: Colors.white,
+                          color: Color(0xFF2D2D2D),
                           fontSize: 36,
                           fontWeight: FontWeight.bold,
                         ),
@@ -245,10 +263,10 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
       });
 
     return GridView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
-        childAspectRatio: 0.72,
+        childAspectRatio: 0.74,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
       ),
@@ -293,7 +311,15 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
           margin: isEquipped ? const EdgeInsets.all(3) : EdgeInsets.zero,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(isEquipped ? 13 : 16),
-            color: Colors.white,
+            color: _panel,
+            border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 10,
+                offset: const Offset(0, 6),
+              ),
+            ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -312,7 +338,7 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
                 child: Container(
                   margin: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
+                    color: _panelAlt,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Stack(
@@ -390,6 +416,7 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 13,
+                          color: Color(0xFF2D2D2D),
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -430,7 +457,7 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
-          color: Colors.green.shade50,
+          color: Colors.green.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(12),
         ),
         child: const Text(
@@ -447,20 +474,20 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.amber.shade100, Colors.amber.shade50],
+        gradient: const LinearGradient(
+          colors: [_gold, _goldDeep],
         ),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.monetization_on, size: 14, color: Colors.amber.shade700),
+          const Icon(Icons.monetization_on, size: 14, color: Color(0xFF3A2A00)),
           const SizedBox(width: 4),
           Text(
             '${item.price}',
             style: TextStyle(
-              color: Colors.amber.shade800,
+              color: const Color(0xFF3A2A00),
               fontWeight: FontWeight.bold,
               fontSize: 12,
             ),
