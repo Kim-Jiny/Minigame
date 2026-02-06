@@ -21,7 +21,7 @@ export const invitationService = {
 
     // 최근 5초 내에 같은 상대에게 보낸 pending 초대가 있으면 중복 방지
     const recentInvite = await pool.query(
-      `SELECT id FROM game_invitations
+      `SELECT id FROM dm_game_invitations
        WHERE inviter_id = $1 AND invitee_id = $2 AND status = 'pending'
        AND created_at > NOW() - INTERVAL '5 seconds'`,
       [inviterId, inviteeId]
@@ -33,13 +33,13 @@ export const invitationService = {
 
     // 기존 pending 초대가 있으면 만료 처리
     await pool.query(
-      `UPDATE game_invitations SET status = 'expired'
+      `UPDATE dm_game_invitations SET status = 'expired'
        WHERE inviter_id = $1 AND invitee_id = $2 AND status = 'pending'`,
       [inviterId, inviteeId]
     );
 
     const result = await pool.query(
-      `INSERT INTO game_invitations (inviter_id, invitee_id, game_type, is_hardcore, status)
+      `INSERT INTO dm_game_invitations (inviter_id, invitee_id, game_type, is_hardcore, status)
        VALUES ($1, $2, $3, $4, 'pending')
        RETURNING id, created_at`,
       [inviterId, inviteeId, gameType, isHardcore]
@@ -52,9 +52,9 @@ export const invitationService = {
               gi.game_type as "gameType", gi.is_hardcore as "isHardcore",
               gi.status, gi.room_id as "roomId",
               gi.created_at as "createdAt"
-       FROM game_invitations gi
-       JOIN users u1 ON gi.inviter_id = u1.id
-       JOIN users u2 ON gi.invitee_id = u2.id
+       FROM dm_game_invitations gi
+       JOIN dm_users u1 ON gi.inviter_id = u1.id
+       JOIN dm_users u2 ON gi.invitee_id = u2.id
        WHERE gi.id = $1`,
       [result.rows[0].id]
     );
@@ -73,9 +73,9 @@ export const invitationService = {
               gi.game_type as "gameType", COALESCE(gi.is_hardcore, false) as "isHardcore",
               gi.status, gi.room_id as "roomId",
               gi.created_at as "createdAt"
-       FROM game_invitations gi
-       JOIN users u1 ON gi.inviter_id = u1.id
-       JOIN users u2 ON gi.invitee_id = u2.id
+       FROM dm_game_invitations gi
+       JOIN dm_users u1 ON gi.inviter_id = u1.id
+       JOIN dm_users u2 ON gi.invitee_id = u2.id
        WHERE gi.invitee_id = $1 AND gi.status = 'pending'
        AND gi.created_at > NOW() - INTERVAL '5 minutes'
        ORDER BY gi.created_at DESC`,
@@ -96,9 +96,9 @@ export const invitationService = {
               gi.game_type as "gameType", COALESCE(gi.is_hardcore, false) as "isHardcore",
               gi.status, gi.room_id as "roomId",
               gi.created_at as "createdAt"
-       FROM game_invitations gi
-       JOIN users u1 ON gi.inviter_id = u1.id
-       JOIN users u2 ON gi.invitee_id = u2.id
+       FROM dm_game_invitations gi
+       JOIN dm_users u1 ON gi.inviter_id = u1.id
+       JOIN dm_users u2 ON gi.invitee_id = u2.id
        WHERE gi.id = $1`,
       [invitationId]
     );
@@ -126,7 +126,7 @@ export const invitationService = {
     const now = new Date();
     if (now.getTime() - createdAt.getTime() > 5 * 60 * 1000) {
       await pool.query(
-        `UPDATE game_invitations SET status = 'expired' WHERE id = $1`,
+        `UPDATE dm_game_invitations SET status = 'expired' WHERE id = $1`,
         [invitationId]
       );
       return { success: false, message: '만료된 초대입니다.' };
@@ -134,7 +134,7 @@ export const invitationService = {
 
     // 수락 처리
     await pool.query(
-      `UPDATE game_invitations SET status = 'accepted', room_id = $2 WHERE id = $1`,
+      `UPDATE dm_game_invitations SET status = 'accepted', room_id = $2 WHERE id = $1`,
       [invitationId, roomId]
     );
 
@@ -157,7 +157,7 @@ export const invitationService = {
     }
 
     await pool.query(
-      `UPDATE game_invitations SET status = 'declined' WHERE id = $1`,
+      `UPDATE dm_game_invitations SET status = 'declined' WHERE id = $1`,
       [invitationId]
     );
 
@@ -170,7 +170,7 @@ export const invitationService = {
     if (!pool) throw new Error('Database not connected');
 
     await pool.query(
-      `UPDATE game_invitations SET status = 'expired' WHERE id = $1 AND status = 'pending'`,
+      `UPDATE dm_game_invitations SET status = 'expired' WHERE id = $1 AND status = 'pending'`,
       [invitationId]
     );
 

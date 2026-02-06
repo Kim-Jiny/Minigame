@@ -20,7 +20,7 @@ export const messageService = {
 
     // 친구 관계 확인
     const friendship = await pool.query(
-      'SELECT id FROM friendships WHERE user_id = $1 AND friend_id = $2',
+      'SELECT id FROM dm_friendships WHERE user_id = $1 AND friend_id = $2',
       [senderId, receiverId]
     );
 
@@ -29,7 +29,7 @@ export const messageService = {
     }
 
     const result = await pool.query(
-      `INSERT INTO friend_messages (sender_id, receiver_id, content)
+      `INSERT INTO dm_friend_messages (sender_id, receiver_id, content)
        VALUES ($1, $2, $3)
        RETURNING id, sender_id, receiver_id, content, is_read, created_at`,
       [senderId, receiverId, content]
@@ -38,13 +38,13 @@ export const messageService = {
     const msg = result.rows[0];
 
     // 발신자/수신자 닉네임 조회
-    const users = await pool.query(
-      'SELECT id, nickname FROM users WHERE id IN ($1, $2)',
+    const dm_users = await pool.query(
+      'SELECT id, nickname FROM dm_users WHERE id IN ($1, $2)',
       [senderId, receiverId]
     );
 
-    const senderNickname = users.rows.find((u: any) => u.id === senderId)?.nickname || '';
-    const receiverNickname = users.rows.find((u: any) => u.id === receiverId)?.nickname || '';
+    const senderNickname = dm_users.rows.find((u: any) => u.id === senderId)?.nickname || '';
+    const receiverNickname = dm_users.rows.find((u: any) => u.id === receiverId)?.nickname || '';
 
     return {
       id: msg.id,
@@ -70,9 +70,9 @@ export const messageService = {
         m.id, m.sender_id, m.receiver_id, m.content, m.is_read, m.created_at,
         s.nickname as sender_nickname,
         r.nickname as receiver_nickname
-       FROM friend_messages m
-       JOIN users s ON m.sender_id = s.id
-       JOIN users r ON m.receiver_id = r.id
+       FROM dm_friend_messages m
+       JOIN dm_users s ON m.sender_id = s.id
+       JOIN dm_users r ON m.receiver_id = r.id
        WHERE ((m.sender_id = $1 AND m.receiver_id = $2) OR (m.sender_id = $2 AND m.receiver_id = $1))
          AND m.created_at > NOW() - INTERVAL '7 days'
        ORDER BY m.created_at ASC
@@ -99,7 +99,7 @@ export const messageService = {
     if (!pool) throw new Error('Database not connected');
 
     await pool.query(
-      `UPDATE friend_messages
+      `UPDATE dm_friend_messages
        SET is_read = TRUE
        WHERE sender_id = $1 AND receiver_id = $2 AND is_read = FALSE`,
       [friendId, userId]
@@ -114,7 +114,7 @@ export const messageService = {
     if (friendId) {
       const result = await pool.query(
         `SELECT COUNT(*) as count
-         FROM friend_messages
+         FROM dm_friend_messages
          WHERE sender_id = $1 AND receiver_id = $2 AND is_read = FALSE
            AND created_at > NOW() - INTERVAL '7 days'`,
         [friendId, userId]
@@ -125,7 +125,7 @@ export const messageService = {
     // 전체 친구별 안 읽은 메시지 수
     const result = await pool.query(
       `SELECT sender_id, COUNT(*) as count
-       FROM friend_messages
+       FROM dm_friend_messages
        WHERE receiver_id = $1 AND is_read = FALSE
          AND created_at > NOW() - INTERVAL '7 days'
        GROUP BY sender_id`,
@@ -145,7 +145,7 @@ export const messageService = {
     if (!pool) throw new Error('Database not connected');
 
     const result = await pool.query(
-      `DELETE FROM friend_messages WHERE created_at < NOW() - INTERVAL '7 days'`
+      `DELETE FROM dm_friend_messages WHERE created_at < NOW() - INTERVAL '7 days'`
     );
 
     return result.rowCount || 0;

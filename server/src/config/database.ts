@@ -20,7 +20,7 @@ export async function setupDatabase() {
 
     // 테이블 생성
     await client.query(`
-      CREATE TABLE IF NOT EXISTS users (
+      CREATE TABLE IF NOT EXISTS dm_users (
         id SERIAL PRIMARY KEY,
         provider VARCHAR(20) NOT NULL,
         provider_id VARCHAR(255) NOT NULL,
@@ -32,55 +32,55 @@ export async function setupDatabase() {
         UNIQUE(provider, provider_id)
       );
 
-      CREATE TABLE IF NOT EXISTS game_records (
+      CREATE TABLE IF NOT EXISTS dm_game_records (
         id SERIAL PRIMARY KEY,
         game_type VARCHAR(50) NOT NULL,
-        player1_id INTEGER REFERENCES users(id),
-        player2_id INTEGER REFERENCES users(id),
-        winner_id INTEGER REFERENCES users(id),
+        player1_id INTEGER REFERENCES dm_users(id),
+        player2_id INTEGER REFERENCES dm_users(id),
+        winner_id INTEGER REFERENCES dm_users(id),
         game_data JSONB,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       -- 친구 코드 테이블
-      CREATE TABLE IF NOT EXISTS friend_codes (
+      CREATE TABLE IF NOT EXISTS dm_friend_codes (
         id SERIAL PRIMARY KEY,
-        user_id INTEGER UNIQUE REFERENCES users(id),
+        user_id INTEGER UNIQUE REFERENCES dm_users(id),
         code VARCHAR(8) UNIQUE NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       -- 기존 테이블 컬럼 크기 변경 (6자리 -> 8자리)
-      ALTER TABLE friend_codes ALTER COLUMN code TYPE VARCHAR(8);
+      ALTER TABLE dm_friend_codes ALTER COLUMN code TYPE VARCHAR(8);
 
       -- 친구 관계 테이블
-      CREATE TABLE IF NOT EXISTS friendships (
+      CREATE TABLE IF NOT EXISTS dm_friendships (
         id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id),
-        friend_id INTEGER REFERENCES users(id),
+        user_id INTEGER REFERENCES dm_users(id),
+        friend_id INTEGER REFERENCES dm_users(id),
         memo VARCHAR(20),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(user_id, friend_id)
       );
 
       -- memo 컬럼 추가 (기존 테이블용)
-      ALTER TABLE friendships ADD COLUMN IF NOT EXISTS memo VARCHAR(20);
+      ALTER TABLE dm_friendships ADD COLUMN IF NOT EXISTS memo VARCHAR(20);
 
       -- 친구 요청 테이블
-      CREATE TABLE IF NOT EXISTS friend_requests (
+      CREATE TABLE IF NOT EXISTS dm_friend_requests (
         id SERIAL PRIMARY KEY,
-        from_user_id INTEGER REFERENCES users(id),
-        to_user_id INTEGER REFERENCES users(id),
+        from_user_id INTEGER REFERENCES dm_users(id),
+        to_user_id INTEGER REFERENCES dm_users(id),
         status VARCHAR(20) DEFAULT 'pending',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(from_user_id, to_user_id)
       );
 
       -- 게임 초대 테이블
-      CREATE TABLE IF NOT EXISTS game_invitations (
+      CREATE TABLE IF NOT EXISTS dm_game_invitations (
         id SERIAL PRIMARY KEY,
-        inviter_id INTEGER REFERENCES users(id),
-        invitee_id INTEGER REFERENCES users(id),
+        inviter_id INTEGER REFERENCES dm_users(id),
+        invitee_id INTEGER REFERENCES dm_users(id),
         game_type VARCHAR(50) NOT NULL,
         is_hardcore BOOLEAN DEFAULT FALSE,
         status VARCHAR(20) DEFAULT 'pending',
@@ -89,12 +89,12 @@ export async function setupDatabase() {
       );
 
       -- is_hardcore 컬럼 추가 (기존 테이블용)
-      ALTER TABLE game_invitations ADD COLUMN IF NOT EXISTS is_hardcore BOOLEAN DEFAULT FALSE;
+      ALTER TABLE dm_game_invitations ADD COLUMN IF NOT EXISTS is_hardcore BOOLEAN DEFAULT FALSE;
 
       -- 게임별 통계 테이블
-      CREATE TABLE IF NOT EXISTS user_game_stats (
+      CREATE TABLE IF NOT EXISTS dm_user_game_stats (
         id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id),
+        user_id INTEGER REFERENCES dm_users(id),
         game_type VARCHAR(50) NOT NULL,
         wins INTEGER DEFAULT 0,
         losses INTEGER DEFAULT 0,
@@ -107,57 +107,57 @@ export async function setupDatabase() {
       );
 
       -- 마일리지 테이블
-      CREATE TABLE IF NOT EXISTS user_mileage (
+      CREATE TABLE IF NOT EXISTS dm_user_mileage (
         id SERIAL PRIMARY KEY,
-        user_id INTEGER UNIQUE REFERENCES users(id),
+        user_id INTEGER UNIQUE REFERENCES dm_users(id),
         mileage INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       -- 마일리지 기록 테이블
-      CREATE TABLE IF NOT EXISTS mileage_history (
+      CREATE TABLE IF NOT EXISTS dm_mileage_history (
         id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id),
+        user_id INTEGER REFERENCES dm_users(id),
         amount INTEGER NOT NULL,
         reason VARCHAR(50) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       -- 친구 메시지 테이블
-      CREATE TABLE IF NOT EXISTS friend_messages (
+      CREATE TABLE IF NOT EXISTS dm_friend_messages (
         id SERIAL PRIMARY KEY,
-        sender_id INTEGER REFERENCES users(id),
-        receiver_id INTEGER REFERENCES users(id),
+        sender_id INTEGER REFERENCES dm_users(id),
+        receiver_id INTEGER REFERENCES dm_users(id),
         content TEXT NOT NULL,
         is_read BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       -- 7일 지난 메시지 자동 삭제용 인덱스
-      CREATE INDEX IF NOT EXISTS idx_friend_messages_created_at ON friend_messages(created_at);
+      CREATE INDEX IF NOT EXISTS idx_dm_friend_messages_created_at ON dm_friend_messages(created_at);
 
       -- 연승 추적 테이블
-      CREATE TABLE IF NOT EXISTS user_streak (
-        user_id INTEGER PRIMARY KEY REFERENCES users(id),
+      CREATE TABLE IF NOT EXISTS dm_user_streak (
+        user_id INTEGER PRIMARY KEY REFERENCES dm_users(id),
         current_streak INTEGER DEFAULT 0,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       -- 일일 상대별 게임 횟수 (어뷰징 방지)
-      CREATE TABLE IF NOT EXISTS daily_match_count (
-        user_id INTEGER REFERENCES users(id),
-        opponent_id INTEGER REFERENCES users(id),
+      CREATE TABLE IF NOT EXISTS dm_daily_match_count (
+        user_id INTEGER REFERENCES dm_users(id),
+        opponent_id INTEGER REFERENCES dm_users(id),
         match_date DATE NOT NULL,
         count INTEGER DEFAULT 0,
         PRIMARY KEY (user_id, opponent_id, match_date)
       );
 
-      -- 오래된 daily_match_count 자동 정리용 인덱스
-      CREATE INDEX IF NOT EXISTS idx_daily_match_count_date ON daily_match_count(match_date);
+      -- 오래된 dm_daily_match_count 자동 정리용 인덱스
+      CREATE INDEX IF NOT EXISTS idx_dm_daily_match_count_date ON dm_daily_match_count(match_date);
 
       -- 상점 아이템 카탈로그
-      CREATE TABLE IF NOT EXISTS shop_items (
+      CREATE TABLE IF NOT EXISTS dm_shop_items (
         id SERIAL PRIMARY KEY,
         category VARCHAR(30) NOT NULL,
         item_key VARCHAR(50) UNIQUE NOT NULL,
@@ -174,40 +174,40 @@ export async function setupDatabase() {
       );
 
       -- 유저 보유 아이템
-      CREATE TABLE IF NOT EXISTS user_items (
+      CREATE TABLE IF NOT EXISTS dm_user_items (
         id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id),
-        item_id INTEGER REFERENCES shop_items(id),
+        user_id INTEGER REFERENCES dm_users(id),
+        item_id INTEGER REFERENCES dm_shop_items(id),
         purchased_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         expires_at TIMESTAMP DEFAULT NULL,
         UNIQUE(user_id, item_id)
       );
 
       -- 유저 프로필 설정
-      CREATE TABLE IF NOT EXISTS user_profile_settings (
-        user_id INTEGER PRIMARY KEY REFERENCES users(id),
-        active_frame_id INTEGER REFERENCES shop_items(id),
-        active_title_id INTEGER REFERENCES shop_items(id),
-        active_theme_id INTEGER REFERENCES shop_items(id),
-        active_avatar_id INTEGER REFERENCES shop_items(id),
+      CREATE TABLE IF NOT EXISTS dm_user_profile_settings (
+        user_id INTEGER PRIMARY KEY REFERENCES dm_users(id),
+        active_frame_id INTEGER REFERENCES dm_shop_items(id),
+        active_title_id INTEGER REFERENCES dm_shop_items(id),
+        active_theme_id INTEGER REFERENCES dm_shop_items(id),
+        active_avatar_id INTEGER REFERENCES dm_shop_items(id),
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       -- 아바타 컬럼 추가 (기존 테이블용)
       DO $$ BEGIN
-        ALTER TABLE user_profile_settings ADD COLUMN active_avatar_id INTEGER REFERENCES shop_items(id);
+        ALTER TABLE dm_user_profile_settings ADD COLUMN active_avatar_id INTEGER REFERENCES dm_shop_items(id);
       EXCEPTION WHEN duplicate_column THEN NULL;
       END $$;
 
       -- 인덱스 추가
-      CREATE INDEX IF NOT EXISTS idx_user_items_user_id ON user_items(user_id);
-      CREATE INDEX IF NOT EXISTS idx_user_items_expires_at ON user_items(expires_at);
-      CREATE INDEX IF NOT EXISTS idx_shop_items_category ON shop_items(category);
+      CREATE INDEX IF NOT EXISTS idx_dm_user_items_user_id ON dm_user_items(user_id);
+      CREATE INDEX IF NOT EXISTS idx_dm_user_items_expires_at ON dm_user_items(expires_at);
+      CREATE INDEX IF NOT EXISTS idx_dm_shop_items_category ON dm_shop_items(category);
 
       -- 랭크 통계 테이블
-      CREATE TABLE IF NOT EXISTS user_ranked_stats (
+      CREATE TABLE IF NOT EXISTS dm_user_ranked_stats (
         id SERIAL PRIMARY KEY,
-        user_id INTEGER UNIQUE REFERENCES users(id),
+        user_id INTEGER UNIQUE REFERENCES dm_users(id),
         elo INTEGER DEFAULT 1200,
         tier VARCHAR(20) DEFAULT 'Gold',
         wins INTEGER DEFAULT 0,
@@ -220,11 +220,11 @@ export async function setupDatabase() {
       );
 
       -- 랭크 매치 기록 테이블
-      CREATE TABLE IF NOT EXISTS ranked_matches (
+      CREATE TABLE IF NOT EXISTS dm_ranked_matches (
         id SERIAL PRIMARY KEY,
-        player1_id INTEGER REFERENCES users(id),
-        player2_id INTEGER REFERENCES users(id),
-        winner_id INTEGER REFERENCES users(id),
+        player1_id INTEGER REFERENCES dm_users(id),
+        player2_id INTEGER REFERENCES dm_users(id),
+        winner_id INTEGER REFERENCES dm_users(id),
         games_played JSONB,
         player1_elo_before INTEGER,
         player2_elo_before INTEGER,
@@ -234,15 +234,15 @@ export async function setupDatabase() {
       );
 
       -- 랭크 통계 인덱스
-      CREATE INDEX IF NOT EXISTS idx_user_ranked_stats_elo ON user_ranked_stats(elo DESC);
-      CREATE INDEX IF NOT EXISTS idx_user_ranked_stats_user_id ON user_ranked_stats(user_id);
-      CREATE INDEX IF NOT EXISTS idx_ranked_matches_player1 ON ranked_matches(player1_id);
-      CREATE INDEX IF NOT EXISTS idx_ranked_matches_player2 ON ranked_matches(player2_id);
+      CREATE INDEX IF NOT EXISTS idx_dm_user_ranked_stats_elo ON dm_user_ranked_stats(elo DESC);
+      CREATE INDEX IF NOT EXISTS idx_dm_user_ranked_stats_user_id ON dm_user_ranked_stats(user_id);
+      CREATE INDEX IF NOT EXISTS idx_dm_ranked_matches_player1 ON dm_ranked_matches(player1_id);
+      CREATE INDEX IF NOT EXISTS idx_dm_ranked_matches_player2 ON dm_ranked_matches(player2_id);
 
       -- 유저 접속 기록 테이블
-      CREATE TABLE IF NOT EXISTS user_sessions (
+      CREATE TABLE IF NOT EXISTS dm_user_sessions (
         id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id),
+        user_id INTEGER REFERENCES dm_users(id),
         ip_address VARCHAR(45),
         platform VARCHAR(20),
         os_version VARCHAR(50),
@@ -253,13 +253,13 @@ export async function setupDatabase() {
       );
 
       -- 접속 기록 인덱스
-      CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
-      CREATE INDEX IF NOT EXISTS idx_user_sessions_created_at ON user_sessions(created_at);
+      CREATE INDEX IF NOT EXISTS idx_dm_user_sessions_user_id ON dm_user_sessions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_dm_user_sessions_created_at ON dm_user_sessions(created_at);
 
       -- 문의 테이블
-      CREATE TABLE IF NOT EXISTS inquiries (
+      CREATE TABLE IF NOT EXISTS dm_inquiries (
         id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id),
+        user_id INTEGER REFERENCES dm_users(id),
         category VARCHAR(30) NOT NULL,
         title VARCHAR(100) NOT NULL,
         content TEXT NOT NULL,
@@ -271,14 +271,14 @@ export async function setupDatabase() {
       );
 
       -- is_read 컬럼 추가 (기존 테이블용)
-      ALTER TABLE inquiries ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE;
+      ALTER TABLE dm_inquiries ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE;
 
       -- 문의 인덱스
-      CREATE INDEX IF NOT EXISTS idx_inquiries_user_id ON inquiries(user_id);
-      CREATE INDEX IF NOT EXISTS idx_inquiries_status ON inquiries(status);
+      CREATE INDEX IF NOT EXISTS idx_dm_inquiries_user_id ON dm_inquiries(user_id);
+      CREATE INDEX IF NOT EXISTS idx_dm_inquiries_status ON dm_inquiries(status);
 
       -- 관리자 계정 테이블
-      CREATE TABLE IF NOT EXISTS admin_accounts (
+      CREATE TABLE IF NOT EXISTS dm_admin_accounts (
         id SERIAL PRIMARY KEY,
         username VARCHAR(50) UNIQUE NOT NULL,
         password VARCHAR(255) NOT NULL,
@@ -286,7 +286,7 @@ export async function setupDatabase() {
       );
 
       -- 초기 관리자 계정 (jiny/1204)
-      INSERT INTO admin_accounts (username, password)
+      INSERT INTO dm_admin_accounts (username, password)
       VALUES ('jiny', '1204')
       ON CONFLICT (username) DO NOTHING;
     `);
@@ -436,7 +436,7 @@ async function seedShopItems(client: any) {
 
   for (const item of items) {
     await client.query(
-      `INSERT INTO shop_items (category, item_key, name, description, price, duration_days, rarity, preview_data, sort_order, is_active, is_default)
+      `INSERT INTO dm_shop_items (category, item_key, name, description, price, duration_days, rarity, preview_data, sort_order, is_active, is_default)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10)
        ON CONFLICT (item_key) DO NOTHING`,
       [

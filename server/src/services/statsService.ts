@@ -59,17 +59,17 @@ export const statsService = {
 
     // 기존 통계 조회 또는 생성
     let stats = await pool.query(
-      'SELECT * FROM user_game_stats WHERE user_id = $1 AND game_type = $2',
+      'SELECT * FROM dm_user_game_stats WHERE user_id = $1 AND game_type = $2',
       [userId, gameType]
     );
 
     if (stats.rows.length === 0) {
       await pool.query(
-        'INSERT INTO user_game_stats (user_id, game_type) VALUES ($1, $2)',
+        'INSERT INTO dm_user_game_stats (user_id, game_type) VALUES ($1, $2)',
         [userId, gameType]
       );
       stats = await pool.query(
-        'SELECT * FROM user_game_stats WHERE user_id = $1 AND game_type = $2',
+        'SELECT * FROM dm_user_game_stats WHERE user_id = $1 AND game_type = $2',
         [userId, gameType]
       );
     }
@@ -102,7 +102,7 @@ export const statsService = {
 
     // 통계 업데이트
     await pool.query(
-      `UPDATE user_game_stats
+      `UPDATE dm_user_game_stats
        SET wins = $1, losses = $2, draws = $3, level = $4, exp = $5, updated_at = CURRENT_TIMESTAMP
        WHERE user_id = $6 AND game_type = $7`,
       [wins, losses, draws, level, exp, userId, gameType]
@@ -135,17 +135,17 @@ export const statsService = {
 
     // 기존 통계 조회 또는 생성
     let stats = await pool.query(
-      'SELECT * FROM user_game_stats WHERE user_id = $1 AND game_type = $2',
+      'SELECT * FROM dm_user_game_stats WHERE user_id = $1 AND game_type = $2',
       [userId, gameType]
     );
 
     if (stats.rows.length === 0) {
       await pool.query(
-        'INSERT INTO user_game_stats (user_id, game_type) VALUES ($1, $2)',
+        'INSERT INTO dm_user_game_stats (user_id, game_type) VALUES ($1, $2)',
         [userId, gameType]
       );
       stats = await pool.query(
-        'SELECT * FROM user_game_stats WHERE user_id = $1 AND game_type = $2',
+        'SELECT * FROM dm_user_game_stats WHERE user_id = $1 AND game_type = $2',
         [userId, gameType]
       );
     }
@@ -162,7 +162,7 @@ export const statsService = {
 
     // 통계 업데이트
     await pool.query(
-      `UPDATE user_game_stats
+      `UPDATE dm_user_game_stats
        SET wins = $1, losses = $2, draws = $3, updated_at = CURRENT_TIMESTAMP
        WHERE user_id = $4 AND game_type = $5`,
       [wins, losses, draws, userId, gameType]
@@ -200,7 +200,7 @@ export const statsService = {
     if (!pool) throw new Error('Database not connected');
 
     await pool.query(
-      `INSERT INTO game_records (game_type, player1_id, player2_id, winner_id, game_data)
+      `INSERT INTO dm_game_records (game_type, player1_id, player2_id, winner_id, game_data)
        VALUES ($1, $2, $3, $4, $5)`,
       [
         gameType,
@@ -225,7 +225,7 @@ export const statsService = {
     if (!pool) throw new Error('Database not connected');
 
     const result = await pool.query(
-      'SELECT * FROM user_game_stats WHERE user_id = $1 AND game_type = $2',
+      'SELECT * FROM dm_user_game_stats WHERE user_id = $1 AND game_type = $2',
       [userId, gameType]
     );
 
@@ -266,7 +266,7 @@ export const statsService = {
     if (!pool) throw new Error('Database not connected');
 
     const result = await pool.query(
-      'SELECT * FROM user_game_stats WHERE user_id = $1',
+      'SELECT * FROM dm_user_game_stats WHERE user_id = $1',
       [userId]
     );
 
@@ -316,7 +316,7 @@ export const statsService = {
     if (!pool) throw new Error('Database not connected');
 
     const result = await pool.query(
-      `UPDATE user_game_stats
+      `UPDATE dm_user_game_stats
        SET wins = 0, losses = 0, draws = 0, updated_at = CURRENT_TIMESTAMP
        WHERE user_id = $1 AND game_type = $2`,
       [userId, gameType]
@@ -335,7 +335,7 @@ export const statsService = {
     if (!pool) throw new Error('Database not connected');
 
     const result = await pool.query(
-      'SELECT mileage FROM user_mileage WHERE user_id = $1',
+      'SELECT mileage FROM dm_user_mileage WHERE user_id = $1',
       [userId]
     );
 
@@ -349,30 +349,30 @@ export const statsService = {
 
     // 마일리지 레코드 확인/생성
     const existing = await pool.query(
-      'SELECT * FROM user_mileage WHERE user_id = $1',
+      'SELECT * FROM dm_user_mileage WHERE user_id = $1',
       [userId]
     );
 
     if (existing.rows.length === 0) {
       await pool.query(
-        'INSERT INTO user_mileage (user_id, mileage) VALUES ($1, $2)',
+        'INSERT INTO dm_user_mileage (user_id, mileage) VALUES ($1, $2)',
         [userId, amount]
       );
     } else {
       await pool.query(
-        'UPDATE user_mileage SET mileage = mileage + $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
+        'UPDATE dm_user_mileage SET mileage = mileage + $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
         [amount, userId]
       );
     }
 
     // 기록 저장
     await pool.query(
-      'INSERT INTO mileage_history (user_id, amount, reason) VALUES ($1, $2, $3)',
+      'INSERT INTO dm_mileage_history (user_id, amount, reason) VALUES ($1, $2, $3)',
       [userId, amount, reason]
     );
 
     const result = await pool.query(
-      'SELECT mileage FROM user_mileage WHERE user_id = $1',
+      'SELECT mileage FROM dm_user_mileage WHERE user_id = $1',
       [userId]
     );
 
@@ -391,18 +391,18 @@ export const statsService = {
     }
 
     await pool.query(
-      'UPDATE user_mileage SET mileage = mileage - $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
+      'UPDATE dm_user_mileage SET mileage = mileage - $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
       [amount, userId]
     );
 
     // 기록 저장 (음수로)
     await pool.query(
-      'INSERT INTO mileage_history (user_id, amount, reason) VALUES ($1, $2, $3)',
+      'INSERT INTO dm_mileage_history (user_id, amount, reason) VALUES ($1, $2, $3)',
       [userId, -amount, reason]
     );
 
     const result = await pool.query(
-      'SELECT mileage FROM user_mileage WHERE user_id = $1',
+      'SELECT mileage FROM dm_user_mileage WHERE user_id = $1',
       [userId]
     );
 
@@ -427,7 +427,7 @@ export const statsService = {
     const expGained = getExpForResult(result);
 
     await pool.query(
-      `INSERT INTO game_records (game_type, player1_id, player2_id, winner_id, game_data)
+      `INSERT INTO dm_game_records (game_type, player1_id, player2_id, winner_id, game_data)
        VALUES ($1, $2, $3, $4, $5)`,
       [
         gameType,
@@ -461,9 +461,9 @@ export const statsService = {
           WHEN gr.player1_id = $1 THEN u2.nickname
           ELSE u1.nickname
         END as opponent_nickname
-       FROM game_records gr
-       LEFT JOIN users u1 ON gr.player1_id = u1.id
-       LEFT JOIN users u2 ON gr.player2_id = u2.id
+       FROM dm_game_records gr
+       LEFT JOIN dm_users u1 ON gr.player1_id = u1.id
+       LEFT JOIN dm_users u2 ON gr.player2_id = u2.id
        WHERE gr.player1_id = $1 OR gr.player2_id = $1
        ORDER BY gr.created_at DESC
        LIMIT $2`,

@@ -39,7 +39,7 @@ export const coinService = {
     if (!pool) return 0;
 
     const result = await pool.query(
-      'SELECT mileage FROM user_mileage WHERE user_id = $1',
+      'SELECT mileage FROM dm_user_mileage WHERE user_id = $1',
       [userId]
     );
 
@@ -53,30 +53,30 @@ export const coinService = {
 
     // 레코드 확인/생성
     const existing = await pool.query(
-      'SELECT * FROM user_mileage WHERE user_id = $1',
+      'SELECT * FROM dm_user_mileage WHERE user_id = $1',
       [userId]
     );
 
     if (existing.rows.length === 0) {
       await pool.query(
-        'INSERT INTO user_mileage (user_id, mileage) VALUES ($1, $2)',
+        'INSERT INTO dm_user_mileage (user_id, mileage) VALUES ($1, $2)',
         [userId, amount]
       );
     } else {
       await pool.query(
-        'UPDATE user_mileage SET mileage = mileage + $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
+        'UPDATE dm_user_mileage SET mileage = mileage + $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
         [amount, userId]
       );
     }
 
     // 기록 저장
     await pool.query(
-      'INSERT INTO mileage_history (user_id, amount, reason) VALUES ($1, $2, $3)',
+      'INSERT INTO dm_mileage_history (user_id, amount, reason) VALUES ($1, $2, $3)',
       [userId, amount, reason]
     );
 
     const result = await pool.query(
-      'SELECT mileage FROM user_mileage WHERE user_id = $1',
+      'SELECT mileage FROM dm_user_mileage WHERE user_id = $1',
       [userId]
     );
 
@@ -89,7 +89,7 @@ export const coinService = {
     if (!pool) return { currentStreak: 0, updatedAt: null };
 
     const result = await pool.query(
-      'SELECT current_streak, updated_at FROM user_streak WHERE user_id = $1',
+      'SELECT current_streak, updated_at FROM dm_user_streak WHERE user_id = $1',
       [userId]
     );
 
@@ -109,7 +109,7 @@ export const coinService = {
     if (!pool) return 0;
 
     const result = await pool.query(
-      `SELECT count FROM daily_match_count
+      `SELECT count FROM dm_daily_match_count
        WHERE user_id = $1 AND opponent_id = $2 AND match_date = CURRENT_DATE`,
       [userId, opponentId]
     );
@@ -123,15 +123,15 @@ export const coinService = {
     if (!pool) return 0;
 
     await pool.query(
-      `INSERT INTO daily_match_count (user_id, opponent_id, match_date, count)
+      `INSERT INTO dm_daily_match_count (user_id, opponent_id, match_date, count)
        VALUES ($1, $2, CURRENT_DATE, 1)
        ON CONFLICT (user_id, opponent_id, match_date)
-       DO UPDATE SET count = daily_match_count.count + 1`,
+       DO UPDATE SET count = dm_daily_match_count.count + 1`,
       [userId, opponentId]
     );
 
     const result = await pool.query(
-      `SELECT count FROM daily_match_count
+      `SELECT count FROM dm_daily_match_count
        WHERE user_id = $1 AND opponent_id = $2 AND match_date = CURRENT_DATE`,
       [userId, opponentId]
     );
@@ -145,7 +145,7 @@ export const coinService = {
     if (!pool) return;
 
     await pool.query(
-      `INSERT INTO user_streak (user_id, current_streak, updated_at)
+      `INSERT INTO dm_user_streak (user_id, current_streak, updated_at)
        VALUES ($1, $2, CURRENT_TIMESTAMP)
        ON CONFLICT (user_id)
        DO UPDATE SET current_streak = $2, updated_at = CURRENT_TIMESTAMP`,
@@ -229,13 +229,13 @@ export const coinService = {
     };
   },
 
-  // 오래된 daily_match_count 정리 (7일 이상)
+  // 오래된 dm_daily_match_count 정리 (7일 이상)
   async cleanupOldMatchCounts(): Promise<void> {
     const pool = getPool();
     if (!pool) return;
 
     await pool.query(
-      `DELETE FROM daily_match_count WHERE match_date < CURRENT_DATE - INTERVAL '7 days'`
+      `DELETE FROM dm_daily_match_count WHERE match_date < CURRENT_DATE - INTERVAL '7 days'`
     );
   },
 };

@@ -40,7 +40,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     }
 
     const result = await pool.query(
-      'SELECT id, username FROM admin_accounts WHERE username = $1 AND password = $2',
+      'SELECT id, username FROM dm_admin_accounts WHERE username = $1 AND password = $2',
       [username, password]
     );
 
@@ -63,8 +63,8 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
-// GET /api/admin/inquiries - 전체 문의 목록
-router.get('/inquiries', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+// GET /api/admin/dm_inquiries - 전체 문의 목록
+router.get('/dm_inquiries', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
   try {
     const pool = getPool();
     if (!pool) {
@@ -75,8 +75,8 @@ router.get('/inquiries', verifyAdminToken, async (req: Request, res: Response): 
     const status = req.query.status as string;
     let query = `
       SELECT i.*, u.nickname, u.email
-      FROM inquiries i
-      LEFT JOIN users u ON i.user_id = u.id
+      FROM dm_inquiries i
+      LEFT JOIN dm_users u ON i.user_id = u.id
     `;
     const params: any[] = [];
 
@@ -88,15 +88,15 @@ router.get('/inquiries', verifyAdminToken, async (req: Request, res: Response): 
     query += ' ORDER BY i.created_at DESC LIMIT 100';
 
     const result = await pool.query(query, params);
-    res.json({ inquiries: result.rows });
+    res.json({ dm_inquiries: result.rows });
   } catch (error) {
-    console.error('Get inquiries error:', error);
-    res.status(500).json({ error: 'Failed to get inquiries' });
+    console.error('Get dm_inquiries error:', error);
+    res.status(500).json({ error: 'Failed to get dm_inquiries' });
   }
 });
 
-// GET /api/admin/inquiries/:id - 문의 상세 (유저 정보 포함)
-router.get('/inquiries/:id', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+// GET /api/admin/dm_inquiries/:id - 문의 상세 (유저 정보 포함)
+router.get('/dm_inquiries/:id', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const pool = getPool();
@@ -108,8 +108,8 @@ router.get('/inquiries/:id', verifyAdminToken, async (req: Request, res: Respons
     // 문의 정보
     const inquiryResult = await pool.query(`
       SELECT i.*, u.nickname, u.email, u.created_at as user_created_at
-      FROM inquiries i
-      LEFT JOIN users u ON i.user_id = u.id
+      FROM dm_inquiries i
+      LEFT JOIN dm_users u ON i.user_id = u.id
       WHERE i.id = $1
     `, [id]);
 
@@ -124,7 +124,7 @@ router.get('/inquiries/:id', verifyAdminToken, async (req: Request, res: Respons
     // 최근 접속 정보 (최근 5개)
     const sessionsResult = await pool.query(`
       SELECT ip_address, platform, os_version, device_model, app_version, build_number, created_at
-      FROM user_sessions
+      FROM dm_user_sessions
       WHERE user_id = $1
       ORDER BY created_at DESC
       LIMIT 5
@@ -133,7 +133,7 @@ router.get('/inquiries/:id', verifyAdminToken, async (req: Request, res: Respons
     // 게임 통계
     const statsResult = await pool.query(`
       SELECT game_type, wins, losses, draws, level, exp
-      FROM user_game_stats
+      FROM dm_user_game_stats
       WHERE user_id = $1
       ORDER BY (wins + losses + draws) DESC
     `, [userId]);
@@ -143,9 +143,9 @@ router.get('/inquiries/:id', verifyAdminToken, async (req: Request, res: Respons
       SELECT gr.game_type, gr.winner_id, gr.created_at,
              u1.nickname as player1_nickname,
              u2.nickname as player2_nickname
-      FROM game_records gr
-      LEFT JOIN users u1 ON gr.player1_id = u1.id
-      LEFT JOIN users u2 ON gr.player2_id = u2.id
+      FROM dm_game_records gr
+      LEFT JOIN dm_users u1 ON gr.player1_id = u1.id
+      LEFT JOIN dm_users u2 ON gr.player2_id = u2.id
       WHERE gr.player1_id = $1 OR gr.player2_id = $1
       ORDER BY gr.created_at DESC
       LIMIT 10
@@ -153,7 +153,7 @@ router.get('/inquiries/:id', verifyAdminToken, async (req: Request, res: Respons
 
     // 마일리지 정보
     const mileageResult = await pool.query(`
-      SELECT mileage FROM user_mileage WHERE user_id = $1
+      SELECT mileage FROM dm_user_mileage WHERE user_id = $1
     `, [userId]);
 
     res.json({
@@ -169,8 +169,8 @@ router.get('/inquiries/:id', verifyAdminToken, async (req: Request, res: Respons
   }
 });
 
-// PUT /api/admin/inquiries/:id/reply - 문의 답변
-router.put('/inquiries/:id/reply', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+// PUT /api/admin/dm_inquiries/:id/reply - 문의 답변
+router.put('/dm_inquiries/:id/reply', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const { reply } = req.body;
@@ -187,7 +187,7 @@ router.put('/inquiries/:id/reply', verifyAdminToken, async (req: Request, res: R
     }
 
     const result = await pool.query(
-      `UPDATE inquiries
+      `UPDATE dm_inquiries
        SET reply = $1, status = 'replied', replied_at = CURRENT_TIMESTAMP
        WHERE id = $2
        RETURNING *`,
@@ -206,8 +206,8 @@ router.put('/inquiries/:id/reply', verifyAdminToken, async (req: Request, res: R
   }
 });
 
-// DELETE /api/admin/inquiries/:id - 문의 삭제
-router.delete('/inquiries/:id', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+// DELETE /api/admin/dm_inquiries/:id - 문의 삭제
+router.delete('/dm_inquiries/:id', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
 
@@ -217,7 +217,7 @@ router.delete('/inquiries/:id', verifyAdminToken, async (req: Request, res: Resp
       return;
     }
 
-    await pool.query('DELETE FROM inquiries WHERE id = $1', [id]);
+    await pool.query('DELETE FROM dm_inquiries WHERE id = $1', [id]);
     res.json({ success: true });
   } catch (error) {
     console.error('Delete inquiry error:', error);
@@ -234,15 +234,15 @@ router.get('/stats', verifyAdminToken, async (req: Request, res: Response): Prom
       return;
     }
 
-    const [users, inquiries, pending] = await Promise.all([
-      pool.query('SELECT COUNT(*) FROM users'),
-      pool.query('SELECT COUNT(*) FROM inquiries'),
-      pool.query("SELECT COUNT(*) FROM inquiries WHERE status = 'pending'"),
+    const [dm_users, dm_inquiries, pending] = await Promise.all([
+      pool.query('SELECT COUNT(*) FROM dm_users'),
+      pool.query('SELECT COUNT(*) FROM dm_inquiries'),
+      pool.query("SELECT COUNT(*) FROM dm_inquiries WHERE status = 'pending'"),
     ]);
 
     res.json({
-      totalUsers: parseInt(users.rows[0].count),
-      totalInquiries: parseInt(inquiries.rows[0].count),
+      totalUsers: parseInt(dm_users.rows[0].count),
+      totalInquiries: parseInt(dm_inquiries.rows[0].count),
       pendingInquiries: parseInt(pending.rows[0].count),
     });
   } catch (error) {

@@ -97,18 +97,18 @@ export const rankedService = {
 
     // 기존 통계 조회
     let result = await pool.query(
-      'SELECT * FROM user_ranked_stats WHERE user_id = $1',
+      'SELECT * FROM dm_user_ranked_stats WHERE user_id = $1',
       [userId]
     );
 
     // 없으면 생성
     if (result.rows.length === 0) {
       await pool.query(
-        'INSERT INTO user_ranked_stats (user_id) VALUES ($1)',
+        'INSERT INTO dm_user_ranked_stats (user_id) VALUES ($1)',
         [userId]
       );
       result = await pool.query(
-        'SELECT * FROM user_ranked_stats WHERE user_id = $1',
+        'SELECT * FROM dm_user_ranked_stats WHERE user_id = $1',
         [userId]
       );
     }
@@ -144,8 +144,8 @@ export const rankedService = {
         urs.tier,
         urs.wins,
         urs.losses
-       FROM user_ranked_stats urs
-       JOIN users u ON urs.user_id = u.id
+       FROM dm_user_ranked_stats urs
+       JOIN dm_users u ON urs.user_id = u.id
        ORDER BY urs.elo DESC, urs.wins DESC
        LIMIT $1 OFFSET $2`,
       [limit, offset]
@@ -177,7 +177,7 @@ export const rankedService = {
 
     // 먼저 해당 유저의 ELO를 조회
     const userResult = await pool.query(
-      'SELECT elo, wins FROM user_ranked_stats WHERE user_id = $1',
+      'SELECT elo, wins FROM dm_user_ranked_stats WHERE user_id = $1',
       [userId]
     );
 
@@ -191,7 +191,7 @@ export const rankedService = {
 
     // 해당 유저보다 높은 ELO (또는 같은 ELO에서 더 많은 승리)를 가진 유저 수 + 1
     const result = await pool.query(
-      `SELECT COUNT(*) as rank FROM user_ranked_stats
+      `SELECT COUNT(*) as rank FROM dm_user_ranked_stats
        WHERE elo > $1 OR (elo = $1 AND wins > $2)`,
       [elo, wins]
     );
@@ -236,7 +236,7 @@ export const rankedService = {
     const newMaxWinStreak = Math.max(winnerStatsBefore.maxWinStreak, newWinStreak);
 
     await pool.query(
-      `UPDATE user_ranked_stats
+      `UPDATE dm_user_ranked_stats
        SET elo = $1, tier = $2, wins = wins + 1,
            win_streak = $3, max_win_streak = $4,
            updated_at = CURRENT_TIMESTAMP
@@ -246,7 +246,7 @@ export const rankedService = {
 
     // 패자 통계 업데이트
     await pool.query(
-      `UPDATE user_ranked_stats
+      `UPDATE dm_user_ranked_stats
        SET elo = $1, tier = $2, losses = losses + 1,
            win_streak = 0,
            updated_at = CURRENT_TIMESTAMP
@@ -256,7 +256,7 @@ export const rankedService = {
 
     // 매치 기록 저장
     await pool.query(
-      `INSERT INTO ranked_matches
+      `INSERT INTO dm_ranked_matches
        (player1_id, player2_id, winner_id, games_played,
         player1_elo_before, player2_elo_before, player1_elo_after, player2_elo_after)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
@@ -333,7 +333,7 @@ export const rankedService = {
 
     // 승자 통계 업데이트 (무승부이므로 연승은 유지하되 증가하지 않음, wins도 증가하지 않음)
     await pool.query(
-      `UPDATE user_ranked_stats
+      `UPDATE dm_user_ranked_stats
        SET elo = $1, tier = $2,
            updated_at = CURRENT_TIMESTAMP
        WHERE user_id = $3`,
@@ -342,7 +342,7 @@ export const rankedService = {
 
     // 패자 통계 업데이트 (무승부이므로 연승만 리셋, losses도 증가하지 않음)
     await pool.query(
-      `UPDATE user_ranked_stats
+      `UPDATE dm_user_ranked_stats
        SET elo = $1, tier = $2, win_streak = 0,
            updated_at = CURRENT_TIMESTAMP
        WHERE user_id = $3`,
@@ -351,7 +351,7 @@ export const rankedService = {
 
     // 매치 기록 저장 (무승부로 표시)
     await pool.query(
-      `INSERT INTO ranked_matches
+      `INSERT INTO dm_ranked_matches
        (player1_id, player2_id, winner_id, games_played,
         player1_elo_before, player2_elo_before, player1_elo_after, player2_elo_after)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,

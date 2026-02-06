@@ -58,7 +58,7 @@ export const friendService = {
 
     // 이미 코드가 있는지 확인
     const existing = await pool.query(
-      'SELECT code FROM friend_codes WHERE user_id = $1',
+      'SELECT code FROM dm_friend_codes WHERE user_id = $1',
       [userId]
     );
 
@@ -73,7 +73,7 @@ export const friendService = {
     while (!isUnique) {
       code = generateRandomCode();
       const check = await pool.query(
-        'SELECT id FROM friend_codes WHERE code = $1',
+        'SELECT id FROM dm_friend_codes WHERE code = $1',
         [code]
       );
       if (check.rows.length === 0) {
@@ -82,7 +82,7 @@ export const friendService = {
     }
 
     await pool.query(
-      'INSERT INTO friend_codes (user_id, code) VALUES ($1, $2)',
+      'INSERT INTO dm_friend_codes (user_id, code) VALUES ($1, $2)',
       [userId, code!]
     );
 
@@ -95,7 +95,7 @@ export const friendService = {
     if (!pool) throw new Error('Database not connected');
 
     const result = await pool.query(
-      'SELECT code FROM friend_codes WHERE user_id = $1',
+      'SELECT code FROM dm_friend_codes WHERE user_id = $1',
       [userId]
     );
 
@@ -109,8 +109,8 @@ export const friendService = {
 
     const result = await pool.query(
       `SELECT u.id, u.nickname
-       FROM users u
-       JOIN friend_codes fc ON u.id = fc.user_id
+       FROM dm_users u
+       JOIN dm_friend_codes fc ON u.id = fc.user_id
        WHERE fc.code = $1`,
       [code.toUpperCase()]
     );
@@ -144,7 +144,7 @@ export const friendService = {
 
     // 상대방이 존재하는지 확인
     const userExists = await pool.query(
-      'SELECT id, nickname FROM users WHERE id = $1',
+      'SELECT id, nickname FROM dm_users WHERE id = $1',
       [toUserId]
     );
 
@@ -154,7 +154,7 @@ export const friendService = {
 
     // 이미 친구인지 확인
     const existingFriend = await pool.query(
-      'SELECT id FROM friendships WHERE user_id = $1 AND friend_id = $2',
+      'SELECT id FROM dm_friendships WHERE user_id = $1 AND friend_id = $2',
       [userId, toUserId]
     );
 
@@ -164,7 +164,7 @@ export const friendService = {
 
     // 이미 요청을 보냈는지 확인
     const existingRequest = await pool.query(
-      `SELECT id FROM friend_requests
+      `SELECT id FROM dm_friend_requests
        WHERE from_user_id = $1 AND to_user_id = $2 AND status = 'pending'`,
       [userId, toUserId]
     );
@@ -175,7 +175,7 @@ export const friendService = {
 
     // 상대방이 나에게 요청을 보냈는지 확인 (자동 수락)
     const reverseRequest = await pool.query(
-      `SELECT id FROM friend_requests
+      `SELECT id FROM dm_friend_requests
        WHERE from_user_id = $1 AND to_user_id = $2 AND status = 'pending'`,
       [toUserId, userId]
     );
@@ -188,7 +188,7 @@ export const friendService = {
 
     // 친구 요청 생성
     await pool.query(
-      `INSERT INTO friend_requests (from_user_id, to_user_id, status)
+      `INSERT INTO dm_friend_requests (from_user_id, to_user_id, status)
        VALUES ($1, $2, 'pending')
        ON CONFLICT (from_user_id, to_user_id)
        DO UPDATE SET status = 'pending', created_at = CURRENT_TIMESTAMP`,
@@ -206,9 +206,9 @@ export const friendService = {
     const result = await pool.query(
       `SELECT fr.id, fr.from_user_id as "fromUserId", u1.nickname as "fromNickname",
               fr.to_user_id as "toUserId", u2.nickname as "toNickname", fr.created_at as "createdAt"
-       FROM friend_requests fr
-       JOIN users u1 ON fr.from_user_id = u1.id
-       JOIN users u2 ON fr.to_user_id = u2.id
+       FROM dm_friend_requests fr
+       JOIN dm_users u1 ON fr.from_user_id = u1.id
+       JOIN dm_users u2 ON fr.to_user_id = u2.id
        WHERE fr.to_user_id = $1 AND fr.status = 'pending'
        ORDER BY fr.created_at DESC`,
       [userId]
@@ -225,9 +225,9 @@ export const friendService = {
     const result = await pool.query(
       `SELECT fr.id, fr.from_user_id as "fromUserId", u1.nickname as "fromNickname",
               fr.to_user_id as "toUserId", u2.nickname as "toNickname", fr.created_at as "createdAt"
-       FROM friend_requests fr
-       JOIN users u1 ON fr.from_user_id = u1.id
-       JOIN users u2 ON fr.to_user_id = u2.id
+       FROM dm_friend_requests fr
+       JOIN dm_users u1 ON fr.from_user_id = u1.id
+       JOIN dm_users u2 ON fr.to_user_id = u2.id
        WHERE fr.from_user_id = $1 AND fr.status = 'pending'
        ORDER BY fr.created_at DESC`,
       [userId]
@@ -243,7 +243,7 @@ export const friendService = {
 
     // 요청 확인
     const request = await pool.query(
-      `SELECT * FROM friend_requests WHERE id = $1 AND to_user_id = $2 AND status = 'pending'`,
+      `SELECT * FROM dm_friend_requests WHERE id = $1 AND to_user_id = $2 AND status = 'pending'`,
       [requestId, userId]
     );
 
@@ -255,13 +255,13 @@ export const friendService = {
 
     // 요청 상태 변경
     await pool.query(
-      `UPDATE friend_requests SET status = 'accepted' WHERE id = $1`,
+      `UPDATE dm_friend_requests SET status = 'accepted' WHERE id = $1`,
       [requestId]
     );
 
     // 양방향 친구 관계 추가
     await pool.query(
-      `INSERT INTO friendships (user_id, friend_id) VALUES ($1, $2), ($2, $1)
+      `INSERT INTO dm_friendships (user_id, friend_id) VALUES ($1, $2), ($2, $1)
        ON CONFLICT DO NOTHING`,
       [userId, fromUserId]
     );
@@ -269,8 +269,8 @@ export const friendService = {
     // 친구 정보 조회
     const friendInfo = await pool.query(
       `SELECT u.id, u.nickname, u.email, u.avatar_url as "avatarUrl", fc.code as "friendCode"
-       FROM users u
-       LEFT JOIN friend_codes fc ON u.id = fc.user_id
+       FROM dm_users u
+       LEFT JOIN dm_friend_codes fc ON u.id = fc.user_id
        WHERE u.id = $1`,
       [fromUserId]
     );
@@ -288,7 +288,7 @@ export const friendService = {
     if (!pool) throw new Error('Database not connected');
 
     const result = await pool.query(
-      `UPDATE friend_requests SET status = 'declined'
+      `UPDATE dm_friend_requests SET status = 'declined'
        WHERE id = $1 AND to_user_id = $2 AND status = 'pending'`,
       [requestId, userId]
     );
@@ -306,7 +306,7 @@ export const friendService = {
     if (!pool) throw new Error('Database not connected');
 
     const result = await pool.query(
-      `DELETE FROM friend_requests
+      `DELETE FROM dm_friend_requests
        WHERE id = $1 AND from_user_id = $2 AND status = 'pending'`,
       [requestId, userId]
     );
@@ -345,14 +345,14 @@ export const friendService = {
               avatar.name as "activeAvatarName",
               avatar.rarity as "activeAvatarRarity",
               avatar.preview_data as "activeAvatarPreviewData"
-       FROM users u
-       JOIN friendships f ON u.id = f.friend_id
-       LEFT JOIN friend_codes fc ON u.id = fc.user_id
-       LEFT JOIN user_profile_settings ups ON u.id = ups.user_id
-       LEFT JOIN shop_items frame ON ups.active_frame_id = frame.id
-       LEFT JOIN shop_items title ON ups.active_title_id = title.id
-       LEFT JOIN shop_items theme ON ups.active_theme_id = theme.id
-       LEFT JOIN shop_items avatar ON ups.active_avatar_id = avatar.id
+       FROM dm_users u
+       JOIN dm_friendships f ON u.id = f.friend_id
+       LEFT JOIN dm_friend_codes fc ON u.id = fc.user_id
+       LEFT JOIN dm_user_profile_settings ups ON u.id = ups.user_id
+       LEFT JOIN dm_shop_items frame ON ups.active_frame_id = frame.id
+       LEFT JOIN dm_shop_items title ON ups.active_title_id = title.id
+       LEFT JOIN dm_shop_items theme ON ups.active_theme_id = theme.id
+       LEFT JOIN dm_shop_items avatar ON ups.active_avatar_id = avatar.id
        WHERE f.user_id = $1
        ORDER BY u.nickname`,
       [userId]
@@ -397,7 +397,7 @@ export const friendService = {
     if (!pool) throw new Error('Database not connected');
 
     const result = await pool.query(
-      'UPDATE friendships SET memo = $1 WHERE user_id = $2 AND friend_id = $3',
+      'UPDATE dm_friendships SET memo = $1 WHERE user_id = $2 AND friend_id = $3',
       [memo, userId, friendId]
     );
 
@@ -415,7 +415,7 @@ export const friendService = {
 
     // 양방향 삭제
     const result = await pool.query(
-      'DELETE FROM friendships WHERE (user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1)',
+      'DELETE FROM dm_friendships WHERE (user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1)',
       [userId, friendId]
     );
 

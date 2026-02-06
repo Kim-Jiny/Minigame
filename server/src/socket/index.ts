@@ -32,7 +32,7 @@ async function saveUserSession(
   if (!pool) return;
 
   await pool.query(
-    `INSERT INTO user_sessions (user_id, ip_address, platform, os_version, device_model, app_version, build_number)
+    `INSERT INTO dm_user_sessions (user_id, ip_address, platform, os_version, device_model, app_version, build_number)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [
       userId,

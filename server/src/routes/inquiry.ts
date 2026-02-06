@@ -35,7 +35,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     }
 
     const result = await pool.query(
-      `INSERT INTO inquiries (user_id, category, title, content)
+      `INSERT INTO dm_inquiries (user_id, category, title, content)
        VALUES ($1, $2, $3, $4)
        RETURNING id, category, title, content, status, created_at`,
       [payload.userId, category, title, content]
@@ -76,7 +76,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
     const result = await pool.query(
       `SELECT id, category, title, content, status, reply, replied_at, is_read, created_at
-       FROM inquiries
+       FROM dm_inquiries
        WHERE user_id = $1
        ORDER BY created_at DESC
        LIMIT 50`,
@@ -84,11 +84,11 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     );
 
     res.json({
-      inquiries: result.rows,
+      dm_inquiries: result.rows,
     });
   } catch (error) {
-    console.error('Get inquiries error:', error);
-    res.status(500).json({ error: 'Failed to get inquiries' });
+    console.error('Get dm_inquiries error:', error);
+    res.status(500).json({ error: 'Failed to get dm_inquiries' });
   }
 });
 
@@ -116,7 +116,7 @@ router.get('/unread-count', async (req: Request, res: Response): Promise<void> =
     }
 
     const result = await pool.query(
-      `SELECT COUNT(*) FROM inquiries
+      `SELECT COUNT(*) FROM dm_inquiries
        WHERE user_id = $1 AND status = 'replied' AND is_read = FALSE`,
       [payload.userId]
     );
@@ -155,7 +155,7 @@ router.put('/:id/read', async (req: Request, res: Response): Promise<void> => {
     }
 
     await pool.query(
-      `UPDATE inquiries SET is_read = TRUE WHERE id = $1 AND user_id = $2`,
+      `UPDATE dm_inquiries SET is_read = TRUE WHERE id = $1 AND user_id = $2`,
       [id, payload.userId]
     );
 

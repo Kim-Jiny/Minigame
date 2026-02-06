@@ -59,7 +59,7 @@ export const shopService = {
     const pool = getPool();
     if (!pool) return [];
 
-    let query = 'SELECT * FROM shop_items WHERE is_active = TRUE';
+    let query = 'SELECT * FROM dm_shop_items WHERE is_active = TRUE';
     const params: any[] = [];
 
     if (category) {
@@ -81,8 +81,8 @@ export const shopService = {
     const result = await pool.query(
       `SELECT ui.*, si.category, si.item_key, si.name, si.description, si.price,
               si.duration_days, si.rarity, si.preview_data, si.sort_order, si.is_active, si.is_default
-       FROM user_items ui
-       JOIN shop_items si ON ui.item_id = si.id
+       FROM dm_user_items ui
+       JOIN dm_shop_items si ON ui.item_id = si.id
        WHERE ui.user_id = $1
        AND (ui.expires_at IS NULL OR ui.expires_at > CURRENT_TIMESTAMP)
        ORDER BY si.category, si.sort_order`,
@@ -108,7 +108,7 @@ export const shopService = {
 
     // 설정 조회
     const settingsResult = await pool.query(
-      'SELECT * FROM user_profile_settings WHERE user_id = $1',
+      'SELECT * FROM dm_user_profile_settings WHERE user_id = $1',
       [userId]
     );
 
@@ -117,7 +117,7 @@ export const shopService = {
     if (settingsResult.rows.length === 0) {
       // 기본 설정 생성
       await pool.query(
-        `INSERT INTO user_profile_settings (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`,
+        `INSERT INTO dm_user_profile_settings (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`,
         [userId]
       );
       settings = { userId, activeFrameId: null, activeTitleId: null, activeThemeId: null, activeAvatarId: null };
@@ -134,25 +134,25 @@ export const shopService = {
 
     // 장착 아이템 상세 조회
     if (settings.activeFrameId) {
-      const frameResult = await pool.query('SELECT * FROM shop_items WHERE id = $1', [settings.activeFrameId]);
+      const frameResult = await pool.query('SELECT * FROM dm_shop_items WHERE id = $1', [settings.activeFrameId]);
       if (frameResult.rows.length > 0) {
         settings.activeFrame = mapShopItem(frameResult.rows[0]);
       }
     }
     if (settings.activeTitleId) {
-      const titleResult = await pool.query('SELECT * FROM shop_items WHERE id = $1', [settings.activeTitleId]);
+      const titleResult = await pool.query('SELECT * FROM dm_shop_items WHERE id = $1', [settings.activeTitleId]);
       if (titleResult.rows.length > 0) {
         settings.activeTitle = mapShopItem(titleResult.rows[0]);
       }
     }
     if (settings.activeThemeId) {
-      const themeResult = await pool.query('SELECT * FROM shop_items WHERE id = $1', [settings.activeThemeId]);
+      const themeResult = await pool.query('SELECT * FROM dm_shop_items WHERE id = $1', [settings.activeThemeId]);
       if (themeResult.rows.length > 0) {
         settings.activeTheme = mapShopItem(themeResult.rows[0]);
       }
     }
     if (settings.activeAvatarId) {
-      const avatarResult = await pool.query('SELECT * FROM shop_items WHERE id = $1', [settings.activeAvatarId]);
+      const avatarResult = await pool.query('SELECT * FROM dm_shop_items WHERE id = $1', [settings.activeAvatarId]);
       if (avatarResult.rows.length > 0) {
         settings.activeAvatar = mapShopItem(avatarResult.rows[0]);
       }
@@ -168,7 +168,7 @@ export const shopService = {
 
     try {
       // 아이템 정보 조회
-      const itemResult = await pool.query('SELECT * FROM shop_items WHERE id = $1 AND is_active = TRUE', [itemId]);
+      const itemResult = await pool.query('SELECT * FROM dm_shop_items WHERE id = $1 AND is_active = TRUE', [itemId]);
       if (itemResult.rows.length === 0) {
         return { success: false, message: '아이템을 찾을 수 없습니다.' };
       }
@@ -177,7 +177,7 @@ export const shopService = {
       // 티켓이 아닌 경우 이미 보유중인지 확인
       if (item.category !== 'ticket') {
         const ownedResult = await pool.query(
-          `SELECT * FROM user_items WHERE user_id = $1 AND item_id = $2
+          `SELECT * FROM dm_user_items WHERE user_id = $1 AND item_id = $2
            AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
           [userId, itemId]
         );
@@ -187,7 +187,7 @@ export const shopService = {
       }
 
       // 코인 확인
-      const mileageResult = await pool.query('SELECT mileage FROM user_mileage WHERE user_id = $1', [userId]);
+      const mileageResult = await pool.query('SELECT mileage FROM dm_user_mileage WHERE user_id = $1', [userId]);
       const currentCoins = mileageResult.rows.length > 0 ? mileageResult.rows[0].mileage : 0;
 
       if (currentCoins < item.price) {
@@ -196,13 +196,13 @@ export const shopService = {
 
       // 코인 차감
       await pool.query(
-        'UPDATE user_mileage SET mileage = mileage - $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
+        'UPDATE dm_user_mileage SET mileage = mileage - $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
         [item.price, userId]
       );
 
       // 기록 저장
       await pool.query(
-        'INSERT INTO mileage_history (user_id, amount, reason) VALUES ($1, $2, $3)',
+        'INSERT INTO dm_mileage_history (user_id, amount, reason) VALUES ($1, $2, $3)',
         [userId, -item.price, `purchase_${item.itemKey}`]
       );
 
@@ -213,7 +213,7 @@ export const shopService = {
         expiresAt.setDate(expiresAt.getDate() + item.durationDays);
       }
 
-      // 티켓은 user_items에 저장하지 않고 바로 반환
+      // 티켓은 dm_user_items에 저장하지 않고 바로 반환
       if (item.category === 'ticket') {
         const newBalance = currentCoins - item.price;
         return {
@@ -233,7 +233,7 @@ export const shopService = {
 
       // 아이템 지급
       const insertResult = await pool.query(
-        `INSERT INTO user_items (user_id, item_id, expires_at)
+        `INSERT INTO dm_user_items (user_id, item_id, expires_at)
          VALUES ($1, $2, $3)
          ON CONFLICT (user_id, item_id) DO UPDATE SET expires_at = $3
          RETURNING *`,
@@ -268,7 +268,7 @@ export const shopService = {
 
     try {
       // 아이템 정보 조회
-      const itemResult = await pool.query('SELECT * FROM shop_items WHERE id = $1', [itemId]);
+      const itemResult = await pool.query('SELECT * FROM dm_shop_items WHERE id = $1', [itemId]);
       if (itemResult.rows.length === 0) {
         return { success: false, message: '아이템을 찾을 수 없습니다.' };
       }
@@ -282,7 +282,7 @@ export const shopService = {
       // 기본 아이템이 아닌 경우 보유 여부 확인
       if (!item.isDefault) {
         const ownedResult = await pool.query(
-          `SELECT * FROM user_items WHERE user_id = $1 AND item_id = $2
+          `SELECT * FROM dm_user_items WHERE user_id = $1 AND item_id = $2
            AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
           [userId, itemId]
         );
@@ -303,7 +303,7 @@ export const shopService = {
 
       // 프로필 설정 업데이트
       await pool.query(
-        `INSERT INTO user_profile_settings (user_id, ${field}, updated_at)
+        `INSERT INTO dm_user_profile_settings (user_id, ${field}, updated_at)
          VALUES ($1, $2, CURRENT_TIMESTAMP)
          ON CONFLICT (user_id) DO UPDATE SET ${field} = $2, updated_at = CURRENT_TIMESTAMP`,
         [userId, itemId]
@@ -335,7 +335,7 @@ export const shopService = {
 
       // 프로필 설정 업데이트
       await pool.query(
-        `UPDATE user_profile_settings SET ${field} = NULL, updated_at = CURRENT_TIMESTAMP WHERE user_id = $1`,
+        `UPDATE dm_user_profile_settings SET ${field} = NULL, updated_at = CURRENT_TIMESTAMP WHERE user_id = $1`,
         [userId]
       );
 
@@ -360,7 +360,7 @@ export const shopService = {
 
       // 1. 현재 코인(마일리지) 확인
       const coinResult = await client.query(
-        'SELECT mileage FROM user_mileage WHERE user_id = $1',
+        'SELECT mileage FROM dm_user_mileage WHERE user_id = $1',
         [userId]
       );
 
@@ -372,7 +372,7 @@ export const shopService = {
 
       // 2. 현재 통계 조회
       const statsResult = await client.query(
-        'SELECT * FROM user_game_stats WHERE user_id = $1 AND game_type = $2',
+        'SELECT * FROM dm_user_game_stats WHERE user_id = $1 AND game_type = $2',
         [userId, gameType]
       );
 
@@ -383,13 +383,13 @@ export const shopService = {
 
       // 3. 코인(마일리지) 차감
       await client.query(
-        'UPDATE user_mileage SET mileage = mileage - $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
+        'UPDATE dm_user_mileage SET mileage = mileage - $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
         [TICKET_PRICE, userId]
       );
 
       // 4. 패배 1회 감소
       await client.query(
-        `UPDATE user_game_stats
+        `UPDATE dm_user_game_stats
          SET losses = losses - 1, updated_at = CURRENT_TIMESTAMP
          WHERE user_id = $1 AND game_type = $2`,
         [userId, gameType]
@@ -399,13 +399,13 @@ export const shopService = {
 
       // 업데이트된 통계 조회
       const updatedStats = await pool.query(
-        'SELECT * FROM user_game_stats WHERE user_id = $1 AND game_type = $2',
+        'SELECT * FROM dm_user_game_stats WHERE user_id = $1 AND game_type = $2',
         [userId, gameType]
       );
 
       // 업데이트된 코인 조회
       const updatedCoins = await pool.query(
-        'SELECT mileage FROM user_mileage WHERE user_id = $1',
+        'SELECT mileage FROM dm_user_mileage WHERE user_id = $1',
         [userId]
       );
 
@@ -455,7 +455,7 @@ export const shopService = {
 
       // 1. 현재 코인(마일리지) 확인
       const coinResult = await client.query(
-        'SELECT mileage FROM user_mileage WHERE user_id = $1',
+        'SELECT mileage FROM dm_user_mileage WHERE user_id = $1',
         [userId]
       );
 
@@ -467,13 +467,13 @@ export const shopService = {
 
       // 2. 코인(마일리지) 차감
       await client.query(
-        'UPDATE user_mileage SET mileage = mileage - $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
+        'UPDATE dm_user_mileage SET mileage = mileage - $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
         [TICKET_PRICE, userId]
       );
 
       // 3. 닉네임 변경
       await client.query(
-        'UPDATE users SET nickname = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        'UPDATE dm_users SET nickname = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
         [newNickname, userId]
       );
 
@@ -481,7 +481,7 @@ export const shopService = {
 
       // 업데이트된 코인 조회
       const updatedCoins = await pool.query(
-        'SELECT mileage FROM user_mileage WHERE user_id = $1',
+        'SELECT mileage FROM dm_user_mileage WHERE user_id = $1',
         [userId]
       );
 
@@ -507,16 +507,16 @@ export const shopService = {
 
     try {
       // 이미 아이템이 있으면 스킵
-      const existing = await pool.query('SELECT COUNT(*) FROM user_items WHERE user_id = $1', [userId]);
+      const existing = await pool.query('SELECT COUNT(*) FROM dm_user_items WHERE user_id = $1', [userId]);
       if (parseInt(existing.rows[0].count) > 0) return;
 
       // 기본 아이템 조회
-      const defaultItems = await pool.query('SELECT id FROM shop_items WHERE is_default = TRUE');
+      const defaultItems = await pool.query('SELECT id FROM dm_shop_items WHERE is_default = TRUE');
 
       // 기본 아이템 지급
       for (const item of defaultItems.rows) {
         await pool.query(
-          `INSERT INTO user_items (user_id, item_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          `INSERT INTO dm_user_items (user_id, item_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
           [userId, item.id]
         );
       }
@@ -535,7 +535,7 @@ export const shopService = {
     try {
       // 만료된 아이템 ID 조회
       const expiredItems = await pool.query(
-        `SELECT DISTINCT item_id FROM user_items WHERE expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP`
+        `SELECT DISTINCT item_id FROM dm_user_items WHERE expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP`
       );
 
       // 만료된 아이템을 장착 중인 경우 해제
@@ -544,29 +544,29 @@ export const shopService = {
 
         // 프레임 장착 해제
         await pool.query(
-          `UPDATE user_profile_settings SET active_frame_id = NULL WHERE active_frame_id = $1`,
+          `UPDATE dm_user_profile_settings SET active_frame_id = NULL WHERE active_frame_id = $1`,
           [itemId]
         );
         // 칭호 장착 해제
         await pool.query(
-          `UPDATE user_profile_settings SET active_title_id = NULL WHERE active_title_id = $1`,
+          `UPDATE dm_user_profile_settings SET active_title_id = NULL WHERE active_title_id = $1`,
           [itemId]
         );
         // 테마 장착 해제
         await pool.query(
-          `UPDATE user_profile_settings SET active_theme_id = NULL WHERE active_theme_id = $1`,
+          `UPDATE dm_user_profile_settings SET active_theme_id = NULL WHERE active_theme_id = $1`,
           [itemId]
         );
         // 아바타 장착 해제
         await pool.query(
-          `UPDATE user_profile_settings SET active_avatar_id = NULL WHERE active_avatar_id = $1`,
+          `UPDATE dm_user_profile_settings SET active_avatar_id = NULL WHERE active_avatar_id = $1`,
           [itemId]
         );
       }
 
       // 만료된 아이템 삭제
       await pool.query(
-        `DELETE FROM user_items WHERE expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP`
+        `DELETE FROM dm_user_items WHERE expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP`
       );
 
       console.log('✅ Expired items cleaned up');
@@ -581,7 +581,7 @@ export const shopService = {
     if (!pool) return [];
 
     const result = await pool.query(
-      'SELECT * FROM shop_items WHERE is_default = TRUE ORDER BY category, sort_order'
+      'SELECT * FROM dm_shop_items WHERE is_default = TRUE ORDER BY category, sort_order'
     );
     return result.rows.map(mapShopItem);
   },
@@ -592,14 +592,14 @@ export const shopService = {
     if (!pool) return false;
 
     // 기본 아이템인지 확인
-    const itemResult = await pool.query('SELECT is_default FROM shop_items WHERE id = $1', [itemId]);
+    const itemResult = await pool.query('SELECT is_default FROM dm_shop_items WHERE id = $1', [itemId]);
     if (itemResult.rows.length > 0 && itemResult.rows[0].is_default) {
       return true;
     }
 
     // 보유 여부 확인
     const result = await pool.query(
-      `SELECT * FROM user_items WHERE user_id = $1 AND item_id = $2
+      `SELECT * FROM dm_user_items WHERE user_id = $1 AND item_id = $2
        AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
       [userId, itemId]
     );
