@@ -231,6 +231,28 @@ class AuthProvider extends ChangeNotifier {
 
   // 게스트 로그인 (개발용)
   Future<void> loginAsGuest(String nickname) async {
+    // 심사용 테스트 계정
+    if (nickname == 'appletest12') {
+      try {
+        _isLoading = true;
+        _error = null;
+        notifyListeners();
+
+        final response = await _apiService.loginWithTest(nickname);
+        await _saveUserInfo(response.user);
+
+        _connectSocket();
+        notifyListeners();
+        return;
+      } catch (e) {
+        _error = '테스트 로그인 실패: $e';
+        debugPrint(_error);
+        _isLoading = false;
+        notifyListeners();
+        return;
+      }
+    }
+
     _nickname = nickname;
     _isLoggedIn = true;
 

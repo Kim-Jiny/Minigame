@@ -17,6 +17,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final ranked = context.read<RankedProvider>();
+      ranked.ensureSocketListeners();
       ranked.getLeaderboard();
       ranked.getMyRank();
     });

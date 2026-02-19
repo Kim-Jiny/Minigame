@@ -1118,6 +1118,8 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
   }
 
   void _showDeleteLossDialog(ShopProvider shopProvider, StatsProvider statsProvider, ShopItem ticket) {
+    final isTriple = ticket.ticketEffect == 'delete_loss_3';
+    final deleteCount = isTriple ? 3 : 1;
     final gameTypes = [
       {'type': 'tictactoe', 'name': '틱택토', 'icon': Icons.grid_3x3, 'color': const Color(0xFF6C5CE7)},
       {'type': 'infinite_tictactoe', 'name': '무한 틱택토', 'icon': Icons.all_inclusive, 'color': const Color(0xFF74B9FF)},
@@ -1133,73 +1135,79 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        maxChildSize: 0.9,
+        minChildSize: 0.4,
+        builder: (context, scrollController) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.all(24),
+          child: ListView(
+            controller: scrollController,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              '1패 삭제',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '어떤 게임의 패배를 삭제할까요?',
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
-            const SizedBox(height: 16),
-            ...gameTypes.map((game) {
-              final stats = statsProvider.getStatsForGame(game['type'] as String);
-              final losses = stats?.losses ?? 0;
+              const SizedBox(height: 20),
+              Text(
+                '${deleteCount}패 삭제',
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '어떤 게임의 패배를 삭제할까요?',
+                style: TextStyle(color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 16),
+              ...gameTypes.map((game) {
+                final stats = statsProvider.getStatsForGame(game['type'] as String);
+                final losses = stats?.losses ?? 0;
 
-              return ListTile(
-                enabled: losses > 0,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                leading: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: (game['color'] as Color).withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
+                return ListTile(
+                  enabled: losses > 0,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: (game['color'] as Color).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(game['icon'] as IconData, color: game['color'] as Color),
                   ),
-                  child: Icon(game['icon'] as IconData, color: game['color'] as Color),
-                ),
-                title: Text(game['name'] as String, style: const TextStyle(fontWeight: FontWeight.w600)),
-                subtitle: Text('패배: $losses', style: TextStyle(color: losses > 0 ? Colors.red : Colors.grey)),
-                trailing: losses > 0
-                    ? const Icon(Icons.chevron_right)
-                    : Text('삭제 불가', style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
-                onTap: losses > 0
-                    ? () {
-                        Navigator.pop(context);
-                        _confirmDeleteLoss(shopProvider, ticket, game['type'] as String, game['name'] as String);
-                      }
-                    : null,
-              );
-            }),
-            SizedBox(height: MediaQuery.of(context).padding.bottom),
-          ],
+                  title: Text(game['name'] as String, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: Text('패배: $losses', style: TextStyle(color: losses > 0 ? Colors.red : Colors.grey)),
+                  trailing: losses > 0
+                      ? const Icon(Icons.chevron_right)
+                      : Text('삭제 불가', style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
+                  onTap: losses > 0
+                      ? () {
+                          Navigator.pop(context);
+                          _confirmDeleteLoss(shopProvider, ticket, game['type'] as String, game['name'] as String);
+                        }
+                      : null,
+                );
+              }),
+              SizedBox(height: MediaQuery.of(context).padding.bottom),
+            ],
+          ),
         ),
       ),
     );
   }
 
   void _confirmDeleteLoss(ShopProvider shopProvider, ShopItem ticket, String gameType, String gameName) {
+    final isTriple = ticket.ticketEffect == 'delete_loss_3';
+    final deleteCount = isTriple ? 3 : 1;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -1208,7 +1216,7 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('$gameName의 패배 1회를 삭제할까요?'),
+            Text('$gameName의 패배 ${deleteCount}회를 삭제할까요?'),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -1241,7 +1249,7 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              shopProvider.deleteLoss(gameType);
+              shopProvider.deleteLoss(gameType, count: deleteCount, price: ticket.price);
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.amber.shade600,
@@ -1343,61 +1351,71 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
       {'type': 'tictactoe', 'name': '틱택토', 'icon': Icons.grid_3x3, 'color': const Color(0xFF6C5CE7)},
       {'type': 'infinite_tictactoe', 'name': '무한 틱택토', 'icon': Icons.all_inclusive, 'color': const Color(0xFF74B9FF)},
       {'type': 'gomoku', 'name': '오목', 'icon': Icons.circle_outlined, 'color': const Color(0xFF2D3436)},
+      {'type': 'reaction', 'name': '반응속도', 'icon': Icons.flash_on, 'color': const Color(0xFFE17055)},
+      {'type': 'rps', 'name': '가위바위보', 'icon': Icons.front_hand, 'color': const Color(0xFF9B59B6)},
+      {'type': 'speedtap', 'name': '스피드탭', 'icon': Icons.touch_app, 'color': const Color(0xFF00CEC9)},
+      {'type': 'sequence', 'name': '순서 기억', 'icon': Icons.psychology, 'color': const Color(0xFFE056FD)},
+      {'type': 'stroop', 'name': '스트룹', 'icon': Icons.palette, 'color': const Color(0xFF00CEC9)},
     ];
 
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        maxChildSize: 0.9,
+        minChildSize: 0.4,
+        builder: (context, scrollController) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.all(24),
+          child: ListView(
+            controller: scrollController,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              '승률 초기화',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '어떤 게임의 승률을 초기화할까요?',
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
-            const SizedBox(height: 16),
-            ...gameTypes.map((game) => ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: (game['color'] as Color).withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
+              const SizedBox(height: 20),
+              const Text(
+                '승률 초기화',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '어떤 게임의 승률을 초기화할까요?',
+                style: TextStyle(color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 16),
+              ...gameTypes.map((game) => ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: (game['color'] as Color).withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(game['icon'] as IconData, color: game['color'] as Color),
                     ),
-                    child: Icon(game['icon'] as IconData, color: game['color'] as Color),
-                  ),
-                  title: Text(game['name'] as String, style: const TextStyle(fontWeight: FontWeight.w600)),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _confirmReset(statsProvider, game['type'] as String, game['name'] as String);
-                  },
-                )),
-            SizedBox(height: MediaQuery.of(context).padding.bottom),
-          ],
+                    title: Text(game['name'] as String, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _confirmReset(statsProvider, game['type'] as String, game['name'] as String);
+                    },
+                  )),
+              SizedBox(height: MediaQuery.of(context).padding.bottom),
+            ],
+          ),
         ),
       ),
     );

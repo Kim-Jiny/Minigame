@@ -86,6 +86,23 @@ class ApiService {
     return AuthResponse.fromJson(data);
   }
 
+  Future<AuthResponse> loginWithTest(String nickname) async {
+    final response = await http.post(
+      Uri.parse('${AppConfig.serverUrl}/api/auth/test'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'nickname': nickname}),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Test login failed: ${response.body}');
+    }
+
+    final data = jsonDecode(response.body);
+    await _saveToken(data['token']);
+
+    return AuthResponse.fromJson(data);
+  }
+
   Future<UserInfo> updateNickname(String nickname) async {
     if (_jwtToken == null) {
       throw Exception('Not authenticated');

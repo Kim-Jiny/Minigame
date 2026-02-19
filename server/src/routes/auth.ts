@@ -175,6 +175,44 @@ router.post('/kakao', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+// POST /api/auth/test - 심사용 테스트 로그인
+router.post('/test', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { nickname } = req.body;
+
+    if (nickname !== 'appletest12') {
+      res.status(401).json({ error: 'Invalid test account' });
+      return;
+    }
+
+    // 심사용 계정: user_id = 1 (apple provider)
+    const { getPool } = require('../config/database');
+    const pool = getPool();
+    const result = await pool.query('SELECT * FROM dm_users WHERE id = 1');
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Test account not found' });
+      return;
+    }
+
+    const user = result.rows[0];
+    const token = generateToken(user.id);
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        nickname: user.nickname,
+        email: user.email,
+        avatarUrl: user.avatar_url,
+      },
+    });
+  } catch (error) {
+    console.error('Test auth error:', error);
+    res.status(500).json({ error: 'Test login failed' });
+  }
+});
+
 // PUT /api/auth/nickname - 닉네임 변경
 router.put('/nickname', async (req: Request, res: Response): Promise<void> => {
   try {
