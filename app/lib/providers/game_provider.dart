@@ -282,6 +282,10 @@ class GameProvider extends ChangeNotifier {
     });
 
     _socketListeners.on('game_end', (data) {
+      if (_status == GameStatus.finished) {
+        debugPrint('🎮 [GameProvider] duplicate game_end ignored');
+        return;
+      }
       _status = GameStatus.finished;
       // board가 있는 게임만 처리 (틱택토, 오목 등)
       if (data['board'] != null) {
@@ -295,6 +299,10 @@ class GameProvider extends ChangeNotifier {
     });
 
     _socketListeners.on('opponent_left', (data) {
+      if (_status == GameStatus.finished) {
+        debugPrint('🎮 [GameProvider] duplicate opponent_left ignored');
+        return;
+      }
       _status = GameStatus.finished;
       _winnerId = _myId; // 상대가 나가면 승리
       _rematchWaiting = false;

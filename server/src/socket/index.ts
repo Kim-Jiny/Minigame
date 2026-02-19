@@ -7,6 +7,7 @@ import { RpsGame } from '../games/rps';
 import { SpeedTapGame } from '../games/speedtap';
 import { SequenceGame } from '../games/sequence';
 import { StroopGame } from '../games/stroop';
+import { HexagonGame } from '../games/hexagon';
 import { friendService } from '../services/friendService';
 import { invitationService } from '../services/invitationService';
 import { statsService } from '../services/statsService';
@@ -58,7 +59,7 @@ interface GameRoom {
   id: string;
   gameType: string;
   players: Player[];
-  game: TicTacToeGame | InfiniteTicTacToeGame | GomokuGame | ReactionGame | RpsGame | SpeedTapGame | SequenceGame | StroopGame | null;
+  game: TicTacToeGame | InfiniteTicTacToeGame | GomokuGame | ReactionGame | RpsGame | SpeedTapGame | SequenceGame | StroopGame | HexagonGame | null;
   status: 'waiting' | 'playing' | 'finished';
   rematchRequests?: Set<string>;
   turnTimer?: NodeJS.Timeout;
@@ -66,6 +67,9 @@ interface GameRoom {
   isHardcore?: boolean;  // 하드코어 모드 여부
   isInfinite?: boolean;  // 무한 모드 여부 (틱택토)
   roundTimer?: NodeJS.Timeout;  // 반응속도/스피드탭 게임용 라운드 타이머
+  idleTimer?: NodeJS.Timeout;  // 헥사곤 90초 무도전 타이머
+  buzzTimer?: NodeJS.Timeout;  // 헥사곤 10초 버저 답변 타이머
+  isSolo?: boolean;  // 솔로 모드 여부
   isRanked?: boolean;  // 랭크전 여부
   rankedGames?: string[];  // 랭크전 게임 목록 (3개)
   rankedResults?: { gameType: string; winnerId: number | null }[];  // 랭크전 각 게임 결과
@@ -139,6 +143,16 @@ function clearRoundTimer(room: GameRoom) {
   }
 }
 
+// 같은 방에서 종료 처리를 한 번만 수행하도록 보호
+function markRoomFinishedOnce(room: GameRoom, reason: string): boolean {
+  if (room.status === 'finished') {
+    console.log(`⛔ Skip duplicate finish [${room.id}] reason=${reason}`);
+    return false;
+  }
+  room.status = 'finished';
+  return true;
+}
+
 // 반응속도 게임 라운드 시작
 function startReactionRound(io: Server, room: GameRoom) {
   if (room.gameType !== 'reaction' || !(room.game instanceof ReactionGame)) return;
@@ -184,8 +198,7 @@ function startReactionRound(io: Server, room: GameRoom) {
 // 반응속도 게임 종료 처리
 async function finishReactionGame(io: Server, room: GameRoom) {
   if (!(room.game instanceof ReactionGame)) return;
-
-  room.status = 'finished';
+  if (!markRoomFinishedOnce(room, 'reaction_game_end')) return;
   clearRoundTimer(room);
 
   const game = room.game;
@@ -319,8 +332,7 @@ function startRpsRound(io: Server, room: GameRoom) {
 // 가위바위보 게임 종료 처리
 async function finishRpsGame(io: Server, room: GameRoom) {
   if (!(room.game instanceof RpsGame)) return;
-
-  room.status = 'finished';
+  if (!markRoomFinishedOnce(room, 'rps_game_end')) return;
   clearRoundTimer(room);
 
   const game = room.game;
@@ -466,8 +478,7 @@ async function endSpeedTapRound(io: Server, room: GameRoom) {
 // 스피드탭 게임 종료 처리
 async function finishSpeedTapGame(io: Server, room: GameRoom) {
   if (!(room.game instanceof SpeedTapGame)) return;
-
-  room.status = 'finished';
+  if (!markRoomFinishedOnce(room, 'speedtap_game_end')) return;
   clearRoundTimer(room);
 
   const game = room.game;
@@ -598,8 +609,7 @@ function startSequenceRound(io: Server, room: GameRoom) {
 // 순서 기억하기 게임 종료 처리
 async function finishSequenceGame(io: Server, room: GameRoom) {
   if (!(room.game instanceof SequenceGame)) return;
-
-  room.status = 'finished';
+  if (!markRoomFinishedOnce(room, 'sequence_game_end')) return;
   clearRoundTimer(room);
 
   const game = room.game;
@@ -725,8 +735,7 @@ function startStroopRound(io: Server, room: GameRoom) {
 // 스트룹 게임 종료 처리
 async function finishStroopGame(io: Server, room: GameRoom) {
   if (!(room.game instanceof StroopGame)) return;
-
-  room.status = 'finished';
+  if (!markRoomFinishedOnce(room, 'stroop_game_end')) return;
   clearRoundTimer(room);
 
   const game = room.game;
@@ -794,6 +803,202 @@ async function finishStroopGame(io: Server, room: GameRoom) {
   console.log(`🏆 Stroop game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores[0]}-${scores[1]})`);
 
   // 랭크전인 경우 추가 처리
+  if (room.isRanked) {
+    await handleRankedGameEnd(io, room, winnerIndex);
+  }
+}
+
+// ====== 헥사곤 게임 함수 ======
+
+function clearHexagonTimers(room: GameRoom) {
+  if (room.idleTimer) { clearTimeout(room.idleTimer); room.idleTimer = undefined; }
+  if (room.buzzTimer) { clearTimeout(room.buzzTimer); room.buzzTimer = undefined; }
+}
+
+// 헥사곤 라운드 시작 (암기 단계)
+function startHexagonRound(io: Server, room: GameRoom) {
+  if (room.gameType !== 'hexagon' || !(room.game instanceof HexagonGame)) return;
+  if (room.status === 'finished') return;
+
+  const game = room.game;
+  const { board, targetNumber, round, totalCombinations } = game.startRound();
+
+  // 암기 시작 → 보드(숫자+알파벳) 전송
+  io.to(room.id).emit('hexagon_round_start', {
+    board,
+    targetNumber,
+    round,
+    totalCombinations,
+    memorizeTime: HexagonGame.MEMORIZE_TIME,
+    scores: game.getScores(),
+  });
+
+  console.log(`🔷 Hexagon Round ${round}: target=${targetNumber}, combos=${totalCombinations}`);
+
+  // 30초 후 암기 종료 → 플레이 시작
+  room.roundTimer = setTimeout(() => {
+    if (game.getRoundState() !== 'memorizing') return;
+    const { letters } = game.startPlaying();
+
+    io.to(room.id).emit('hexagon_play_start', {
+      letters,
+      targetNumber,
+      round,
+    });
+
+    // 90초 무도전 타이머 시작
+    startHexagonIdleTimer(io, room);
+
+    console.log(`🔷 Hexagon Round ${round}: memorizing ended, playing started`);
+  }, HexagonGame.MEMORIZE_TIME);
+}
+
+// 90초 무도전 타이머
+function startHexagonIdleTimer(io: Server, room: GameRoom) {
+  if (room.idleTimer) clearTimeout(room.idleTimer);
+  room.idleTimer = setTimeout(() => {
+    if (!(room.game instanceof HexagonGame)) return;
+    if (room.game.getRoundState() !== 'playing') return;
+    finishHexagonRound(io, room);
+  }, HexagonGame.ROUND_IDLE_TIMEOUT);
+}
+
+// 10초 버저 답변 타이머
+function startHexagonBuzzTimer(io: Server, room: GameRoom) {
+  if (room.buzzTimer) clearTimeout(room.buzzTimer);
+  room.buzzTimer = setTimeout(() => {
+    if (!(room.game instanceof HexagonGame)) return;
+    if (room.game.getRoundState() !== 'buzzing') return;
+
+    const { scores } = room.game.buzzTimeout();
+    io.to(room.id).emit('hexagon_buzz_timeout', { scores });
+
+    // 90초 타이머 재시작
+    startHexagonIdleTimer(io, room);
+  }, HexagonGame.BUZZ_TIME_LIMIT);
+}
+
+// 헥사곤 라운드 종료
+function finishHexagonRound(io: Server, room: GameRoom) {
+  if (!(room.game instanceof HexagonGame)) return;
+  clearHexagonTimers(room);
+  clearRoundTimer(room);
+
+  const result = room.game.finishRound();
+  io.to(room.id).emit('hexagon_round_end', {
+    ...result,
+    scores: room.game.getScores(),
+  });
+
+  console.log(`🔷 Hexagon Round ${result.round} ended: found ${result.foundCombinations.length}/${result.totalCombinations}`);
+
+  // 게임 종료 체크
+  if (room.game.checkGameOver()) {
+    setTimeout(() => finishHexagonGame(io, room), 2000);
+  } else {
+    // 다음 라운드 (3초 후)
+    setTimeout(() => startHexagonRound(io, room), 3000);
+  }
+}
+
+// 헥사곤 게임 종료 처리
+async function finishHexagonGame(io: Server, room: GameRoom) {
+  if (!(room.game instanceof HexagonGame)) return;
+  if (!markRoomFinishedOnce(room, 'hexagon_game_end')) return;
+  clearHexagonTimers(room);
+  clearRoundTimer(room);
+
+  const game = room.game;
+  const scores = game.getScores();
+  const isSolo = game.getIsSolo();
+
+  if (isSolo) {
+    // 솔로 모드: 최종 점수 기록
+    const player = room.players[0];
+    io.to(room.id).emit('game_end', {
+      winner: null,
+      winnerNickname: null,
+      isDraw: false,
+      scores,
+      isSolo: true,
+      roundResults: game.getRoundResults(),
+    });
+
+    // 솔로 랭킹 저장
+    if (player.userId) {
+      try {
+        const pool = getPool();
+        if (pool) {
+          await pool.query(
+            `INSERT INTO dm_hexagon_rankings (user_id, score, nickname)
+             VALUES ($1, $2, $3)`,
+            [player.userId, scores[0], player.nickname]
+          );
+        }
+      } catch (err) {
+        console.error('Failed to save hexagon ranking:', err);
+      }
+    }
+
+    console.log(`🏆 Hexagon solo ended: ${player.nickname} scored ${scores[0]}`);
+    return;
+  }
+
+  // 대전 모드
+  const winnerIndex = game.getWinner();
+  const winner = winnerIndex !== null ? room.players[winnerIndex] : null;
+  const winnerId = winner?.id ?? null;
+  const winnerNickname = winner?.nickname ?? null;
+  const isDraw = winnerIndex === null;
+
+  const rewardResults: { [key: string]: any } = {};
+
+  for (let i = 0; i < room.players.length; i++) {
+    const player = room.players[i];
+    const opponent = room.players[i === 0 ? 1 : 0];
+    if (player.userId) {
+      let gameResult: 'win' | 'loss' | 'draw';
+      if (isDraw) gameResult = 'draw';
+      else if (winnerIndex === i) gameResult = 'win';
+      else gameResult = 'loss';
+
+      try {
+        const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
+        player.socket.emit('stats_updated', { stats });
+        if (i === 0 && opponent.userId) {
+          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult, {
+            isRanked: room.isRanked,
+            rankedMatchId: room.isRanked ? room.id : undefined,
+            rankedGameIndex: room.isRanked ? room.rankedCurrentIndex : undefined,
+          });
+        }
+        if (opponent.userId) {
+          const reward = await coinService.processGameReward(player.userId, opponent.userId, gameResult);
+          rewardResults[player.id] = reward;
+          player.socket.emit('coins_updated', {
+            coins: reward.totalCoins,
+            earned: reward.coinsEarned,
+            streak: reward.streakAfter,
+            streakBonus: reward.streakBonusEarned,
+          });
+        }
+      } catch (err) {
+        console.error('Failed to update stats:', err);
+      }
+    }
+  }
+
+  io.to(room.id).emit('game_end', {
+    winner: winnerId,
+    winnerNickname,
+    isDraw,
+    scores,
+    roundResults: game.getRoundResults(),
+    rewards: rewardResults,
+  });
+
+  console.log(`🏆 Hexagon game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores[0]}-${scores[1]})`);
+
   if (room.isRanked) {
     await handleRankedGameEnd(io, room, winnerIndex);
   }
@@ -869,7 +1074,7 @@ async function handleTurnTimeout(io: Server, room: GameRoom) {
 
   // 게임 종료 체크
   if (result.gameOver) {
-    room.status = 'finished';
+    if (!markRoomFinishedOnce(room, 'turn_timeout')) return;
     clearTurnTimer(room);
 
     const winnerId = result.winner !== undefined && result.winner !== null
@@ -1096,6 +1301,8 @@ async function startRankedGame(io: Server, room: GameRoom) {
     room.game = new SequenceGame(isHardcore);
   } else if (gameType === 'stroop') {
     room.game = new StroopGame(isHardcore);
+  } else if (gameType === 'hexagon') {
+    room.game = new HexagonGame(false);
   }
 
   // 게임 시작 알림
@@ -1160,6 +1367,13 @@ async function startRankedGame(io: Server, room: GameRoom) {
       });
       console.log(`📤 [startRankedGame] game_start emitted for stroop`);
       setTimeout(() => startStroopRound(io, room), 1000);
+    } else if (gameType === 'hexagon') {
+      io.to(room.id).emit('game_start', {
+        gameType: 'hexagon',
+        isSolo: false,
+      });
+      console.log(`📤 [startRankedGame] game_start emitted for hexagon`);
+      setTimeout(() => startHexagonRound(io, room), 1000);
     } else {
       // 턴제 게임
       startTurnTimer(io, room);
@@ -1430,6 +1644,112 @@ export function setupSocketHandlers(io: Server) {
       currentRoomId = data.roomId;
     });
 
+    // 헥사곤 솔로 모드 시작
+    socket.on('hexagon_solo_start', async () => {
+      if (!currentPlayer) return;
+
+      const roomId = `hexagon_solo_${socket.id}_${Date.now()}`;
+      const room: GameRoom = {
+        id: roomId,
+        gameType: 'hexagon',
+        players: [currentPlayer],
+        game: new HexagonGame(true),
+        status: 'playing',
+        isSolo: true,
+      };
+      rooms.set(roomId, room);
+      socket.join(roomId);
+      currentRoomId = roomId;
+
+      if (currentPlayer.userId) userRooms.set(currentPlayer.userId, roomId);
+
+      socket.emit('hexagon_solo_ready', { roomId });
+
+      io.to(roomId).emit('game_start', {
+        gameType: 'hexagon',
+        isSolo: true,
+      });
+
+      setTimeout(() => startHexagonRound(io, room), 1000);
+      console.log(`🔷 Hexagon solo started: ${currentPlayer.nickname}`);
+    });
+
+    // 헥사곤 솔로 도전 종료 (기록 저장)
+    socket.on('hexagon_solo_end', async (data: { roomId: string }) => {
+      if (!currentPlayer) return;
+      const room = rooms.get(data.roomId);
+      if (!room || !(room.game instanceof HexagonGame) || !room.isSolo) return;
+      if (room.status === 'finished') return;
+
+      // 타이머 정리
+      clearHexagonTimers(room);
+      clearRoundTimer(room);
+
+      const game = room.game;
+      const scores = game.getScores();
+
+      // 현재 라운드가 진행 중이면 종료 처리
+      if (game.getRoundState() !== 'waiting' && game.getRoundState() !== 'finished') {
+        game.finishRound();
+      }
+
+      room.status = 'finished';
+
+      // 랭킹 저장
+      if (currentPlayer.userId) {
+        try {
+          const pool = getPool();
+          if (pool) {
+            await pool.query(
+              `INSERT INTO dm_hexagon_rankings (user_id, score, nickname)
+               VALUES ($1, $2, $3)`,
+              [currentPlayer.userId, scores[0], currentPlayer.nickname]
+            );
+          }
+        } catch (err) {
+          console.error('Failed to save hexagon ranking:', err);
+        }
+      }
+
+      socket.emit('game_end', {
+        winner: null,
+        winnerNickname: null,
+        isDraw: false,
+        scores,
+        isSolo: true,
+        roundResults: game.getRoundResults(),
+      });
+
+      // 방 정리
+      if (currentPlayer.userId) userRooms.delete(currentPlayer.userId);
+      rooms.delete(data.roomId);
+
+      console.log(`🔷 Hexagon solo ended by player: ${currentPlayer.nickname}, score=${scores[0]}`);
+    });
+
+    // 헥사곤 랭킹 조회
+    socket.on('hexagon_get_rankings', async (data: { limit?: number }) => {
+      try {
+        const pool = getPool();
+        if (!pool) {
+          socket.emit('hexagon_rankings', { rankings: [] });
+          return;
+        }
+        const limit = data?.limit || 50;
+        const result = await pool.query(
+          `SELECT user_id, nickname, score, created_at
+           FROM dm_hexagon_rankings
+           ORDER BY score DESC
+           LIMIT $1`,
+          [limit]
+        );
+        socket.emit('hexagon_rankings', { rankings: result.rows });
+      } catch (err) {
+        console.error('Failed to get hexagon rankings:', err);
+        socket.emit('hexagon_rankings', { rankings: [] });
+      }
+    });
+
     // 게임 매칭 요청
     socket.on('find_match', async (data: { gameType: string; isHardcore?: boolean; isInfinite?: boolean }) => {
       if (!currentPlayer) {
@@ -1481,6 +1801,8 @@ export function setupSocketHandlers(io: Server) {
           room.game = new SequenceGame(isHardcore);
         } else if (gameType === 'stroop') {
           room.game = new StroopGame(isHardcore);
+        } else if (gameType === 'hexagon') {
+          room.game = new HexagonGame(false);
         }
 
         rooms.set(roomId, room);
@@ -1570,6 +1892,13 @@ export function setupSocketHandlers(io: Server) {
           });
           // 1초 후 첫 라운드 시작
           setTimeout(() => startStroopRound(io, room), 1000);
+        } else if (gameType === 'hexagon') {
+          // 헥사곤 게임
+          io.to(roomId).emit('game_start', {
+            gameType: 'hexagon',
+            isSolo: false,
+          });
+          setTimeout(() => startHexagonRound(io, room), 1000);
         } else {
           // 턴제 게임
           startTurnTimer(io, room);
@@ -1631,7 +1960,7 @@ export function setupSocketHandlers(io: Server) {
 
         // 게임 종료 체크
         if (result.gameOver) {
-          room.status = 'finished';
+          if (!markRoomFinishedOnce(room, 'tictactoe_game_end')) return;
           const winnerId = result.winner !== undefined && result.winner !== null
             ? room.players[result.winner].id
             : null;
@@ -1727,7 +2056,7 @@ export function setupSocketHandlers(io: Server) {
 
         // 게임 종료 체크
         if (result.gameOver) {
-          room.status = 'finished';
+          if (!markRoomFinishedOnce(room, 'infinite_tictactoe_game_end')) return;
           const winnerId = result.winner !== undefined && result.winner !== null
             ? room.players[result.winner].id
             : null;
@@ -1818,7 +2147,7 @@ export function setupSocketHandlers(io: Server) {
 
         // 게임 종료 체크
         if (result.gameOver) {
-          room.status = 'finished';
+          if (!markRoomFinishedOnce(room, 'gomoku_game_end')) return;
           const winnerId = result.winner !== undefined && result.winner !== null
             ? room.players[result.winner].id
             : null;
@@ -2083,6 +2412,61 @@ export function setupSocketHandlers(io: Server) {
           } else {
             // 다음 라운드 시작 (2초 후)
             setTimeout(() => startStroopRound(io, room), 2000);
+          }
+        }
+      }
+
+      // 헥사곤 게임 로직
+      if (room.gameType === 'hexagon' && room.game instanceof HexagonGame) {
+        const action = data.action;
+
+        if (action.type === 'buzz') {
+          // 버저 누르기
+          const result = room.game.buzz(playerIndex);
+          if (!result.valid) return;
+
+          // 90초 타이머 멈추고 10초 버저 타이머 시작
+          if (room.idleTimer) { clearTimeout(room.idleTimer); room.idleTimer = undefined; }
+          startHexagonBuzzTimer(io, room);
+
+          io.to(data.roomId).emit('hexagon_buzz', {
+            playerIndex,
+            playerId: socket.id,
+            playerNickname: currentPlayer?.nickname,
+          });
+        } else if (action.type === 'answer') {
+          // 답변 제출
+          const cellIndices = action.cellIndices as number[];
+          const result = room.game.submitAnswer(playerIndex, cellIndices);
+          if (!result.valid) return;
+
+          // 버저 타이머 정리
+          if (room.buzzTimer) { clearTimeout(room.buzzTimer); room.buzzTimer = undefined; }
+
+          io.to(data.roomId).emit('hexagon_answer_result', {
+            playerIndex,
+            playerId: socket.id,
+            playerNickname: currentPlayer?.nickname,
+            correct: result.correct,
+            letters: result.letters,
+            alreadyFound: result.alreadyFound,
+            scores: result.scores,
+            remainingCombinations: result.remainingCombinations,
+            foundCombinations: room.game.getFoundCombinations(),
+          });
+
+          if (result.correct) {
+            console.log(`🔷 ${currentPlayer?.nickname} found ${result.letters}!`);
+          } else {
+            console.log(`🔷 ${currentPlayer?.nickname} wrong answer: ${result.letters}`);
+          }
+
+          // 모든 조합을 찾았으면 라운드 종료
+          if (result.remainingCombinations === 0) {
+            finishHexagonRound(io, room);
+          } else {
+            // 90초 타이머 재시작
+            startHexagonIdleTimer(io, room);
           }
         }
       }
@@ -2528,6 +2912,8 @@ export function setupSocketHandlers(io: Server) {
           room.game = new SequenceGame(isHardcore);
         } else if (invitation.gameType === 'stroop') {
           room.game = new StroopGame(isHardcore);
+        } else if (invitation.gameType === 'hexagon') {
+          room.game = new HexagonGame(false);
         }
 
         rooms.set(roomId, room);
@@ -2748,6 +3134,37 @@ export function setupSocketHandlers(io: Server) {
             });
 
             setTimeout(() => startStroopRound(io, room), 1000);
+          }, 500);
+        } else if (invitation.gameType === 'hexagon') {
+          // 헥사곤 게임
+          socket.emit('accept_invitation_result', {
+            success: true,
+            roomId,
+            gameType: invitation.gameType,
+            gameState: { players, isInvitation: true }
+          });
+
+          inviterSocket!.emit('invitation_accepted', {
+            roomId,
+            gameType: invitation.gameType,
+            acceptedBy: currentPlayer.nickname,
+            gameState: { players, isInvitation: true }
+          });
+
+          setTimeout(() => {
+            io.to(roomId).emit('match_found', {
+              roomId,
+              gameType: invitation.gameType,
+              isInvitation: true,
+              players
+            });
+
+            io.to(roomId).emit('game_start', {
+              gameType: 'hexagon',
+              isSolo: false,
+            });
+
+            setTimeout(() => startHexagonRound(io, room), 1000);
           }, 500);
         } else {
           // 턴제 게임
@@ -3106,6 +3523,8 @@ export function setupSocketHandlers(io: Server) {
             room.game = new SequenceGame(room.isHardcore);
           } else if (room.gameType === 'stroop') {
             room.game = new StroopGame(room.isHardcore);
+          } else if (room.gameType === 'hexagon') {
+            room.game = new HexagonGame(false);
           }
           room.status = 'playing';
           room.rematchRequests.clear();
@@ -3152,6 +3571,13 @@ export function setupSocketHandlers(io: Server) {
               colors: stroopGame.getColors(),
             });
             setTimeout(() => startStroopRound(io, room), 1000);
+          } else if (room.gameType === 'hexagon') {
+            // 헥사곤 게임 재대결
+            io.to(data.roomId).emit('game_start', {
+              gameType: 'hexagon',
+              isSolo: false,
+            });
+            setTimeout(() => startHexagonRound(io, room), 1000);
           } else {
             // 턴제 게임
             startTurnTimer(io, room);
@@ -3380,6 +3806,8 @@ export function setupSocketHandlers(io: Server) {
       if (room) {
         // 타이머 정리
         clearTurnTimer(room);
+        clearHexagonTimers(room);
+        clearRoundTimer(room);
         let handledRankedForfeit = false;
 
         // 랭크전 매칭 직후 (게임 시작 전) 퇴장 처리

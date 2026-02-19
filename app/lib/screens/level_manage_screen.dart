@@ -5,6 +5,18 @@ import '../providers/stats_provider.dart';
 class LevelManageScreen extends StatelessWidget {
   const LevelManageScreen({super.key});
 
+  static const List<_GameMeta> _allGames = [
+    _GameMeta('tictactoe', '틱택토', Icons.grid_3x3, Color(0xFF6C5CE7)),
+    _GameMeta('infinite_tictactoe', '무한 틱택토', Icons.all_inclusive, Color(0xFF74B9FF)),
+    _GameMeta('gomoku', '오목', Icons.circle_outlined, Color(0xFF2D3436)),
+    _GameMeta('reaction', '반응속도', Icons.flash_on, Color(0xFFE17055)),
+    _GameMeta('rps', '가위바위보', Icons.front_hand, Color(0xFF9B59B6)),
+    _GameMeta('speedtap', '스피드탭', Icons.touch_app, Color(0xFF16A085)),
+    _GameMeta('sequence', '순서 기억', Icons.memory, Color(0xFF00B894)),
+    _GameMeta('stroop', '스트룹', Icons.palette, Color(0xFFE84393)),
+    _GameMeta('hexagon', '헥사곤', Icons.hexagon_outlined, Color(0xFFF39C12)),
+  ];
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -14,38 +26,20 @@ class LevelManageScreen extends StatelessWidget {
         foregroundColor: Colors.white,
       ),
       body: Consumer<StatsProvider>(
-        builder: (context, statsProvider, child) {
+        builder: (context, statsProvider, _) {
           return RefreshIndicator(
-            onRefresh: () async {
-              statsProvider.getAllStats();
-            },
+            onRefresh: () async => statsProvider.getAllStats(),
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 총 레벨 요약
-                  _buildTotalLevelCard(context, statsProvider),
-                  const SizedBox(height: 24),
-
-                  // 게임별 상세
-                  Text(
-                    '게임별 레벨',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey.shade800,
-                    ),
-                  ),
+                  _buildSummaryCard(context, statsProvider),
+                  const SizedBox(height: 20),
+                  _buildSectionHeader(statsProvider),
                   const SizedBox(height: 12),
-
-                  if (statsProvider.allStats.isEmpty)
-                    _buildEmptyState()
-                  else
-                    ...statsProvider.allStats.map((stats) =>
-                      _buildGameStatsCard(context, stats)
-                    ),
+                  _buildGameGrid(context, statsProvider),
                 ],
               ),
             ),
@@ -55,276 +49,229 @@ class LevelManageScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildTotalLevelCard(BuildContext context, StatsProvider statsProvider) {
+  Widget _buildSummaryCard(BuildContext context, StatsProvider statsProvider) {
+    final statsMap = {for (final s in statsProvider.allStats) s.gameType: s};
     int totalLevel = 0;
     int totalWins = 0;
-    int totalLosses = 0;
     int totalGames = 0;
+    int playedGames = 0;
 
-    for (var stats in statsProvider.allStats) {
-      totalLevel += stats.level;
-      totalWins += stats.wins;
-      totalLosses += stats.losses;
-      totalGames += stats.totalGames;
+    for (final meta in _allGames) {
+      final stats = statsMap[meta.type];
+      if (stats != null) {
+        totalLevel += stats.level;
+        totalWins += stats.wins;
+        totalGames += stats.totalGames;
+        if (stats.totalGames > 0) playedGames++;
+      }
     }
 
-    final overallWinRate = totalGames > 0 ? (totalWins / totalGames * 100).round() : 0;
+    final winRate = totalGames > 0 ? (totalWins / totalGames * 100).round() : 0;
+    final completion = ((playedGames / _allGames.length) * 100).round();
 
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          gradient: LinearGradient(
-            colors: [
-              Theme.of(context).primaryColor,
-              Theme.of(context).primaryColor.withValues(alpha: 0.7),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: LinearGradient(
+          colors: [
+            Theme.of(context).primaryColor,
+            Theme.of(context).primaryColor.withValues(alpha: 0.75),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(context).primaryColor.withValues(alpha: 0.3),
+            blurRadius: 14,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('통합 진행도', style: TextStyle(color: Colors.white70, fontSize: 13)),
+          const SizedBox(height: 8),
+          Text(
+            'Lv. $totalLevel',
+            style: const TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _summaryMetric('플레이', '$playedGames/${_allGames.length}'),
+              _summaryMetric('총 게임', '$totalGames'),
+              _summaryMetric('승률', '$winRate%'),
+              _summaryMetric('달성', '$completion%'),
             ],
           ),
-        ),
-        child: Column(
-          children: [
-            const Text(
-              '통합 레벨',
-              style: TextStyle(color: Colors.white70, fontSize: 14),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Lv. $totalLevel',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 36,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildSummaryItem('총 게임', '$totalGames'),
-                _buildSummaryItem('승리', '$totalWins'),
-                _buildSummaryItem('승률', '$overallWinRate%'),
-              ],
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }
 
-  Widget _buildSummaryItem(String label, String value) {
+  Widget _summaryMetric(String label, String value) {
     return Column(
       children: [
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        Text(
-          label,
-          style: const TextStyle(color: Colors.white70, fontSize: 12),
-        ),
+        Text(value, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
       ],
     );
   }
 
-  Widget _buildEmptyState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          children: [
-            Icon(Icons.sports_esports_outlined, size: 64, color: Colors.grey.shade300),
-            const SizedBox(height: 16),
-            Text(
-              '아직 게임 기록이 없어요',
-              style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '게임을 플레이하면 레벨이 올라요!',
-              style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
-            ),
-          ],
-        ),
-      ),
+  Widget _buildSectionHeader(StatsProvider statsProvider) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        const Text('게임별 레벨', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        if (statsProvider.isLoading)
+          const SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+      ],
     );
   }
 
-  Widget _buildGameStatsCard(BuildContext context, GameStats stats) {
-    final Color gameColor = switch (stats.gameType) {
-      'tictactoe' => const Color(0xFF6C5CE7),
-      'infinite_tictactoe' => const Color(0xFF74B9FF),
-      'gomoku' => const Color(0xFF2D3436),
-      'reaction' => const Color(0xFFE17055),
-      'rps' => const Color(0xFF9B59B6),
-      _ => const Color(0xFF74B9FF),
-    };
+  Widget _buildGameGrid(BuildContext context, StatsProvider statsProvider) {
+    final statsMap = {for (final s in statsProvider.allStats) s.gameType: s};
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 헤더
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: gameColor.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    switch (stats.gameType) {
-                      'tictactoe' => Icons.grid_3x3,
-                      'infinite_tictactoe' => Icons.all_inclusive,
-                      'gomoku' => Icons.circle_outlined,
-                      'reaction' => Icons.flash_on,
-                      'rps' => Icons.front_hand,
-                      _ => Icons.sports_esports,
-                    },
-                    color: gameColor,
-                    size: 28,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        stats.gameTypeName,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: gameColor.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          'Lv.${stats.level}',
-                          style: TextStyle(
-                            color: gameColor,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // 승률
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      '${stats.winRate}%',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: gameColor,
-                      ),
-                    ),
-                    Text(
-                      '승률',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 620;
+        final itemWidth = isWide ? (constraints.maxWidth - 12) / 2 : constraints.maxWidth;
 
-            // 경험치 바
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      '다음 레벨까지',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                    ),
-                    Text(
-                      '${stats.exp} / ${stats.expToNextLevel} EXP',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                    ),
-                  ],
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: _allGames.map((meta) {
+            final stats = statsMap[meta.type];
+            return SizedBox(
+              width: itemWidth,
+              child: _buildGameCard(meta, stats),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+
+  Widget _buildGameCard(_GameMeta meta, GameStats? stats) {
+    final played = stats != null && stats.totalGames > 0;
+    final level = stats?.level ?? 0;
+    final wins = stats?.wins ?? 0;
+    final losses = stats?.losses ?? 0;
+    final draws = stats?.draws ?? 0;
+    final totalGames = stats?.totalGames ?? 0;
+    final winRate = stats?.winRate ?? 0;
+    final exp = stats?.exp ?? 0;
+    final expToNext = stats?.expToNextLevel ?? 100;
+    final expProgress = stats?.expProgress ?? 0.0;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: meta.color.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                const SizedBox(height: 8),
-                ClipRRect(
+                child: Icon(meta.icon, color: meta.color, size: 22),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  meta.name,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: played ? meta.color.withValues(alpha: 0.12) : Colors.grey.shade100,
                   borderRadius: BorderRadius.circular(8),
-                  child: LinearProgressIndicator(
-                    value: stats.expProgress,
-                    backgroundColor: Colors.grey.shade200,
-                    valueColor: AlwaysStoppedAnimation<Color>(gameColor),
-                    minHeight: 12,
+                ),
+                child: Text(
+                  played ? 'Lv.$level' : '미플레이',
+                  style: TextStyle(
+                    color: played ? meta.color : Colors.grey.shade600,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 20),
-
-            // 전적
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                borderRadius: BorderRadius.circular(12),
               ),
-              child: Row(
-                children: [
-                  Expanded(child: _buildStatColumn('승', stats.wins, Colors.green)),
-                  Container(width: 1, height: 40, color: Colors.grey.shade300),
-                  Expanded(child: _buildStatColumn('패', stats.losses, Colors.red)),
-                  Container(width: 1, height: 40, color: Colors.grey.shade300),
-                  Expanded(child: _buildStatColumn('무', stats.draws, Colors.grey)),
-                  Container(width: 1, height: 40, color: Colors.grey.shade300),
-                  Expanded(child: _buildStatColumn('총', stats.totalGames, gameColor)),
-                ],
-              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: LinearProgressIndicator(
+              value: played ? expProgress : 0,
+              minHeight: 10,
+              backgroundColor: Colors.grey.shade200,
+              valueColor: AlwaysStoppedAnimation<Color>(meta.color),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            played ? '$exp / $expToNext EXP' : '플레이 후 EXP 누적',
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _miniStat('승', wins, Colors.green),
+              _miniStat('패', losses, Colors.red),
+              _miniStat('무', draws, Colors.grey),
+              _miniStat('승률', played ? winRate : 0, meta.color, suffix: '%'),
+              _miniStat('총', totalGames, Colors.black87),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildStatColumn(String label, int value, Color color) {
+  Widget _miniStat(String label, int value, Color color, {String suffix = ''}) {
     return Column(
       children: [
         Text(
-          '$value',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
+          '$value$suffix',
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color),
         ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-        ),
+        Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
       ],
     );
   }
+}
+
+class _GameMeta {
+  final String type;
+  final String name;
+  final IconData icon;
+  final Color color;
+
+  const _GameMeta(this.type, this.name, this.icon, this.color);
 }

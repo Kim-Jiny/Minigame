@@ -289,6 +289,16 @@ export async function setupDatabase() {
       INSERT INTO dm_admin_accounts (username, password)
       VALUES ('jiny', '1204')
       ON CONFLICT (username) DO NOTHING;
+
+      -- 헥사곤 솔로 랭킹 테이블
+      CREATE TABLE IF NOT EXISTS dm_hexagon_rankings (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES dm_users(id),
+        score INTEGER NOT NULL,
+        nickname VARCHAR(50),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_dm_hexagon_rankings_score ON dm_hexagon_rankings(score DESC);
     `);
 
     console.log('✅ Database tables ready');
