@@ -1737,8 +1737,9 @@ export function setupSocketHandlers(io: Server) {
         }
         const limit = data?.limit || 50;
         const result = await pool.query(
-          `SELECT user_id, nickname, score, created_at
+          `SELECT user_id, nickname, MAX(score) as score, MAX(created_at) as created_at
            FROM dm_hexagon_rankings
+           GROUP BY user_id, nickname
            ORDER BY score DESC
            LIMIT $1`,
           [limit]
