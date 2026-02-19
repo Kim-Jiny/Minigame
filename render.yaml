@@ -19,4 +19,4 @@ services:
 databases:
   - name: minigame-db
     plan: free
-    databaseName: minigame
+    databaseName: minigame_aeki

@@ -169,6 +169,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
             route = '/game/sequence';
           } else if (gameType == 'stroop') {
             route = '/game/stroop';
+          } else if (gameType == 'hexagon') {
+            route = '/game/hexagon';
           }
           Navigator.pushNamed(context, route);
         }
@@ -422,6 +424,24 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     icon: Icons.circle_outlined,
                     color: const Color(0xFF636E72),
                     route: '/game/gomoku',
+                  ),
+                  const SizedBox(height: 20),
+
+                  // 두뇌 게임 섹션
+                  _buildSectionHeader(
+                    icon: Icons.extension,
+                    title: '두뇌 게임',
+                    subtitle: '5~15분',
+                    color: const Color(0xFF2D3436),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildLargeGameCard(
+                    context,
+                    title: '헥사곤',
+                    subtitle: '숫자를 외우고 합을 맞춰라!',
+                    icon: Icons.hexagon_outlined,
+                    color: const Color(0xFF2D3436),
+                    route: '/game/hexagon',
                   ),
                 ],
               ),

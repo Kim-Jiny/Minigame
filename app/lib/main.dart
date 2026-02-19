@@ -21,6 +21,7 @@ import 'games/rps/rps_screen.dart';
 import 'games/speedtap/speedtap_screen.dart';
 import 'games/sequence/sequence_screen.dart';
 import 'games/stroop/stroop_screen.dart';
+import 'games/hexagon/hexagon_screen.dart';
 
 // 앱 테마 색상 정의
 class AppColors {
@@ -130,6 +131,7 @@ class MinigameApp extends StatelessWidget {
           '/game/speedtap': (context) => const SpeedTapScreen(),
           '/game/sequence': (context) => const SequenceScreen(),
           '/game/stroop': (context) => const StroopScreen(),
+          '/game/hexagon': (context) => const HexagonScreen(),
         },
       ),
     );

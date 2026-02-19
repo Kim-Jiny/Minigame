@@ -3,7 +3,7 @@ import '../services/remote_config_service.dart';
 
 class AppConfig {
   // 서버 URL 설정
-  static const String _localServerUrl = 'http://172.30.1.66:3000';  // 로컬 개발용
+  static const String _localServerUrl = 'http://172.30.1.98:3000';  // 로컬 개발용
   static const String _productionServerUrl = 'https://minigame-server-jfep.onrender.com';  // 프로덕션
 
   // 기본 서버 URL (Debug면 로컬, Release면 프로덕션)
@@ -28,4 +28,5 @@ class AppConfig {
   static const String gameTypeSpeedTap = 'speedtap';
   static const String gameTypeSequence = 'sequence';
   static const String gameTypeStroop = 'stroop';
+  static const String gameTypeHexagon = 'hexagon';
 }

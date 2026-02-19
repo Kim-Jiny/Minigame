@@ -232,6 +232,7 @@ class _ReactionScreenState extends State<ReactionScreen> {
     });
 
     _socketListeners.on('game_end', (data) {
+      if (_status == ReactionGameStatus.finished) return;
       setState(() {
         _status = ReactionGameStatus.finished;
         _winnerId = data['winner'];
@@ -243,6 +244,7 @@ class _ReactionScreenState extends State<ReactionScreen> {
     });
 
     _socketListeners.on('opponent_left', (data) {
+      if (_status == ReactionGameStatus.finished) return;
       // 나가기 다이얼로그가 열려있으면 먼저 닫기
       if (_isExitDialogOpen && mounted) {
         Navigator.of(context).pop();
