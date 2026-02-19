@@ -347,12 +347,10 @@ export const shopService = {
     }
   },
 
-  // 1패 삭제 처리 (코인 차감 포함)
-  async deleteLoss(userId: number, gameType: string): Promise<{ success: boolean; message: string; stats?: any; coins?: number }> {
+  // 패배 삭제 처리 (코인 차감 포함, count로 삭제 수량 지정)
+  async deleteLoss(userId: number, gameType: string, count: number = 1, price: number = 50): Promise<{ success: boolean; message: string; stats?: any; coins?: number }> {
     const pool = getPool();
     if (!pool) return { success: false, message: '데이터베이스 연결 실패' };
-
-    const TICKET_PRICE = 50; // 1패 삭제권 가격
 
     const client = await pool.connect();
     try {
@@ -365,9 +363,9 @@ export const shopService = {
       );
 
       const currentCoins = coinResult.rows.length > 0 ? (coinResult.rows[0].mileage || 0) : 0;
-      if (currentCoins < TICKET_PRICE) {
+      if (currentCoins < price) {
         await client.query('ROLLBACK');
-        return { success: false, message: `코인이 부족합니다. (현재: ${currentCoins}, 필요: ${TICKET_PRICE})` };
+        return { success: false, message: `코인이 부족합니다. (현재: ${currentCoins}, 필요: ${price})` };
       }
 
       // 2. 현재 통계 조회
@@ -381,18 +379,21 @@ export const shopService = {
         return { success: false, message: '삭제할 패배 기록이 없습니다.' };
       }
 
+      // 실제 삭제 가능한 수량 (현재 패배 수를 초과하지 않도록)
+      const actualCount = Math.min(count, statsResult.rows[0].losses);
+
       // 3. 코인(마일리지) 차감
       await client.query(
         'UPDATE dm_user_mileage SET mileage = mileage - $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
-        [TICKET_PRICE, userId]
+        [price, userId]
       );
 
-      // 4. 패배 1회 감소
+      // 4. 패배 감소
       await client.query(
         `UPDATE dm_user_game_stats
-         SET losses = losses - 1, updated_at = CURRENT_TIMESTAMP
-         WHERE user_id = $1 AND game_type = $2`,
-        [userId, gameType]
+         SET losses = losses - $1, updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = $2 AND game_type = $3`,
+        [actualCount, userId, gameType]
       );
 
       await client.query('COMMIT');
@@ -415,7 +416,7 @@ export const shopService = {
 
       return {
         success: true,
-        message: '패배 1회가 삭제되었습니다!',
+        message: `패배 ${actualCount}회가 삭제되었습니다!`,
         coins: updatedCoins.rows[0]?.mileage || 0,
         stats: {
           gameType: stats.game_type,

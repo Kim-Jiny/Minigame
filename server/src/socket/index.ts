@@ -3338,13 +3338,16 @@ export function setupSocketHandlers(io: Server) {
 
     // 리더보드 조회
     socket.on('get_leaderboard', async (data?: { limit?: number; offset?: number }) => {
+      console.log('📊 get_leaderboard requested');
       try {
         const leaderboard = await rankedService.getLeaderboard(
           data?.limit || 100,
           data?.offset || 0
         );
+        console.log(`📊 Leaderboard: ${leaderboard.length} entries`);
         socket.emit('leaderboard', { leaderboard });
       } catch (error) {
+        console.error('📊 Leaderboard error:', error);
         socket.emit('leaderboard', { leaderboard: [] });
       }
     });
@@ -3709,22 +3712,25 @@ export function setupSocketHandlers(io: Server) {
       }
     });
 
-    // 1패 삭제권 사용
-    socket.on('delete_loss', async (data: { gameType: string }) => {
+    // 패배 삭제권 사용
+    socket.on('delete_loss', async (data: { gameType: string; count?: number; price?: number }) => {
       if (!currentPlayer?.userId) {
         socket.emit('delete_loss_result', { success: false, message: '로그인이 필요합니다.' });
         return;
       }
 
+      const count = data.count || 1;
+      const price = data.price || 50;
+
       try {
-        const result = await shopService.deleteLoss(currentPlayer.userId, data.gameType);
+        const result = await shopService.deleteLoss(currentPlayer.userId, data.gameType, count, price);
         socket.emit('delete_loss_result', result);
 
         // 성공 시 코인 업데이트 이벤트 발송
         if (result.success && result.coins !== undefined) {
           socket.emit('coins_updated', {
             coins: result.coins,
-            earned: -50, // 차감된 코인
+            earned: -price,
             streak: 0,
             streakBonus: false,
           });

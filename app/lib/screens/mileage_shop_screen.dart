@@ -458,39 +458,76 @@ class MileageShopScreen extends StatelessWidget {
   }
 
   void _showResetGameSelectDialog(BuildContext context, StatsProvider statsProvider) {
-    showDialog(
+    final gameTypes = [
+      {'type': 'tictactoe', 'name': '틱택토', 'icon': Icons.grid_3x3, 'color': const Color(0xFF6C5CE7)},
+      {'type': 'infinite_tictactoe', 'name': '무한 틱택토', 'icon': Icons.all_inclusive, 'color': const Color(0xFF74B9FF)},
+      {'type': 'gomoku', 'name': '오목', 'icon': Icons.circle_outlined, 'color': const Color(0xFF2D3436)},
+      {'type': 'reaction', 'name': '반응속도', 'icon': Icons.flash_on, 'color': const Color(0xFFE17055)},
+      {'type': 'rps', 'name': '가위바위보', 'icon': Icons.front_hand, 'color': const Color(0xFF9B59B6)},
+      {'type': 'speedtap', 'name': '스피드탭', 'icon': Icons.touch_app, 'color': const Color(0xFF00CEC9)},
+      {'type': 'sequence', 'name': '순서 기억', 'icon': Icons.psychology, 'color': const Color(0xFFE056FD)},
+      {'type': 'stroop', 'name': '스트룹', 'icon': Icons.palette, 'color': const Color(0xFF00CEC9)},
+    ];
+
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('승률 초기화'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('어떤 게임의 승률을 초기화할까요?'),
-            const SizedBox(height: 16),
-            ListTile(
-              leading: const Icon(Icons.grid_3x3, color: Color(0xFF6C5CE7)),
-              title: const Text('틱택토'),
-              onTap: () {
-                Navigator.pop(context);
-                _confirmReset(context, statsProvider, 'tictactoe', '틱택토');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.all_inclusive, color: Color(0xFF74B9FF)),
-              title: const Text('무한 틱택토'),
-              onTap: () {
-                Navigator.pop(context);
-                _confirmReset(context, statsProvider, 'infinite_tictactoe', '무한 틱택토');
-              },
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        maxChildSize: 0.9,
+        minChildSize: 0.4,
+        builder: (context, scrollController) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
-        ],
+          padding: const EdgeInsets.all(24),
+          child: ListView(
+            controller: scrollController,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                '승률 초기화',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '어떤 게임의 승률을 초기화할까요?',
+                style: TextStyle(color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 16),
+              ...gameTypes.map((game) => ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: (game['color'] as Color).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(game['icon'] as IconData, color: game['color'] as Color),
+                ),
+                title: Text(game['name'] as String, style: const TextStyle(fontWeight: FontWeight.w600)),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.pop(context);
+                  _confirmReset(context, statsProvider, game['type'] as String, game['name'] as String);
+                },
+              )),
+              SizedBox(height: MediaQuery.of(context).padding.bottom),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -218,13 +218,13 @@ class ShopProvider extends ChangeNotifier {
     _socketService.emit('unequip_item', {'category': category});
   }
 
-  // 1패 삭제권 사용
-  void deleteLoss(String gameType) {
+  // 패배 삭제권 사용
+  void deleteLoss(String gameType, {int count = 1, int price = 50}) {
     _isLoading = true;
     _error = null;
     _successMessage = null;
     notifyListeners();
-    _socketService.emit('delete_loss', {'gameType': gameType});
+    _socketService.emit('delete_loss', {'gameType': gameType, 'count': count, 'price': price});
   }
 
   // 닉네임 변경권 사용

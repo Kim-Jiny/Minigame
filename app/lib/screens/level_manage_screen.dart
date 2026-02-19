@@ -160,7 +160,7 @@ class LevelManageScreen extends StatelessWidget {
   }
 
   Widget _buildGameCard(_GameMeta meta, GameStats? stats) {
-    final played = stats != null && stats.totalGames > 0;
+    final played = stats != null && (stats.totalGames > 0 || stats.level > 1 || stats.exp > 0);
     final level = stats?.level ?? 0;
     final wins = stats?.wins ?? 0;
     final losses = stats?.losses ?? 0;
