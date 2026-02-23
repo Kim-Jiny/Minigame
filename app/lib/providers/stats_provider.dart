@@ -146,6 +146,12 @@ class StatsProvider extends ChangeNotifier {
   String? _successMessage;
   bool _listenersInitialized = false;
 
+  // 광고 상태
+  int _adRemaining = 0;
+  int _adDailyLimit = 7;
+  int _adRewardCoins = 50;
+  bool _adEnabled = true;
+
   List<GameStats> get allStats => _allStats;
   List<GameRecord> get recentRecords => _recentRecords;
   int get mileage => _mileage;
@@ -157,6 +163,11 @@ class StatsProvider extends ChangeNotifier {
   String? get error => _error;
   String? get successMessage => _successMessage;
 
+  int get adRemaining => _adRemaining;
+  int get adDailyLimit => _adDailyLimit;
+  int get adRewardCoins => _adRewardCoins;
+  bool get adEnabled => _adEnabled;
+
   void initialize() {
     if (!_listenersInitialized) {
       _setupSocketListeners();
@@ -165,6 +176,7 @@ class StatsProvider extends ChangeNotifier {
     getAllStats();
     getMileage();
     getRecentRecords();
+    getAdStatus();
   }
 
   void _setupSocketListeners() {
@@ -173,6 +185,7 @@ class StatsProvider extends ChangeNotifier {
       getAllStats();
       getMileage();
       getRecentRecords();
+      getAdStatus();
     });
 
     // 모든 통계 응답
@@ -241,12 +254,27 @@ class StatsProvider extends ChangeNotifier {
       _isLoading = false;
       if (data['success'] == true) {
         _mileage = data['mileage'] ?? _mileage;
+        if (data['remaining'] != null) {
+          _adRemaining = data['remaining'];
+        }
         _successMessage = data['message'];
         _error = null;
       } else {
+        if (data['remaining'] != null) {
+          _adRemaining = data['remaining'];
+        }
         _error = data['message'];
         _successMessage = null;
       }
+      notifyListeners();
+    });
+
+    // 광고 상태 응답
+    _socketListeners.on('ad_status', (data) {
+      _adRemaining = data['remaining'] ?? 0;
+      _adDailyLimit = data['dailyLimit'] ?? 7;
+      _adRewardCoins = data['rewardCoins'] ?? 50;
+      _adEnabled = data['enabled'] ?? true;
       notifyListeners();
     });
 
@@ -286,6 +314,10 @@ class StatsProvider extends ChangeNotifier {
 
   void getMileage() {
     _socketService.emit('get_mileage', {});
+  }
+
+  void getAdStatus() {
+    _socketService.emit('get_ad_status', {});
   }
 
   void getRecentRecords({int limit = 20}) {

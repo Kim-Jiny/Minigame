@@ -185,6 +185,7 @@
       <button onclick="switchTab('users', this)">Users</button>
       <button onclick="switchTab('inquiries', this)">Inquiries</button>
       <button onclick="switchTab('notices', this)">Notices</button>
+      <button onclick="switchTab('settings', this)">Settings</button>
     </div>
 
     <!-- Dashboard Tab -->
@@ -237,6 +238,14 @@
         </thead>
         <tbody id="noticesBody"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody>
       </table>
+    </div>
+
+    <!-- Settings Tab -->
+    <div class="tab-content" id="tab-settings">
+      <h3 style="margin-bottom:16px;color:#333">Ad Settings</h3>
+      <div id="adConfigContainer" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
+        <div class="empty">Loading...</div>
+      </div>
     </div>
   </div>
 
@@ -380,6 +389,7 @@
       loadInquiries('all');
       loadNotices();
       searchUsers();
+      loadAdConfig();
     }
 
     function api(url, options = {}) {
@@ -409,6 +419,7 @@
       try {
         const data = await api('/api/admin/stats');
         const grid = document.getElementById('statsGrid');
+        const ad = data.adRewards || { today: 0, todayCoins: 0, total: 0, totalCoins: 0 };
         grid.innerHTML = `
           <div class="stat-card"><h3>Total Users</h3><div class="number">${data.totalUsers}</div></div>
           <div class="stat-card accent"><h3>New Today</h3><div class="number">${data.newUsersToday}</div><div class="sub">Week: ${data.newUsersWeek} / Month: ${data.newUsersMonth}</div></div>
@@ -416,6 +427,8 @@
           <div class="stat-card"><h3>Games Today</h3><div class="number">${data.gamesToday}</div></div>
           <div class="stat-card warn"><h3>Pending Inquiries</h3><div class="number">${data.pendingInquiries}</div><div class="sub">Total: ${data.totalInquiries}</div></div>
           <div class="stat-card"><h3>Shop Revenue</h3><div class="number">${data.shopRevenue.today}</div><div class="sub">Total: ${data.shopRevenue.total}</div></div>
+          <div class="stat-card accent"><h3>Ad Views Today</h3><div class="number">${ad.today}</div><div class="sub">${ad.todayCoins} coins paid</div></div>
+          <div class="stat-card"><h3>Ad Views Total</h3><div class="number">${ad.total}</div><div class="sub">${ad.totalCoins} coins paid</div></div>
         `;
 
         // Game popularity chart
@@ -997,6 +1010,71 @@
     function escapeAttr(str) {
       if (!str) return '';
       return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, '\\n');
+    }
+
+    // ============================================================
+    // Ad Config (Settings)
+    // ============================================================
+    async function loadAdConfig() {
+      try {
+        const data = await api('/api/admin/ad-config');
+        const container = document.getElementById('adConfigContainer');
+        if (!data.configs || data.configs.length === 0) {
+          container.innerHTML = '<div class="empty">No ad config found</div>';
+          return;
+        }
+        container.innerHTML = data.configs.map(c => {
+          const isToggle = c.config_value === 'true' || c.config_value === 'false';
+          const labels = {
+            reward_coins: 'Reward Coins',
+            reward_daily_limit: 'Daily Limit',
+            reward_enabled: 'Reward Enabled',
+          };
+          const label = labels[c.config_key] || c.config_key;
+
+          if (isToggle) {
+            const checked = c.config_value === 'true' ? 'checked' : '';
+            return `<div class="stat-card">
+              <h3>${label}</h3>
+              <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+                <label class="toggle-switch">
+                  <input type="checkbox" ${checked} onchange="saveAdConfig('${c.config_key}', this.checked ? 'true' : 'false')">
+                  <span class="toggle-slider"></span>
+                </label>
+                <span style="color:#555">${c.config_value === 'true' ? 'ON' : 'OFF'}</span>
+              </div>
+              <div class="sub" style="margin-top:8px">${c.description || ''}</div>
+            </div>`;
+          }
+
+          return `<div class="stat-card">
+            <h3>${label}</h3>
+            <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+              <input type="number" id="adcfg_${c.config_key}" value="${c.config_value}" style="width:100px;padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:16px;font-weight:bold">
+              <button class="btn-primary btn-sm" onclick="saveAdConfig('${c.config_key}', document.getElementById('adcfg_${c.config_key}').value)">Save</button>
+            </div>
+            <div class="sub" style="margin-top:8px">${c.description || ''}</div>
+          </div>`;
+        }).join('');
+      } catch (e) {
+        console.error('Failed to load ad config', e);
+        document.getElementById('adConfigContainer').innerHTML = '<div class="empty">Failed to load</div>';
+      }
+    }
+
+    async function saveAdConfig(key, value) {
+      try {
+        const data = await api(`/api/admin/ad-config/${key}`, {
+          method: 'PUT', body: JSON.stringify({ value })
+        });
+        if (data.success) {
+          loadAdConfig();
+        } else {
+          alert(data.error || 'Failed to save');
+        }
+      } catch (e) {
+        alert('Error saving config');
+      }
     }
 
     // Enter key for login

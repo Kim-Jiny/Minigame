@@ -4,6 +4,7 @@ import '../providers/shop_provider.dart';
 import '../providers/stats_provider.dart';
 import '../providers/auth_provider.dart';
 import '../models/shop_item.dart';
+import '../services/ad_service.dart';
 
 class ShopScreen extends StatefulWidget {
   const ShopScreen({super.key});
@@ -91,7 +92,7 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
               return [
                 // 커스텀 AppBar
                 SliverAppBar(
-                  expandedHeight: 140,
+                  expandedHeight: statsProvider.adEnabled ? 190 : 140,
                   floating: false,
                   pinned: true,
                   backgroundColor: _bgTop,
@@ -170,6 +171,12 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
   }
 
   Widget _buildCoinHeader(StatsProvider statsProvider) {
+    final adEnabled = statsProvider.adEnabled;
+    final remaining = statsProvider.adRemaining;
+    final dailyLimit = statsProvider.adDailyLimit;
+    final rewardCoins = statsProvider.adRewardCoins;
+    final canWatch = remaining > 0 && !statsProvider.isLoading;
+
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -187,7 +194,6 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // 코인 아이콘 (애니메이션 효과)
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
@@ -225,6 +231,51 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
                   ),
                 ],
               ),
+              if (adEnabled) ...[
+                const SizedBox(height: 12),
+                GestureDetector(
+                  onTap: canWatch ? () => _showAdReward(statsProvider) : null,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      gradient: canWatch
+                          ? LinearGradient(colors: [Colors.green.shade400, Colors.green.shade600])
+                          : LinearGradient(colors: [Colors.grey.shade300, Colors.grey.shade400]),
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: canWatch
+                          ? [BoxShadow(color: Colors.green.withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 2))]
+                          : null,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          canWatch ? Icons.play_circle_filled : Icons.check_circle,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          canWatch ? '광고 보고 +$rewardCoins코인' : '오늘 광고 완료',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.25),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            '$remaining/$dailyLimit',
+                            style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -718,6 +769,24 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
             ),
           ),
         );
+      },
+    );
+  }
+
+  void _showAdReward(StatsProvider statsProvider) {
+    final adService = AdService();
+
+    if (!adService.isRewardedAdReady) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('광고를 준비 중입니다. 잠시 후 다시 시도해주세요.'), backgroundColor: Colors.orange),
+      );
+      adService.loadRewardedAd();
+      return;
+    }
+
+    adService.showRewardedAd(
+      onRewarded: () {
+        statsProvider.claimAdReward();
       },
     );
   }

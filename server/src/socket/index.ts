@@ -3430,6 +3430,60 @@ export function setupSocketHandlers(io: Server) {
       }
     });
 
+    // 광고 설정 조회 헬퍼
+    async function getAdConfig(): Promise<{ rewardCoins: number; dailyLimit: number; enabled: boolean }> {
+      const pool = getPool();
+      if (!pool) return { rewardCoins: 50, dailyLimit: 7, enabled: true };
+      try {
+        const result = await pool.query('SELECT config_key, config_value FROM dm_ad_config');
+        const config: Record<string, string> = {};
+        result.rows.forEach((r: any) => { config[r.config_key] = r.config_value; });
+        return {
+          rewardCoins: parseInt(config['reward_coins']) || 50,
+          dailyLimit: parseInt(config['reward_daily_limit']) || 7,
+          enabled: config['reward_enabled'] !== 'false',
+        };
+      } catch {
+        return { rewardCoins: 50, dailyLimit: 7, enabled: true };
+      }
+    }
+
+    // 오늘 광고 시청 횟수 조회 헬퍼
+    async function getTodayAdCount(userId: number): Promise<number> {
+      const pool = getPool();
+      if (!pool) return 0;
+      try {
+        const result = await pool.query(
+          "SELECT COUNT(*) FROM dm_mileage_history WHERE user_id = $1 AND reason = 'ad_reward' AND created_at >= CURRENT_DATE",
+          [userId]
+        );
+        return parseInt(result.rows[0].count) || 0;
+      } catch {
+        return 0;
+      }
+    }
+
+    // 광고 상태 조회
+    socket.on('get_ad_status', async () => {
+      if (!currentPlayer?.userId) {
+        socket.emit('ad_status', { remaining: 0, dailyLimit: 7, rewardCoins: 50, enabled: false });
+        return;
+      }
+
+      try {
+        const config = await getAdConfig();
+        const todayCount = await getTodayAdCount(currentPlayer.userId);
+        socket.emit('ad_status', {
+          remaining: Math.max(0, config.dailyLimit - todayCount),
+          dailyLimit: config.dailyLimit,
+          rewardCoins: config.rewardCoins,
+          enabled: config.enabled,
+        });
+      } catch {
+        socket.emit('ad_status', { remaining: 0, dailyLimit: 7, rewardCoins: 50, enabled: false });
+      }
+    });
+
     // 광고 시청 마일리지 지급
     socket.on('claim_ad_reward', async () => {
       if (!currentPlayer?.userId) {
@@ -3438,8 +3492,31 @@ export function setupSocketHandlers(io: Server) {
       }
 
       try {
-        const mileage = await statsService.addMileage(currentPlayer.userId, 10, 'ad_watch');
-        socket.emit('ad_reward_result', { success: true, mileage, message: '10 마일리지가 지급되었습니다!' });
+        const config = await getAdConfig();
+
+        if (!config.enabled) {
+          socket.emit('ad_reward_result', { success: false, message: '광고 보상이 비활성화되어 있습니다.' });
+          return;
+        }
+
+        const todayCount = await getTodayAdCount(currentPlayer.userId);
+        if (todayCount >= config.dailyLimit) {
+          socket.emit('ad_reward_result', {
+            success: false,
+            message: `오늘의 광고 시청 횟수를 모두 사용했습니다. (${config.dailyLimit}/${config.dailyLimit})`,
+            remaining: 0,
+          });
+          return;
+        }
+
+        const mileage = await statsService.addMileage(currentPlayer.userId, config.rewardCoins, 'ad_reward');
+        const remaining = config.dailyLimit - todayCount - 1;
+        socket.emit('ad_reward_result', {
+          success: true,
+          mileage,
+          message: `${config.rewardCoins} 코인이 지급되었습니다!`,
+          remaining,
+        });
       } catch (error) {
         socket.emit('ad_reward_result', { success: false, message: '마일리지 지급 실패' });
       }

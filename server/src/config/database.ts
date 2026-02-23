@@ -326,6 +326,21 @@ export async function setupDatabase() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         created_by INTEGER REFERENCES dm_admin_accounts(id)
       );
+
+      -- 광고 설정 테이블
+      CREATE TABLE IF NOT EXISTS dm_ad_config (
+        id SERIAL PRIMARY KEY,
+        config_key VARCHAR(50) UNIQUE NOT NULL,
+        config_value VARCHAR(200) NOT NULL,
+        description VARCHAR(200),
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      INSERT INTO dm_ad_config (config_key, config_value, description) VALUES
+        ('reward_coins', '50', '보상형 광고 1회 시청 코인'),
+        ('reward_daily_limit', '7', '보상형 광고 일일 최대 횟수'),
+        ('reward_enabled', 'true', '보상형 광고 활성화 여부')
+      ON CONFLICT (config_key) DO NOTHING;
     `);
 
     console.log('✅ Database tables ready');
