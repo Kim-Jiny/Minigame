@@ -457,6 +457,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             icon: Icons.hexagon_outlined,
                             color: const Color(0xFF2D3436),
                             route: '/game/hexagon',
+                            badge: '1인 가능',
                           ),
                           const SizedBox(height: 8),
                           _buildLargeGameCard(
@@ -466,6 +467,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             icon: Icons.change_history,
                             color: const Color(0xFFE67E22),
                             route: '/game/pyramid',
+                            badge: '1인 가능',
                           ),
                           const SizedBox(height: 20),
 
@@ -736,6 +738,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
     required IconData icon,
     required Color color,
     String? route,
+    String? badge,
   }) {
     return Card(
       elevation: 4,
@@ -782,13 +785,35 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        if (badge != null) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.25),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              badge,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 4),
                     Text(
