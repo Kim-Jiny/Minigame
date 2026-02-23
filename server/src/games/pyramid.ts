@@ -309,35 +309,62 @@ export class PyramidGame {
     return true;
   }
 
-  // 시퀀스 계산
+  // 시퀀스 계산 (연산자 우선순위 적용: × 먼저, +/- 나중)
   private calculateSequence(sequence: number[]): { result: number; calculationSteps: string[] } {
+    return PyramidGame.evaluateWithPrecedence(
+      sequence.map(i => this.cards[i])
+    );
+  }
+
+  // 연산자 우선순위 적용 계산 (static으로 DFS에서도 재사용)
+  static evaluateWithPrecedence(cards: PyramidCard[]): { result: number; calculationSteps: string[] } {
     const steps: string[] = [];
-    const firstCard = this.cards[sequence[0]];
 
-    // 첫 카드: 연산자 무시, 숫자값이 시작값
-    let current = firstCard.value;
-    steps.push(`시작: ${firstCard.value}`);
+    // 수식 구성: 첫 카드 값 + 이후 (연산자, 값) 쌍
+    const values: number[] = [cards[0].value];
+    const operators: string[] = [];
 
-    for (let i = 1; i < sequence.length; i++) {
-      const card = this.cards[sequence[i]];
-      const prev = current;
-
-      switch (card.operator) {
-        case '+':
-          current = current + card.value;
-          break;
-        case '-':
-          current = current - card.value;
-          break;
-        case '*':
-          current = current * card.value;
-          break;
-      }
-
-      steps.push(`${card.operator}${card.value} = ${current}`);
+    for (let i = 1; i < cards.length; i++) {
+      values.push(cards[i].value);
+      operators.push(cards[i].operator);
     }
 
-    return { result: current, calculationSteps: steps };
+    // 수식 표시
+    let expr = `${values[0]}`;
+    for (let i = 0; i < operators.length; i++) {
+      const opSymbol = operators[i] === '*' ? '×' : operators[i];
+      expr += ` ${opSymbol} ${values[i + 1]}`;
+    }
+    steps.push(expr);
+
+    // Phase 1: 곱셈 먼저 처리
+    const reduced: number[] = [values[0]];
+    const reducedOps: string[] = [];
+
+    for (let i = 0; i < operators.length; i++) {
+      if (operators[i] === '*') {
+        const last = reduced[reduced.length - 1];
+        reduced[reduced.length - 1] = last * values[i + 1];
+        steps.push(`${last} × ${values[i + 1]} = ${reduced[reduced.length - 1]}`);
+      } else {
+        reduced.push(values[i + 1]);
+        reducedOps.push(operators[i]);
+      }
+    }
+
+    // Phase 2: 덧셈/뺄셈 왼→오른쪽
+    let result = reduced[0];
+    for (let i = 0; i < reducedOps.length; i++) {
+      const prev = result;
+      if (reducedOps[i] === '+') {
+        result += reduced[i + 1];
+      } else {
+        result -= reduced[i + 1];
+      }
+      steps.push(`${prev} ${reducedOps[i]} ${reduced[i + 1]} = ${result}`);
+    }
+
+    return { result, calculationSteps: steps };
   }
 
   // 퍼즐 생성 (유효한 답이 1-5개인 타겟 찾기)
@@ -368,14 +395,17 @@ export class PyramidGame {
     }
   }
 
-  // DFS로 유효한 시퀀스 탐색 → 타겟 선택
+  // DFS로 유효한 시퀀스 탐색 → 타겟 선택 (연산자 우선순위 적용)
   private findValidTarget(): void {
     const allPaths: { path: number[]; result: number }[] = [];
 
     // DFS 탐색: 정확히 길이 3의 모든 유효 시퀀스
-    const dfs = (usedSet: Set<number>, path: number[], currentValue: number) => {
+    const dfs = (usedSet: Set<number>, path: number[]) => {
       if (path.length === 3) {
-        allPaths.push({ path: [...path], result: currentValue });
+        // 연산자 우선순위 적용하여 결과 계산
+        const cards = path.map(i => this.cards[i]);
+        const { result } = PyramidGame.evaluateWithPrecedence(cards);
+        allPaths.push({ path: [...path], result });
         return;
       }
 
@@ -383,29 +413,15 @@ export class PyramidGame {
         if (usedSet.has(i)) continue;
         if (!this.isSelectable(i, usedSet)) continue;
 
-        const card = this.cards[i];
-        let nextValue: number;
-
-        if (path.length === 0) {
-          // 첫 카드
-          nextValue = card.value;
-        } else {
-          switch (card.operator) {
-            case '+': nextValue = currentValue + card.value; break;
-            case '-': nextValue = currentValue - card.value; break;
-            case '*': nextValue = currentValue * card.value; break;
-          }
-        }
-
         usedSet.add(i);
         path.push(i);
-        dfs(usedSet, path, nextValue);
+        dfs(usedSet, path);
         path.pop();
         usedSet.delete(i);
       }
     };
 
-    dfs(new Set(), [], 0);
+    dfs(new Set(), []);
 
     // 결과값별 그룹핑
     const resultMap = new Map<number, number[][]>();
