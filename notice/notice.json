@@ -1,6 +1,6 @@
 {
     "api_base_url": "https://minigame-server-jfep.onrender.com",
-    "debug_api_base_url": "http://172.30.1.98:3000",
+    "debug_api_base_url": "http://172.30.1.80:3000",
     "web_base_url": "https://minigame-server-jfep.onrender.com",
     "maintenance": {
         "enabled": false,
