@@ -299,6 +299,33 @@ export async function setupDatabase() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
       CREATE INDEX IF NOT EXISTS idx_dm_hexagon_rankings_score ON dm_hexagon_rankings(score DESC);
+
+      -- 유저 제재 기록
+      CREATE TABLE IF NOT EXISTS dm_user_bans (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES dm_users(id),
+        ban_type VARCHAR(30) NOT NULL,
+        reason TEXT NOT NULL,
+        banned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP DEFAULT NULL,
+        banned_by INTEGER REFERENCES dm_admin_accounts(id),
+        is_active BOOLEAN DEFAULT TRUE,
+        revoked_at TIMESTAMP DEFAULT NULL,
+        revoked_by INTEGER REFERENCES dm_admin_accounts(id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_dm_user_bans_user_id ON dm_user_bans(user_id);
+
+      -- 공지사항
+      CREATE TABLE IF NOT EXISTS dm_notices (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(200) NOT NULL,
+        content TEXT NOT NULL,
+        type VARCHAR(30) DEFAULT 'general',
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_by INTEGER REFERENCES dm_admin_accounts(id)
+      );
     `);
 
     console.log('✅ Database tables ready');
