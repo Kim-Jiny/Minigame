@@ -127,14 +127,15 @@ class RemoteConfigService extends ChangeNotifier {
         final newConfig = RemoteConfig.fromJson(json);
 
         // URL이 변경되었는지 확인
-        final urlChanged = _config?.apiBaseUrl != newConfig.apiBaseUrl;
+        final urlChanged = _config?.apiBaseUrl != newConfig.apiBaseUrl ||
+            _config?.debugApiBaseUrl != newConfig.debugApiBaseUrl;
 
         _config = newConfig;
         _fetchFailed = false;
         _error = null;
 
         if (urlChanged) {
-          print('🔄 Server URL changed to: ${newConfig.apiBaseUrl}');
+          print('🔄 Server URL changed: api=${newConfig.apiBaseUrl}, debug=${newConfig.debugApiBaseUrl}');
         }
 
         print('✅ Remote config fetched successfully');

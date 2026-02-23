@@ -13,6 +13,7 @@ import 'screens/lobby_screen.dart';
 import 'screens/maintenance_screen.dart';
 import 'screens/server_loading_screen.dart';
 import 'services/socket_service.dart';
+import 'services/ad_service.dart';
 import 'games/tictactoe/tictactoe_screen.dart';
 import 'games/infinite_tictactoe/infinite_tictactoe_screen.dart';
 import 'games/gomoku/gomoku_screen.dart';
@@ -41,6 +42,9 @@ void main() async {
 
   // 원격 설정 초기화
   await RemoteConfigService().initialize();
+
+  // AdMob 초기화
+  AdService().initialize();
 
   runApp(const MinigameApp());
 }

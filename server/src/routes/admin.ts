@@ -89,6 +89,7 @@ router.get('/stats', verifyAdminToken, async (req: Request, res: Response): Prom
       activeUsers,
       gamePopularity,
       shopRevenue,
+      adRewards,
     ] = await Promise.all([
       pool.query('SELECT COUNT(*) FROM dm_users'),
       pool.query("SELECT COUNT(*) FROM dm_users WHERE created_at >= CURRENT_DATE"),
@@ -111,6 +112,15 @@ router.get('/stats', verifyAdminToken, async (req: Request, res: Response): Prom
         FROM dm_mileage_history h
         WHERE h.reason LIKE 'shop_%'
       `),
+      pool.query(`
+        SELECT
+          COALESCE(COUNT(CASE WHEN created_at >= CURRENT_DATE THEN 1 END), 0) as today,
+          COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE THEN amount ELSE 0 END), 0) as today_coins,
+          COUNT(*) as total,
+          COALESCE(SUM(amount), 0) as total_coins
+        FROM dm_mileage_history
+        WHERE reason = 'ad_reward'
+      `),
     ]);
 
     res.json({
@@ -126,6 +136,12 @@ router.get('/stats', verifyAdminToken, async (req: Request, res: Response): Prom
       shopRevenue: {
         today: parseInt(shopRevenue.rows[0].today),
         total: parseInt(shopRevenue.rows[0].total),
+      },
+      adRewards: {
+        today: parseInt(adRewards.rows[0].today),
+        todayCoins: parseInt(adRewards.rows[0].today_coins),
+        total: parseInt(adRewards.rows[0].total),
+        totalCoins: parseInt(adRewards.rows[0].total_coins),
       },
     });
   } catch (error) {
@@ -647,6 +663,61 @@ router.delete('/notices/:id', verifyAdminToken, async (req: Request, res: Respon
   } catch (error) {
     console.error('Delete notice error:', error);
     res.status(500).json({ error: 'Failed to delete notice' });
+  }
+});
+
+// ============================================================
+// Ad Config
+// ============================================================
+
+// GET /api/admin/ad-config - 광고 설정 목록
+router.get('/ad-config', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+
+    const result = await pool.query('SELECT * FROM dm_ad_config ORDER BY id');
+    res.json({ configs: result.rows });
+  } catch (error) {
+    console.error('Get ad config error:', error);
+    res.status(500).json({ error: 'Failed to get ad config' });
+  }
+});
+
+// PUT /api/admin/ad-config/:key - 광고 설정 수정
+router.put('/ad-config/:key', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { key } = req.params;
+    const { value } = req.body;
+
+    if (value === undefined || value === null) {
+      res.status(400).json({ error: 'Value is required' });
+      return;
+    }
+
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+
+    const result = await pool.query(
+      `UPDATE dm_ad_config SET config_value = $1, updated_at = CURRENT_TIMESTAMP WHERE config_key = $2 RETURNING *`,
+      [String(value), key]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Config key not found' });
+      return;
+    }
+
+    res.json({ success: true, config: result.rows[0] });
+  } catch (error) {
+    console.error('Update ad config error:', error);
+    res.status(500).json({ error: 'Failed to update ad config' });
   }
 });
 
