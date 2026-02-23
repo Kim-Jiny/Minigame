@@ -103,6 +103,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFFFF8E0),
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -116,11 +117,17 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           ),
         ),
         child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: Padding(
+                    padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom + 24),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
                 const SizedBox(height: 40),
 
                 // 로고/타이틀 - 귀여운 애니메이션
@@ -403,8 +410,12 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                     Icon(Icons.star_rounded, size: 12, color: const Color(0xFFFDCB6E)),
                   ],
                 ),
-              ],
-            ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ),

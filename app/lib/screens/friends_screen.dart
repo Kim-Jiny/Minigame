@@ -249,38 +249,43 @@ class _FriendsScreenState extends State<FriendsScreen> {
             friendProvider.getInvitations();
             friendProvider.getUnreadCounts();
           },
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 내 친구 코드
-                _buildMyFriendCodeCard(context, friendProvider),
-                const SizedBox(height: 24),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth;
+              final maxContentWidth = width >= 1300 ? 1080.0 : double.infinity;
+              final horizontalPadding = width >= 900 ? 24.0 : 16.0;
 
-                // 받은 초대
-                if (friendProvider.invitations.isNotEmpty) ...[
-                  _buildInvitationsSection(context, friendProvider),
-                  const SizedBox(height: 24),
-                ],
-
-                // 받은 친구 요청
-                if (friendProvider.receivedRequests.isNotEmpty) ...[
-                  _buildFriendRequestsSection(context, friendProvider),
-                  const SizedBox(height: 24),
-                ],
-
-                // 보낸 친구 요청
-                if (friendProvider.sentRequests.isNotEmpty) ...[
-                  _buildSentRequestsSection(context, friendProvider),
-                  const SizedBox(height: 24),
-                ],
-
-                // 친구 목록
-                _buildFriendsSection(context, friendProvider),
-              ],
-            ),
+              return Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: maxContentWidth),
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: EdgeInsets.fromLTRB(horizontalPadding, 16, horizontalPadding, 100),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildMyFriendCodeCard(context, friendProvider),
+                        const SizedBox(height: 24),
+                        if (friendProvider.invitations.isNotEmpty) ...[
+                          _buildInvitationsSection(context, friendProvider),
+                          const SizedBox(height: 24),
+                        ],
+                        if (friendProvider.receivedRequests.isNotEmpty) ...[
+                          _buildFriendRequestsSection(context, friendProvider),
+                          const SizedBox(height: 24),
+                        ],
+                        if (friendProvider.sentRequests.isNotEmpty) ...[
+                          _buildSentRequestsSection(context, friendProvider),
+                          const SizedBox(height: 24),
+                        ],
+                        _buildFriendsSection(context, friendProvider),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
         );
       },

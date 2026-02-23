@@ -271,185 +271,206 @@ class _LobbyScreenState extends State<LobbyScreen> {
           ],
         ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 환영 메시지
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.sports_esports,
-                      color: Theme.of(context).primaryColor,
-                      size: 28,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '함께 즐겨요!',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Theme.of(context).primaryColor,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          final horizontalPadding = width >= 900 ? 24.0 : 16.0;
+          final contentMaxWidth = width >= 1300 ? 1180.0 : double.infinity;
+          final quickColumns = _getQuickGameColumns(width);
+
+          return Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: contentMaxWidth),
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(horizontalPadding, 16, horizontalPadding, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 환영 메시지
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '친구와 함께 재미있는 게임을 해보세요',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade600,
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.sports_esports,
+                              color: Theme.of(context).primaryColor,
+                              size: 28,
+                            ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '함께 즐겨요!',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Theme.of(context).primaryColor,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '친구와 함께 재미있는 게임을 해보세요',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 16),
+
+                    // 랭크전 버튼
+                    _buildRankedCard(context),
+                    const SizedBox(height: 16),
+
+                    // 게임 목록
+                    Expanded(
+                      child: ListView(
+                        children: [
+                          // 빠른 게임 섹션
+                          _buildSectionHeader(
+                            icon: Icons.bolt,
+                            title: '빠른 게임',
+                            subtitle: '1~3분',
+                            color: Colors.orange,
+                          ),
+                          const SizedBox(height: 8),
+                          GridView.count(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            crossAxisCount: quickColumns,
+                            crossAxisSpacing: 10,
+                            mainAxisSpacing: 10,
+                            childAspectRatio: width >= 900 ? 0.95 : 0.85,
+                            children: [
+                              _buildGameCard(
+                                context,
+                                title: '틱택토',
+                                subtitle: '3연속',
+                                icon: Icons.grid_3x3,
+                                color: const Color(0xFF6C5CE7),
+                                route: '/game/tictactoe',
+                              ),
+                              _buildGameCard(
+                                context,
+                                title: '반응속도',
+                                subtitle: '터치!',
+                                icon: Icons.flash_on,
+                                color: const Color(0xFFE17055),
+                                route: '/game/reaction',
+                              ),
+                              _buildGameCard(
+                                context,
+                                title: '가위바위보',
+                                subtitle: '3판2선',
+                                icon: Icons.front_hand,
+                                color: const Color(0xFF9B59B6),
+                                route: '/game/rps',
+                              ),
+                              _buildGameCard(
+                                context,
+                                title: '스피드탭',
+                                subtitle: '빠르게!',
+                                icon: Icons.touch_app,
+                                color: const Color(0xFF00CEC9),
+                                route: '/game/speedtap',
+                              ),
+                              _buildGameCard(
+                                context,
+                                title: '순서 기억',
+                                subtitle: '기억력!',
+                                icon: Icons.psychology,
+                                color: const Color(0xFFE056FD),
+                                route: '/game/sequence',
+                              ),
+                              _buildGameCard(
+                                context,
+                                title: '스트룹',
+                                subtitle: '색깔!',
+                                icon: Icons.palette,
+                                color: const Color(0xFF00CEC9),
+                                route: '/game/stroop',
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+
+                          // 전략 게임 섹션
+                          _buildSectionHeader(
+                            icon: Icons.psychology_alt,
+                            title: '전략 게임',
+                            subtitle: '10~20분',
+                            color: const Color(0xFF636E72),
+                          ),
+                          const SizedBox(height: 8),
+                          _buildLargeGameCard(
+                            context,
+                            title: '오목',
+                            subtitle: '5개를 연속으로 놓으면 승리',
+                            icon: Icons.circle_outlined,
+                            color: const Color(0xFF636E72),
+                            route: '/game/gomoku',
+                          ),
+                          const SizedBox(height: 20),
+
+                          // 두뇌 게임 섹션
+                          _buildSectionHeader(
+                            icon: Icons.extension,
+                            title: '두뇌 게임',
+                            subtitle: '5~15분',
+                            color: const Color(0xFF2D3436),
+                          ),
+                          const SizedBox(height: 8),
+                          _buildLargeGameCard(
+                            context,
+                            title: '헥사곤',
+                            subtitle: '숫자를 외우고 합을 맞춰라!',
+                            icon: Icons.hexagon_outlined,
+                            color: const Color(0xFF2D3436),
+                            route: '/game/hexagon',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            const SizedBox(height: 16),
-
-            // 랭크전 버튼
-            _buildRankedCard(context),
-            const SizedBox(height: 16),
-
-            // 게임 목록
-            Expanded(
-              child: ListView(
-                children: [
-                  // 빠른 게임 섹션
-                  _buildSectionHeader(
-                    icon: Icons.bolt,
-                    title: '빠른 게임',
-                    subtitle: '1~3분',
-                    color: Colors.orange,
-                  ),
-                  const SizedBox(height: 8),
-                  GridView.count(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: 3,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                    childAspectRatio: 0.85,
-                    children: [
-                      _buildGameCard(
-                        context,
-                        title: '틱택토',
-                        subtitle: '3연속',
-                        icon: Icons.grid_3x3,
-                        color: const Color(0xFF6C5CE7),
-                        route: '/game/tictactoe',
-                      ),
-                      _buildGameCard(
-                        context,
-                        title: '반응속도',
-                        subtitle: '터치!',
-                        icon: Icons.flash_on,
-                        color: const Color(0xFFE17055),
-                        route: '/game/reaction',
-                      ),
-                      _buildGameCard(
-                        context,
-                        title: '가위바위보',
-                        subtitle: '3판2선',
-                        icon: Icons.front_hand,
-                        color: const Color(0xFF9B59B6),
-                        route: '/game/rps',
-                      ),
-                      _buildGameCard(
-                        context,
-                        title: '스피드탭',
-                        subtitle: '빠르게!',
-                        icon: Icons.touch_app,
-                        color: const Color(0xFF00CEC9),
-                        route: '/game/speedtap',
-                      ),
-                      _buildGameCard(
-                        context,
-                        title: '순서 기억',
-                        subtitle: '기억력!',
-                        icon: Icons.psychology,
-                        color: const Color(0xFFE056FD),
-                        route: '/game/sequence',
-                      ),
-                      _buildGameCard(
-                        context,
-                        title: '스트룹',
-                        subtitle: '색깔!',
-                        icon: Icons.palette,
-                        color: const Color(0xFF00CEC9),
-                        route: '/game/stroop',
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-
-                  // 전략 게임 섹션
-                  _buildSectionHeader(
-                    icon: Icons.psychology_alt,
-                    title: '전략 게임',
-                    subtitle: '10~20분',
-                    color: const Color(0xFF636E72),
-                  ),
-                  const SizedBox(height: 8),
-                  _buildLargeGameCard(
-                    context,
-                    title: '오목',
-                    subtitle: '5개를 연속으로 놓으면 승리',
-                    icon: Icons.circle_outlined,
-                    color: const Color(0xFF636E72),
-                    route: '/game/gomoku',
-                  ),
-                  const SizedBox(height: 20),
-
-                  // 두뇌 게임 섹션
-                  _buildSectionHeader(
-                    icon: Icons.extension,
-                    title: '두뇌 게임',
-                    subtitle: '5~15분',
-                    color: const Color(0xFF2D3436),
-                  ),
-                  const SizedBox(height: 8),
-                  _buildLargeGameCard(
-                    context,
-                    title: '헥사곤',
-                    subtitle: '숫자를 외우고 합을 맞춰라!',
-                    icon: Icons.hexagon_outlined,
-                    color: const Color(0xFF2D3436),
-                    route: '/game/hexagon',
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
+  }
+
+  int _getQuickGameColumns(double width) {
+    if (width >= 1200) return 5;
+    if (width >= 900) return 4;
+    return 3;
   }
 
   Widget _buildRankedCard(BuildContext context) {

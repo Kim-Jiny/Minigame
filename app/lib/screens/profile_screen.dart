@@ -73,116 +73,145 @@ class _ProfileScreenState extends State<ProfileScreen> {
         }
 
         final profileSettings = shopProvider.profileSettings;
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            final maxContentWidth = width >= 1300 ? 1100.0 : double.infinity;
+            final isTablet = width >= 900;
+            final itemWidth = isTablet ? (maxContentWidth >= width ? (width - 44) / 2 : (maxContentWidth - 44) / 2) : double.infinity;
 
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              // 프로필 카드
-              _buildProfileCard(context, auth, totalLevel, profileSettings),
-              const SizedBox(height: 24),
-
-              // 메뉴 목록
-              _buildMenuItem(
-                context,
-                icon: Icons.monetization_on,
-                iconColor: Colors.amber.shade600,
-                title: '코인 샵',
-                subtitle: '${statsProvider.mileage} 코인 보유',
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const ShopScreen()),
-                  );
-                },
+            return Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxContentWidth),
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(isTablet ? 22 : 16, 16, isTablet ? 22 : 16, 20),
+                  child: Column(
+                    children: [
+                      _buildProfileCard(context, auth, totalLevel, profileSettings),
+                      const SizedBox(height: 20),
+                      _buildMenuWrap(
+                        itemWidth: itemWidth,
+                        children: [
+                          _buildMenuItem(
+                            context,
+                            icon: Icons.monetization_on,
+                            iconColor: Colors.amber.shade600,
+                            title: '코인 샵',
+                            subtitle: '${statsProvider.mileage} 코인 보유',
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const ShopScreen()),
+                              );
+                            },
+                          ),
+                          _buildMenuItem(
+                            context,
+                            icon: Icons.military_tech,
+                            iconColor: Theme.of(context).primaryColor,
+                            title: '내 레벨',
+                            subtitle: '게임별 레벨과 전적 확인',
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const LevelManageScreen()),
+                              );
+                            },
+                          ),
+                          _buildMenuItem(
+                            context,
+                            icon: Icons.history,
+                            iconColor: Colors.teal,
+                            title: '최근 기록',
+                            subtitle: '${statsProvider.recentRecords.length}개의 기록',
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const RecentRecordsScreen()),
+                              );
+                            },
+                          ),
+                          _buildMenuItem(
+                            context,
+                            icon: Icons.leaderboard,
+                            iconColor: const Color(0xFFFF4500),
+                            title: '랭킹 보기',
+                            subtitle: '랭크전 리더보드',
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const LeaderboardScreen()),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(),
+                      const SizedBox(height: 12),
+                      _buildMenuWrap(
+                        itemWidth: itemWidth,
+                        children: [
+                          _buildMenuItem(
+                            context,
+                            icon: Icons.mail_outline,
+                            iconColor: Colors.blue,
+                            title: '문의하기',
+                            subtitle: '버그 신고, 건의사항',
+                            badge: _unreadInquiryCount,
+                            onTap: () async {
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const InquiryScreen()),
+                              );
+                              _loadUnreadCount();
+                            },
+                          ),
+                          _buildMenuItem(
+                            context,
+                            icon: Icons.logout,
+                            iconColor: Colors.orange,
+                            title: '로그아웃',
+                            onTap: () {
+                              _showLogoutDialog(context, auth);
+                            },
+                          ),
+                          _buildMenuItem(
+                            context,
+                            icon: Icons.delete_forever,
+                            iconColor: Colors.red,
+                            title: '회원 탈퇴',
+                            subtitle: '모든 데이터가 삭제됩니다',
+                            onTap: () {
+                              _showDeleteAccountDialog(context, auth);
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              _buildMenuItem(
-                context,
-                icon: Icons.military_tech,
-                iconColor: Theme.of(context).primaryColor,
-                title: '내 레벨',
-                subtitle: '게임별 레벨과 전적 확인',
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const LevelManageScreen()),
-                  );
-                },
-              ),
-              _buildMenuItem(
-                context,
-                icon: Icons.history,
-                iconColor: Colors.teal,
-                title: '최근 기록',
-                subtitle: '${statsProvider.recentRecords.length}개의 기록',
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const RecentRecordsScreen()),
-                  );
-                },
-              ),
-              _buildMenuItem(
-                context,
-                icon: Icons.leaderboard,
-                iconColor: const Color(0xFFFF4500),
-                title: '랭킹 보기',
-                subtitle: '랭크전 리더보드',
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const LeaderboardScreen()),
-                  );
-                },
-              ),
-
-              const SizedBox(height: 24),
-              const Divider(),
-              const SizedBox(height: 8),
-
-              // 고객 지원
-              _buildMenuItem(
-                context,
-                icon: Icons.mail_outline,
-                iconColor: Colors.blue,
-                title: '문의하기',
-                subtitle: '버그 신고, 건의사항',
-                badge: _unreadInquiryCount,
-                onTap: () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const InquiryScreen()),
-                  );
-                  _loadUnreadCount();
-                },
-              ),
-
-              const SizedBox(height: 16),
-
-              // 계정 관련
-              _buildMenuItem(
-                context,
-                icon: Icons.logout,
-                iconColor: Colors.orange,
-                title: '로그아웃',
-                onTap: () {
-                  _showLogoutDialog(context, auth);
-                },
-              ),
-              _buildMenuItem(
-                context,
-                icon: Icons.delete_forever,
-                iconColor: Colors.red,
-                title: '회원 탈퇴',
-                subtitle: '모든 데이터가 삭제됩니다',
-                onTap: () {
-                  _showDeleteAccountDialog(context, auth);
-                },
-              ),
-            ],
-          ),
+            );
+          },
         );
       },
+    );
+  }
+
+  Widget _buildMenuWrap({required double itemWidth, required List<Widget> children}) {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 0,
+      children: children
+          .map(
+            (item) => SizedBox(
+              width: itemWidth,
+              child: item,
+            ),
+          )
+          .toList(),
     );
   }
 

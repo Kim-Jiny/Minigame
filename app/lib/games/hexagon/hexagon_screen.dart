@@ -410,7 +410,9 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     });
 
     _socketListeners.on('game_end', (data) {
-      if (_status == HexagonGameStatus.finished) return;
+      if (_status == HexagonGameStatus.finished ||
+          _status == HexagonGameStatus.idle ||
+          _status == HexagonGameStatus.searching) return;
       _memorizeTimer?.cancel();
       _idleTimer?.cancel();
       _buzzTimer?.cancel();
@@ -428,10 +430,12 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     });
 
     _socketListeners.on('opponent_left', (_) {
+      if (_status == HexagonGameStatus.finished ||
+          _status == HexagonGameStatus.idle ||
+          _status == HexagonGameStatus.searching) return;
       _memorizeTimer?.cancel();
       _idleTimer?.cancel();
       _buzzTimer?.cancel();
-      if (_status == HexagonGameStatus.finished) return;
       setState(() {
         _status = HexagonGameStatus.finished;
         _winnerId = _myId;
@@ -1026,7 +1030,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
             ],
             const SizedBox(height: 16),
             if (!isSoloDone && _scores.length >= 2)
-              Text('${_scores[0]} : ${_scores[1]}',
+              Text('${_scores[_myPlayerIndex]} : ${_scores[_myPlayerIndex == 0 ? 1 : 0]}',
                 style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: theme.primary)),
             const SizedBox(height: 32),
             // 찾은 조합 표시
@@ -1167,7 +1171,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
               ),
               const SizedBox(height: 4),
               Text(
-                _isSolo ? '${_scores.isNotEmpty ? _scores[0] : 0}점' : '${_scores.isNotEmpty ? _scores[0] : 0} : ${_scores.length > 1 ? _scores[1] : 0}',
+                _isSolo ? '${_scores.isNotEmpty ? _scores[0] : 0}점' : '${_scores.isNotEmpty ? _scores[_myPlayerIndex] : 0} : ${_scores.length > 1 ? _scores[_myPlayerIndex == 0 ? 1 : 0] : 0}',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: theme.primary),
               ),
             ],
