@@ -53,6 +53,16 @@ class GameRecord {
         return '가위바위보';
       case 'speedtap':
         return '스피드탭';
+      case 'sequence':
+        return '순서 기억';
+      case 'stroop':
+        return '스트룹';
+      case 'hexagon':
+        return '헥사곤';
+      case 'pyramid':
+        return '수식피라미드';
+      case 'hunmin':
+        return '훈민정음';
       default:
         return gameType;
     }
@@ -123,6 +133,16 @@ class GameStats {
         return '가위바위보';
       case 'speedtap':
         return '스피드탭';
+      case 'sequence':
+        return '순서 기억';
+      case 'stroop':
+        return '스트룹';
+      case 'hexagon':
+        return '헥사곤';
+      case 'pyramid':
+        return '수식피라미드';
+      case 'hunmin':
+        return '훈민정음';
       default:
         return gameType;
     }

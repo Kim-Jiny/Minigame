@@ -7,7 +7,7 @@
  * - 타겟 넘버가 주어지고, 일직선 3칸의 숫자 합이 타겟이 되는 조합을 찾음
  * - 누구든 먼저 버저 → 10초 이내에 알파벳으로 선언
  * - 정답 +1, 오답 -1
- * - 90초간 무도전 시 라운드 종료
+ * - 60초간 무도전 시 라운드 종료
  *
  * 모드:
  * - 솔로 (랭킹 도전): 최대 10라운드
@@ -72,7 +72,8 @@ const LETTERS = 'ABCDEFGHIJKLMNOPQRS'.split('');
 export class HexagonGame {
   static readonly MEMORIZE_TIME = 30000;     // 30초 암기
   static readonly BUZZ_TIME_LIMIT = 10000;   // 10초 답변 시간
-  static readonly ROUND_IDLE_TIMEOUT = 90000; // 90초 무도전 시 라운드 종료
+  static readonly ROUND_IDLE_TIMEOUT = 60000; // 60초 무도전 시 라운드 종료
+  static readonly SKIP_AVAILABLE_TIME = 20000; // 20초 무도전 시 라운드 넘기기 활성화
   static readonly MAX_ROUNDS_SOLO = 10;
   static readonly MAX_ROUNDS_MULTI = 3;
   static readonly MIN_NUMBER = 1;

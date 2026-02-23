@@ -317,7 +317,8 @@ class _StroopScreenState extends State<StroopScreen>
     });
 
     _socketListeners.on('opponent_left', (data) {
-      if (_status == StroopGameStatus.finished) return;
+      if (_status == StroopGameStatus.idle ||
+          _status == StroopGameStatus.searching) return;
       // 나가기 다이얼로그가 열려있으면 먼저 닫기
       if (_isExitDialogOpen && mounted) {
         Navigator.of(context).pop();

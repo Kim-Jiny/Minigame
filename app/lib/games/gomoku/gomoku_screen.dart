@@ -29,6 +29,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
       TransformationController();
 
   bool _hasScheduledPop = false;  // 중복 pop 방지
+  int? _previewPosition; // 미리보기 중인 셀 인덱스
 
   @override
   void initState() {
@@ -507,6 +508,11 @@ class _GomokuScreenState extends State<GomokuScreen> {
   Widget _buildPlayingView(GameProvider game, GameTheme theme) {
     final auth = context.read<AuthProvider>();
 
+    // 상대 턴이면 미리보기 자동 초기화
+    if (!game.isMyTurn) {
+      _previewPosition = null;
+    }
+
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -594,6 +600,10 @@ class _GomokuScreenState extends State<GomokuScreen> {
           Expanded(
             child: _buildBoard(game),
           ),
+
+          // 착수 확인/취소 버튼
+          if (_previewPosition != null && game.isMyTurn)
+            _buildConfirmBar(game),
         ],
       ),
     );
@@ -683,20 +693,26 @@ class _GomokuScreenState extends State<GomokuScreen> {
               final cell = game.board.length > index ? game.board[index] : null;
               final isLastMove = game.lastMovePosition == index;
 
+              final isPreview = _previewPosition == index;
+
               return GestureDetector(
                 onTap: () {
                   if (cell == null && game.isMyTurn) {
-                    game.makeMove(index);
+                    setState(() => _previewPosition = index);
                   }
                 },
                 child: Container(
                   decoration: BoxDecoration(
                     border: isLastMove
                         ? Border.all(color: Colors.red, width: 2)
-                        : null,
+                        : isPreview
+                            ? Border.all(color: Colors.blue, width: 2)
+                            : null,
                   ),
                   child: Center(
-                    child: _buildStone(cell),
+                    child: isPreview
+                        ? _buildPreviewStone(game)
+                        : _buildStone(cell),
                   ),
                 ),
               );
@@ -733,6 +749,90 @@ class _GomokuScreenState extends State<GomokuScreen> {
             offset: const Offset(1, 1),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPreviewStone(GameProvider game) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final stoneSize = (screenWidth / boardSize) * 0.8;
+    final isBlack = game.myPlayerIndex == 0;
+
+    return Container(
+      width: stoneSize,
+      height: stoneSize,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: (isBlack ? Colors.black : Colors.white).withValues(alpha: 0.4),
+        border: Border.all(
+          color: (isBlack ? Colors.grey.shade800 : Colors.grey.shade400).withValues(alpha: 0.4),
+          width: 1,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildConfirmBar(GameProvider game) {
+    final row = _previewPosition! ~/ boardSize + 1;
+    final col = _previewPosition! % boardSize + 1;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            OutlinedButton(
+              onPressed: () => setState(() => _previewPosition = null),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.grey.shade700,
+                side: BorderSide(color: Colors.grey.shade400),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+              child: const Text('취소'),
+            ),
+            Expanded(
+              child: Center(
+                child: Text(
+                  '($row, $col)',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                final pos = _previewPosition!;
+                setState(() => _previewPosition = null);
+                game.makeMove(pos);
+              },
+              icon: const Icon(Icons.check, size: 18),
+              label: const Text('착수 확인'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2D3436),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

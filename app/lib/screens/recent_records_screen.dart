@@ -260,6 +260,9 @@ class _RecentRecordsScreenState extends State<RecentRecordsScreen> {
       'speedtap' => const Color(0xFF00CEC9),
       'sequence' => const Color(0xFFE056FD),
       'stroop' => const Color(0xFF00CEC9),
+      'hexagon' => const Color(0xFF0984E3),
+      'pyramid' => const Color(0xFFE67E22),
+      'hunmin' => const Color(0xFF1E88E5),
       _ => const Color(0xFF74B9FF),
     };
 
@@ -301,6 +304,9 @@ class _RecentRecordsScreenState extends State<RecentRecordsScreen> {
               'speedtap' => Icons.touch_app,
               'sequence' => Icons.psychology,
               'stroop' => Icons.palette,
+              'hexagon' => Icons.hexagon,
+              'pyramid' => Icons.change_history,
+              'hunmin' => Icons.translate,
               _ => Icons.sports_esports,
             },
             color: gameColor,
@@ -366,6 +372,9 @@ class _RecentRecordsScreenState extends State<RecentRecordsScreen> {
       'speedtap' => const Color(0xFF00CEC9),
       'sequence' => const Color(0xFFE056FD),
       'stroop' => const Color(0xFF00CEC9),
+      'hexagon' => const Color(0xFF0984E3),
+      'pyramid' => const Color(0xFFE67E22),
+      'hunmin' => const Color(0xFF1E88E5),
       _ => const Color(0xFF74B9FF),
     };
 
@@ -400,6 +409,9 @@ class _RecentRecordsScreenState extends State<RecentRecordsScreen> {
                     'speedtap' => Icons.touch_app,
                     'sequence' => Icons.psychology,
                     'stroop' => Icons.palette,
+                    'hexagon' => Icons.hexagon,
+                    'pyramid' => Icons.change_history,
+                    'hunmin' => Icons.translate,
                     _ => Icons.sports_esports,
                   },
                   color: gameColor,

@@ -15,6 +15,8 @@ class LevelManageScreen extends StatelessWidget {
     _GameMeta('sequence', '순서 기억', Icons.memory, Color(0xFF00B894)),
     _GameMeta('stroop', '스트룹', Icons.palette, Color(0xFFE84393)),
     _GameMeta('hexagon', '헥사곤', Icons.hexagon_outlined, Color(0xFFF39C12)),
+    _GameMeta('pyramid', '수식피라미드', Icons.change_history, Color(0xFFE67E22)),
+    _GameMeta('hunmin', '훈민정음', Icons.translate, Color(0xFF1E88E5)),
   ];
 
   @override
