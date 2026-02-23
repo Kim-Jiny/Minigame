@@ -262,18 +262,26 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
         return a.rarity.index.compareTo(b.rarity.index);
       });
 
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 0.74,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-      ),
-      itemCount: sortedItems.length,
-      itemBuilder: (context, index) {
-        final item = sortedItems[index];
-        return _buildItemCard(shopProvider, item);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final columns = width >= 1350 ? 5 : width >= 1080 ? 4 : width >= 760 ? 3 : 2;
+        final horizontalPadding = width >= 900 ? 24.0 : 16.0;
+
+        return GridView.builder(
+          padding: EdgeInsets.fromLTRB(horizontalPadding, 16, horizontalPadding, 28),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            childAspectRatio: width >= 900 ? 0.8 : 0.74,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+          ),
+          itemCount: sortedItems.length,
+          itemBuilder: (context, index) {
+            final item = sortedItems[index];
+            return _buildItemCard(shopProvider, item);
+          },
+        );
       },
     );
   }
@@ -686,25 +694,31 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
   Widget _buildTicketList(ShopProvider shopProvider, StatsProvider statsProvider) {
     final tickets = shopProvider.getItemsByCategory(ShopCategory.ticket);
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        // 섹션 헤더
-        _buildSectionHeader('특별 티켓', Icons.local_activity, Colors.amber),
-        const SizedBox(height: 12),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final maxContentWidth = width >= 1300 ? 1040.0 : double.infinity;
+        final horizontalPadding = width >= 900 ? 24.0 : 16.0;
 
-        // 티켓 목록
-        ...tickets.map((ticket) => _buildTicketCard(shopProvider, statsProvider, ticket)),
-
-        const SizedBox(height: 24),
-
-        // 섹션 헤더
-        _buildSectionHeader('기타 서비스', Icons.build_circle, Colors.purple),
-        const SizedBox(height: 12),
-
-        // 승률 초기화권
-        _buildResetStatsCard(statsProvider),
-      ],
+        return Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: maxContentWidth),
+            child: ListView(
+              padding: EdgeInsets.fromLTRB(horizontalPadding, 16, horizontalPadding, 16),
+              children: [
+                _buildSectionHeader('특별 티켓', Icons.local_activity, Colors.amber),
+                const SizedBox(height: 12),
+                ...tickets.map((ticket) => _buildTicketCard(shopProvider, statsProvider, ticket)),
+                const SizedBox(height: 24),
+                _buildSectionHeader('기타 서비스', Icons.build_circle, Colors.purple),
+                const SizedBox(height: 12),
+                _buildResetStatsCard(statsProvider),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1160,7 +1174,7 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
               ),
               const SizedBox(height: 20),
               Text(
-                '${deleteCount}패 삭제',
+                '$deleteCount패 삭제',
                 style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
@@ -1216,7 +1230,7 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('$gameName의 패배 ${deleteCount}회를 삭제할까요?'),
+            Text('$gameName의 패배 $deleteCount회를 삭제할까요?'),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

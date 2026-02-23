@@ -27,20 +27,46 @@ class LevelManageScreen extends StatelessWidget {
       ),
       body: Consumer<StatsProvider>(
         builder: (context, statsProvider, _) {
-          return RefreshIndicator(
-            onRefresh: () async => statsProvider.getAllStats(),
-            child: SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildSummaryCard(context, statsProvider),
-                  const SizedBox(height: 20),
-                  _buildSectionHeader(statsProvider),
-                  const SizedBox(height: 12),
-                  _buildGameGrid(context, statsProvider),
+          return Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Theme.of(context).primaryColor.withValues(alpha: 0.08),
+                  Colors.white,
                 ],
+              ),
+            ),
+            child: RefreshIndicator(
+              onRefresh: () async => statsProvider.getAllStats(),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final width = constraints.maxWidth;
+                  final maxContentWidth = width >= 1300 ? 1120.0 : double.infinity;
+                  final horizontalPadding = width >= 900 ? 24.0 : 16.0;
+
+                  return Align(
+                    alignment: Alignment.topCenter,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: maxContentWidth),
+                      child: SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: EdgeInsets.fromLTRB(horizontalPadding, 16, horizontalPadding, 24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildSummaryCard(context, statsProvider),
+                            const SizedBox(height: 20),
+                            _buildSectionHeader(statsProvider),
+                            const SizedBox(height: 12),
+                            _buildGameGrid(context, statsProvider),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
           );
@@ -141,8 +167,9 @@ class LevelManageScreen extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 620;
-        final itemWidth = isWide ? (constraints.maxWidth - 12) / 2 : constraints.maxWidth;
+        final width = constraints.maxWidth;
+        final columns = width >= 1180 ? 4 : width >= 860 ? 3 : width >= 560 ? 2 : 1;
+        final itemWidth = (width - (columns - 1) * 12) / columns;
 
         return Wrap(
           spacing: 12,
