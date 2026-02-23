@@ -171,6 +171,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
             route = '/game/stroop';
           } else if (gameType == 'hexagon') {
             route = '/game/hexagon';
+          } else if (gameType == 'pyramid') {
+            route = '/game/pyramid';
           }
           Navigator.pushNamed(context, route);
         }
@@ -453,6 +455,15 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             icon: Icons.hexagon_outlined,
                             color: const Color(0xFF2D3436),
                             route: '/game/hexagon',
+                          ),
+                          const SizedBox(height: 8),
+                          _buildLargeGameCard(
+                            context,
+                            title: '수식피라미드',
+                            subtitle: '카드를 골라 목표 숫자를 맞춰라!',
+                            icon: Icons.change_history,
+                            color: const Color(0xFFE67E22),
+                            route: '/game/pyramid',
                           ),
                         ],
                       ),

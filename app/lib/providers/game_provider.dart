@@ -80,6 +80,7 @@ class GameProvider extends ChangeNotifier {
   String? get currentTurn => _currentTurn;
   List<int?> get board => _board;
   bool get isMyTurn => _currentTurn == _myId;
+  int? get myPlayerIndex => _myPlayerIndex;
   String? get winnerId => _winnerId;
   String? get winnerNickname => _winnerNickname;
   bool get isDraw => _isDraw;

@@ -287,7 +287,8 @@ class _SequenceScreenState extends State<SequenceScreen>
     });
 
     _socketListeners.on('opponent_left', (data) {
-      if (_status == SequenceGameStatus.finished) return;
+      if (_status == SequenceGameStatus.idle ||
+          _status == SequenceGameStatus.searching) return;
       // 나가기 다이얼로그가 열려있으면 먼저 닫기
       if (_isExitDialogOpen && mounted) {
         Navigator.of(context).pop();

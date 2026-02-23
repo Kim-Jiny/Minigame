@@ -300,6 +300,16 @@ export async function setupDatabase() {
       );
       CREATE INDEX IF NOT EXISTS idx_dm_hexagon_rankings_score ON dm_hexagon_rankings(score DESC);
 
+      -- 피라미드 솔로 랭킹 테이블
+      CREATE TABLE IF NOT EXISTS dm_pyramid_rankings (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES dm_users(id),
+        score INTEGER NOT NULL,
+        nickname VARCHAR(50),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_dm_pyramid_rankings_score ON dm_pyramid_rankings(score DESC);
+
       -- 유저 제재 기록
       CREATE TABLE IF NOT EXISTS dm_user_bans (
         id SERIAL PRIMARY KEY,

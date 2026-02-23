@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
@@ -23,6 +24,7 @@ import 'games/speedtap/speedtap_screen.dart';
 import 'games/sequence/sequence_screen.dart';
 import 'games/stroop/stroop_screen.dart';
 import 'games/hexagon/hexagon_screen.dart';
+import 'games/pyramid/pyramid_screen.dart';
 
 // 앱 테마 색상 정의
 class AppColors {
@@ -123,6 +125,19 @@ class MinigameApp extends StatelessWidget {
             unselectedItemColor: Colors.grey,
           ),
         ),
+        builder: (context, child) {
+          // 안드로이드에서 텍스트 크기 축소 (85%)
+          if (Platform.isAndroid) {
+            final scale = MediaQuery.of(context).textScaler.scale(1.0) * 0.85;
+            return MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                textScaler: TextScaler.linear(scale),
+              ),
+              child: child!,
+            );
+          }
+          return child!;
+        },
         home: const AuthWrapper(),
         routes: {
           '/login': (context) => const LoginScreen(),
@@ -136,6 +151,7 @@ class MinigameApp extends StatelessWidget {
           '/game/sequence': (context) => const SequenceScreen(),
           '/game/stroop': (context) => const StroopScreen(),
           '/game/hexagon': (context) => const HexagonScreen(),
+          '/game/pyramid': (context) => const PyramidScreen(),
         },
       ),
     );

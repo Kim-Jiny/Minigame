@@ -8,6 +8,7 @@ import { SpeedTapGame } from '../games/speedtap';
 import { SequenceGame } from '../games/sequence';
 import { StroopGame } from '../games/stroop';
 import { HexagonGame } from '../games/hexagon';
+import { PyramidGame } from '../games/pyramid';
 import { friendService } from '../services/friendService';
 import { invitationService } from '../services/invitationService';
 import { statsService } from '../services/statsService';
@@ -59,7 +60,7 @@ interface GameRoom {
   id: string;
   gameType: string;
   players: Player[];
-  game: TicTacToeGame | InfiniteTicTacToeGame | GomokuGame | ReactionGame | RpsGame | SpeedTapGame | SequenceGame | StroopGame | HexagonGame | null;
+  game: TicTacToeGame | InfiniteTicTacToeGame | GomokuGame | ReactionGame | RpsGame | SpeedTapGame | SequenceGame | StroopGame | HexagonGame | PyramidGame | null;
   status: 'waiting' | 'playing' | 'finished';
   rematchRequests?: Set<string>;
   turnTimer?: NodeJS.Timeout;
@@ -67,8 +68,10 @@ interface GameRoom {
   isHardcore?: boolean;  // 하드코어 모드 여부
   isInfinite?: boolean;  // 무한 모드 여부 (틱택토)
   roundTimer?: NodeJS.Timeout;  // 반응속도/스피드탭 게임용 라운드 타이머
-  idleTimer?: NodeJS.Timeout;  // 헥사곤 90초 무도전 타이머
+  idleTimer?: NodeJS.Timeout;  // 헥사곤 60초 무도전 타이머
   buzzTimer?: NodeJS.Timeout;  // 헥사곤 10초 버저 답변 타이머
+  skipTimer?: NodeJS.Timeout;  // 헥사곤 20초 스킵 활성화 타이머
+  skipVotes?: Set<number>;     // 스킵 투표한 플레이어 인덱스
   isSolo?: boolean;  // 솔로 모드 여부
   isRanked?: boolean;  // 랭크전 여부
   rankedGames?: string[];  // 랭크전 게임 목록 (3개)
@@ -103,6 +106,11 @@ const userRooms = new Map<number, string>();
 // 초대 타임아웃 관리 (invitationId -> timeout)
 const invitationTimeouts = new Map<number, NodeJS.Timeout>();
 const INVITATION_TIMEOUT_MS = 30000; // 30초
+
+// 재연결 유예 타이머 (게임 중 끊겼을 때 15초 대기)
+const disconnectGraceTimers = new Map<number, NodeJS.Timeout>();
+const disconnectContexts = new Map<number, { socket: Socket; roomId: string }>();
+const RECONNECT_GRACE_MS = 15000; // 15초
 
 function getQueueKey(gameType: string, isHardcore: boolean, isInfinite: boolean = false): string {
   let key = gameType;
@@ -813,6 +821,8 @@ async function finishStroopGame(io: Server, room: GameRoom) {
 function clearHexagonTimers(room: GameRoom) {
   if (room.idleTimer) { clearTimeout(room.idleTimer); room.idleTimer = undefined; }
   if (room.buzzTimer) { clearTimeout(room.buzzTimer); room.buzzTimer = undefined; }
+  if (room.skipTimer) { clearTimeout(room.skipTimer); room.skipTimer = undefined; }
+  room.skipVotes = undefined;
 }
 
 // 헥사곤 라운드 시작 (암기 단계)
@@ -846,21 +856,35 @@ function startHexagonRound(io: Server, room: GameRoom) {
       round,
     });
 
-    // 90초 무도전 타이머 시작
+    // 60초 무도전 타이머 + 20초 스킵 타이머 시작
     startHexagonIdleTimer(io, room);
 
     console.log(`🔷 Hexagon Round ${round}: memorizing ended, playing started`);
   }, HexagonGame.MEMORIZE_TIME);
 }
 
-// 90초 무도전 타이머
+// 60초 무도전 타이머 + 20초 스킵 활성화 타이머
 function startHexagonIdleTimer(io: Server, room: GameRoom) {
   if (room.idleTimer) clearTimeout(room.idleTimer);
+  if (room.skipTimer) clearTimeout(room.skipTimer);
+  room.skipVotes = undefined;
+
   room.idleTimer = setTimeout(() => {
     if (!(room.game instanceof HexagonGame)) return;
     if (room.game.getRoundState() !== 'playing') return;
     finishHexagonRound(io, room);
   }, HexagonGame.ROUND_IDLE_TIMEOUT);
+
+  // 2인 대전에서만 20초 후 스킵 버튼 활성화
+  if (!room.isSolo && room.players.length === 2) {
+    room.skipTimer = setTimeout(() => {
+      if (!(room.game instanceof HexagonGame)) return;
+      if (room.game.getRoundState() !== 'playing') return;
+      room.skipVotes = new Set();
+      io.to(room.id).emit('hexagon_skip_available', {});
+      console.log(`🔷 Hexagon skip available in room ${room.id}`);
+    }, HexagonGame.SKIP_AVAILABLE_TIME);
+  }
 }
 
 // 10초 버저 답변 타이머
@@ -873,7 +897,7 @@ function startHexagonBuzzTimer(io: Server, room: GameRoom) {
     const { scores } = room.game.buzzTimeout();
     io.to(room.id).emit('hexagon_buzz_timeout', { scores });
 
-    // 90초 타이머 재시작
+    // 60초 타이머 + 20초 스킵 타이머 재시작
     startHexagonIdleTimer(io, room);
   }, HexagonGame.BUZZ_TIME_LIMIT);
 }
@@ -1001,6 +1025,238 @@ async function finishHexagonGame(io: Server, room: GameRoom) {
 
   if (room.isRanked) {
     await handleRankedGameEnd(io, room, winnerIndex);
+  }
+}
+
+// ====== 수식피라미드 게임 함수 ======
+
+function clearPyramidTimers(room: GameRoom) {
+  if (room.idleTimer) { clearTimeout(room.idleTimer); room.idleTimer = undefined; }
+  if (room.buzzTimer) { clearTimeout(room.buzzTimer); room.buzzTimer = undefined; }
+  if (room.skipTimer) { clearTimeout(room.skipTimer); room.skipTimer = undefined; }
+  room.skipVotes = undefined;
+}
+
+function startPyramidRound(io: Server, room: GameRoom) {
+  if (room.gameType !== 'pyramid' || !(room.game instanceof PyramidGame)) return;
+  if (room.status === 'finished') return;
+
+  const game = room.game;
+  const { cards, targetNumber, round, validPaths } = game.startRound();
+
+  io.to(room.id).emit('pyramid_round_start', {
+    cards,
+    targetNumber,
+    round,
+    scores: game.getScores(),
+    validPaths,
+  });
+
+  console.log(`🔺 Pyramid Round ${round}: target=${targetNumber}, paths=${validPaths.length}`);
+
+  // 60초 무도전 타이머 시작
+  startPyramidIdleTimer(io, room);
+}
+
+function startPyramidIdleTimer(io: Server, room: GameRoom) {
+  if (room.idleTimer) clearTimeout(room.idleTimer);
+  if (room.skipTimer) clearTimeout(room.skipTimer);
+  room.skipVotes = undefined;
+
+  room.idleTimer = setTimeout(() => {
+    if (!(room.game instanceof PyramidGame)) return;
+    if (room.game.getRoundState() !== 'playing') return;
+    finishPyramidRound(io, room);
+  }, PyramidGame.ROUND_IDLE_TIMEOUT);
+
+  // 2인 대전에서만 20초 후 스킵 버튼 활성화
+  if (!room.isSolo && room.players.length === 2) {
+    room.skipTimer = setTimeout(() => {
+      if (!(room.game instanceof PyramidGame)) return;
+      if (room.game.getRoundState() !== 'playing') return;
+      room.skipVotes = new Set();
+      io.to(room.id).emit('pyramid_skip_available', {});
+      console.log(`🔺 Pyramid skip available in room ${room.id}`);
+    }, PyramidGame.SKIP_AVAILABLE_TIME);
+  }
+}
+
+function startPyramidBuzzTimer(io: Server, room: GameRoom) {
+  if (room.buzzTimer) clearTimeout(room.buzzTimer);
+  room.buzzTimer = setTimeout(() => {
+    if (!(room.game instanceof PyramidGame)) return;
+    if (room.game.getRoundState() !== 'buzzing') return;
+
+    const { scores } = room.game.buzzTimeout();
+    io.to(room.id).emit('pyramid_buzz_timeout', { scores });
+
+    // 60초 타이머 재시작
+    startPyramidIdleTimer(io, room);
+  }, PyramidGame.BUZZ_TIME_LIMIT);
+}
+
+function finishPyramidRound(io: Server, room: GameRoom) {
+  if (!(room.game instanceof PyramidGame)) return;
+  clearPyramidTimers(room);
+
+  const result = room.game.finishRound();
+  io.to(room.id).emit('pyramid_round_end', {
+    ...result,
+    scores: room.game.getScores(),
+  });
+
+  console.log(`🔺 Pyramid Round ${result.round} ended`);
+
+  if (room.game.checkGameOver()) {
+    setTimeout(() => finishPyramidGame(io, room), 2000);
+  } else {
+    setTimeout(() => startPyramidRound(io, room), 3000);
+  }
+}
+
+async function finishPyramidGame(io: Server, room: GameRoom) {
+  if (!(room.game instanceof PyramidGame)) return;
+  if (!markRoomFinishedOnce(room, 'pyramid_game_end')) return;
+  clearPyramidTimers(room);
+
+  const game = room.game;
+  const scores = game.getScores();
+
+  // 솔로 모드: 랭킹 저장 후 game_end
+  if (room.isSolo) {
+    const player = room.players[0];
+    if (player?.userId) {
+      try {
+        const pool = getPool();
+        if (pool) {
+          await pool.query(
+            `INSERT INTO dm_pyramid_rankings (user_id, score, nickname)
+             VALUES ($1, $2, $3)`,
+            [player.userId, scores[0], player.nickname]
+          );
+        }
+      } catch (err) {
+        console.error('Failed to save pyramid solo ranking:', err);
+      }
+    }
+
+    io.to(room.id).emit('game_end', {
+      winner: null,
+      winnerNickname: null,
+      isDraw: false,
+      scores,
+      isSolo: true,
+      roundResults: game.getRoundResults(),
+    });
+
+    if (player?.userId) userRooms.delete(player.userId);
+    rooms.delete(room.id);
+    console.log(`🔺 Pyramid solo finished: ${player?.nickname}, score=${scores[0]}`);
+    return;
+  }
+
+  const winnerIndex = game.getWinner();
+  const winner = winnerIndex !== null ? room.players[winnerIndex] : null;
+  const winnerId = winner?.id ?? null;
+  const winnerNickname = winner?.nickname ?? null;
+  const isDraw = winnerIndex === null;
+
+  const rewardResults: { [key: string]: any } = {};
+
+  for (let i = 0; i < room.players.length; i++) {
+    const player = room.players[i];
+    const opponent = room.players[i === 0 ? 1 : 0];
+    if (player.userId) {
+      let gameResult: 'win' | 'loss' | 'draw';
+      if (isDraw) gameResult = 'draw';
+      else if (winnerIndex === i) gameResult = 'win';
+      else gameResult = 'loss';
+
+      try {
+        const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
+        player.socket.emit('stats_updated', { stats });
+        if (i === 0 && opponent.userId) {
+          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult, {
+            isRanked: room.isRanked,
+            rankedMatchId: room.isRanked ? room.id : undefined,
+            rankedGameIndex: room.isRanked ? room.rankedCurrentIndex : undefined,
+          });
+        }
+        if (opponent.userId) {
+          const reward = await coinService.processGameReward(player.userId, opponent.userId, gameResult);
+          rewardResults[player.id] = reward;
+          player.socket.emit('coins_updated', {
+            coins: reward.totalCoins,
+            earned: reward.coinsEarned,
+            streak: reward.streakAfter,
+            streakBonus: reward.streakBonusEarned,
+          });
+        }
+      } catch (err) {
+        console.error('Failed to update stats:', err);
+      }
+    }
+  }
+
+  io.to(room.id).emit('game_end', {
+    winner: winnerId,
+    winnerNickname,
+    isDraw,
+    scores,
+    roundResults: game.getRoundResults(),
+    rewards: rewardResults,
+  });
+
+  console.log(`🏆 Pyramid game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores[0]}-${scores[1]})`);
+
+  if (room.isRanked) {
+    await handleRankedGameEnd(io, room, winnerIndex);
+  }
+}
+
+// 재연결 시 게임 상태 전송
+function emitRejoinState(socket: Socket, room: GameRoom, userId: number) {
+  const playerIndex = room.players.findIndex(p => p.userId === userId);
+
+  if (room.gameType === 'hexagon' && room.game instanceof HexagonGame) {
+    const game = room.game;
+    socket.emit('rejoin_game_state', {
+      gameType: 'hexagon',
+      roomId: room.id,
+      board: game.getBoard(),
+      letters: game.getLettersOnly(),
+      targetNumber: game.getTargetNumber(),
+      round: game.getCurrentRound(),
+      scores: game.getScores(),
+      roundState: game.getRoundState(),
+      buzzingPlayer: game.getBuzzingPlayer(),
+      foundCombinations: game.getFoundCombinations(),
+      totalCombinations: game.getValidCombinationCount(),
+      remainingCombinations: game.getRemainingCombinationCount(),
+      isSolo: game.getIsSolo(),
+      playerIndex,
+    });
+  } else if (room.gameType === 'pyramid' && room.game instanceof PyramidGame) {
+    const game = room.game;
+    socket.emit('rejoin_game_state', {
+      gameType: 'pyramid',
+      roomId: room.id,
+      cards: game.getCards(),
+      targetNumber: game.getTargetNumber(),
+      round: game.getCurrentRound(),
+      scores: game.getScores(),
+      roundState: game.getRoundState(),
+      buzzingPlayer: game.getBuzzingPlayer(),
+      validPaths: game.getValidPaths(),
+      playerIndex,
+    });
+  } else {
+    // 기타 게임: 최소 상태만 전송 (서버 타이머가 계속 돌고 있으므로 다음 이벤트부터 정상 수신)
+    socket.emit('rejoin_game_state', {
+      gameType: room.gameType,
+      roomId: room.id,
+      playerIndex,
+    });
   }
 }
 
@@ -1634,6 +1890,40 @@ export function setupSocketHandlers(io: Server) {
         console.log(`⚠️ No userId provided for ${data.nickname}`);
       }
 
+      // 재연결 유예 중인 유저 체크 → 게임 복귀
+      if (data.userId && disconnectGraceTimers.has(data.userId)) {
+        clearTimeout(disconnectGraceTimers.get(data.userId)!);
+        disconnectGraceTimers.delete(data.userId);
+        disconnectContexts.delete(data.userId);
+        console.log(`🔄 User ${data.userId} reconnected within grace period`);
+
+        const existingRoomId = userRooms.get(data.userId);
+        if (existingRoomId) {
+          const room = rooms.get(existingRoomId);
+          if (room && (room.status === 'playing' || room.status === 'waiting')) {
+            const playerInRoom = room.players.find(p => p.userId === data.userId);
+            if (playerInRoom) {
+              // 소켓 교체
+              playerInRoom.socket = socket;
+              playerInRoom.id = socket.id;
+              playerInRoom.nickname = data.nickname;
+              playerInRoom.avatarUrl = data.avatarUrl;
+              socket.join(existingRoomId);
+              currentRoomId = existingRoomId;
+              currentPlayer = playerInRoom;
+
+              // 상대에게 재연결 알림
+              socket.to(existingRoomId).emit('opponent_reconnected');
+
+              // 게임 상태 전송
+              emitRejoinState(socket, room, data.userId);
+
+              console.log(`✅ User ${data.userId} rejoined room ${existingRoomId}`);
+            }
+          }
+        }
+      }
+
       socket.emit('lobby_joined', { success: true });
       console.log(`🎮 ${data.nickname} joined lobby`);
     });
@@ -1751,6 +2041,155 @@ export function setupSocketHandlers(io: Server) {
       }
     });
 
+    // 헥사곤 라운드 스킵 요청
+    socket.on('hexagon_skip_round', (data: { roomId: string }) => {
+      const room = rooms.get(data.roomId);
+      if (!room || room.gameType !== 'hexagon' || !(room.game instanceof HexagonGame)) return;
+      if (room.status !== 'playing' || room.game.getRoundState() !== 'playing') return;
+      if (!room.skipVotes) return; // 스킵 아직 활성화 안 됨
+
+      const playerIndex = room.players.findIndex(p => p.id === socket.id);
+      if (playerIndex === -1) return;
+
+      room.skipVotes.add(playerIndex);
+      console.log(`🔷 Hexagon skip vote: player ${playerIndex} in room ${room.id} (${room.skipVotes.size}/2)`);
+
+      // 상대에게 스킵 투표 알림
+      socket.to(data.roomId).emit('hexagon_skip_voted', { playerIndex });
+
+      // 양쪽 모두 투표하면 라운드 종료
+      if (room.skipVotes.size >= 2) {
+        console.log(`🔷 Hexagon round skipped by both players in room ${room.id}`);
+        finishHexagonRound(io, room);
+      }
+    });
+
+    // 피라미드 솔로 모드 시작
+    socket.on('pyramid_solo_start', async () => {
+      if (!currentPlayer) return;
+
+      const roomId = `pyramid_solo_${socket.id}_${Date.now()}`;
+      const room: GameRoom = {
+        id: roomId,
+        gameType: 'pyramid',
+        players: [currentPlayer],
+        game: new PyramidGame(true),
+        status: 'playing',
+        isSolo: true,
+      };
+      rooms.set(roomId, room);
+      socket.join(roomId);
+      currentRoomId = roomId;
+
+      if (currentPlayer.userId) userRooms.set(currentPlayer.userId, roomId);
+
+      socket.emit('pyramid_solo_ready', { roomId });
+
+      io.to(roomId).emit('game_start', {
+        gameType: 'pyramid',
+        isSolo: true,
+      });
+
+      setTimeout(() => startPyramidRound(io, room), 1000);
+      console.log(`🔺 Pyramid solo started: ${currentPlayer.nickname}`);
+    });
+
+    // 피라미드 솔로 도전 종료 (기록 저장)
+    socket.on('pyramid_solo_end', async (data: { roomId: string }) => {
+      if (!currentPlayer) return;
+      const room = rooms.get(data.roomId);
+      if (!room || !(room.game instanceof PyramidGame) || !room.isSolo) return;
+      if (room.status === 'finished') return;
+
+      clearPyramidTimers(room);
+
+      const game = room.game;
+      const scores = game.getScores();
+
+      if (game.getRoundState() !== 'waiting' && game.getRoundState() !== 'finished') {
+        game.finishRound();
+      }
+
+      room.status = 'finished';
+
+      // 랭킹 저장
+      if (currentPlayer.userId) {
+        try {
+          const pool = getPool();
+          if (pool) {
+            await pool.query(
+              `INSERT INTO dm_pyramid_rankings (user_id, score, nickname)
+               VALUES ($1, $2, $3)`,
+              [currentPlayer.userId, scores[0], currentPlayer.nickname]
+            );
+          }
+        } catch (err) {
+          console.error('Failed to save pyramid ranking:', err);
+        }
+      }
+
+      socket.emit('game_end', {
+        winner: null,
+        winnerNickname: null,
+        isDraw: false,
+        scores,
+        isSolo: true,
+        roundResults: game.getRoundResults(),
+      });
+
+      if (currentPlayer.userId) userRooms.delete(currentPlayer.userId);
+      rooms.delete(data.roomId);
+
+      console.log(`🔺 Pyramid solo ended by player: ${currentPlayer.nickname}, score=${scores[0]}`);
+    });
+
+    // 피라미드 랭킹 조회
+    socket.on('pyramid_get_rankings', async (data: { limit?: number }) => {
+      try {
+        const pool = getPool();
+        if (!pool) {
+          socket.emit('pyramid_rankings', { rankings: [] });
+          return;
+        }
+        const limit = data?.limit || 50;
+        const result = await pool.query(
+          `SELECT user_id, nickname, MAX(score) as score, MAX(created_at) as created_at
+           FROM dm_pyramid_rankings
+           GROUP BY user_id, nickname
+           ORDER BY score DESC
+           LIMIT $1`,
+          [limit]
+        );
+        socket.emit('pyramid_rankings', { rankings: result.rows });
+      } catch (err) {
+        console.error('Failed to get pyramid rankings:', err);
+        socket.emit('pyramid_rankings', { rankings: [] });
+      }
+    });
+
+    // 피라미드 라운드 스킵 요청
+    socket.on('pyramid_skip_round', (data: { roomId: string }) => {
+      const room = rooms.get(data.roomId);
+      if (!room || room.gameType !== 'pyramid' || !(room.game instanceof PyramidGame)) return;
+      if (room.status !== 'playing' || room.game.getRoundState() !== 'playing') return;
+      if (!room.skipVotes) return; // 스킵 아직 활성화 안 됨
+
+      const playerIndex = room.players.findIndex(p => p.id === socket.id);
+      if (playerIndex === -1) return;
+
+      room.skipVotes.add(playerIndex);
+      console.log(`🔺 Pyramid skip vote: player ${playerIndex} in room ${room.id} (${room.skipVotes.size}/2)`);
+
+      // 상대에게 스킵 투표 알림
+      socket.to(data.roomId).emit('pyramid_skip_voted', { playerIndex });
+
+      // 양쪽 모두 투표하면 라운드 종료
+      if (room.skipVotes.size >= 2) {
+        console.log(`🔺 Pyramid round skipped by both players in room ${room.id}`);
+        finishPyramidRound(io, room);
+      }
+    });
+
     // 게임 매칭 요청
     socket.on('find_match', async (data: { gameType: string; isHardcore?: boolean; isInfinite?: boolean }) => {
       if (!currentPlayer) {
@@ -1804,6 +2243,8 @@ export function setupSocketHandlers(io: Server) {
           room.game = new StroopGame(isHardcore);
         } else if (gameType === 'hexagon') {
           room.game = new HexagonGame(false);
+        } else if (gameType === 'pyramid') {
+          room.game = new PyramidGame();
         }
 
         rooms.set(roomId, room);
@@ -1900,6 +2341,12 @@ export function setupSocketHandlers(io: Server) {
             isSolo: false,
           });
           setTimeout(() => startHexagonRound(io, room), 1000);
+        } else if (gameType === 'pyramid') {
+          // 수식피라미드 게임
+          io.to(roomId).emit('game_start', {
+            gameType: 'pyramid',
+          });
+          setTimeout(() => startPyramidRound(io, room), 1000);
         } else {
           // 턴제 게임
           startTurnTimer(io, room);
@@ -2426,8 +2873,11 @@ export function setupSocketHandlers(io: Server) {
           const result = room.game.buzz(playerIndex);
           if (!result.valid) return;
 
-          // 90초 타이머 멈추고 10초 버저 타이머 시작
+          // 타이머 멈추고 10초 버저 타이머 시작
           if (room.idleTimer) { clearTimeout(room.idleTimer); room.idleTimer = undefined; }
+          // 스킵 상태 초기화 (활동 발생)
+          if (room.skipTimer) { clearTimeout(room.skipTimer); room.skipTimer = undefined; }
+          room.skipVotes = undefined;
           startHexagonBuzzTimer(io, room);
 
           io.to(data.roomId).emit('hexagon_buzz', {
@@ -2466,8 +2916,56 @@ export function setupSocketHandlers(io: Server) {
           if (result.remainingCombinations === 0) {
             finishHexagonRound(io, room);
           } else {
-            // 90초 타이머 재시작
+            // 60초 타이머 + 20초 스킵 타이머 재시작
             startHexagonIdleTimer(io, room);
+          }
+        }
+      }
+
+      // 수식피라미드 게임 로직
+      if (room.gameType === 'pyramid' && room.game instanceof PyramidGame) {
+        const action = data.action;
+
+        if (action.type === 'buzz') {
+          const result = room.game.buzz(playerIndex);
+          if (!result.valid) return;
+
+          if (room.idleTimer) { clearTimeout(room.idleTimer); room.idleTimer = undefined; }
+          // 스킵 상태 초기화 (활동 발생)
+          if (room.skipTimer) { clearTimeout(room.skipTimer); room.skipTimer = undefined; }
+          room.skipVotes = undefined;
+          startPyramidBuzzTimer(io, room);
+
+          io.to(data.roomId).emit('pyramid_buzz', {
+            playerIndex,
+            playerId: socket.id,
+            playerNickname: currentPlayer?.nickname,
+          });
+        } else if (action.type === 'answer') {
+          const sequence = action.sequence as number[];
+          const result = room.game.submitAnswer(playerIndex, sequence);
+          if (!result.valid) return;
+
+          if (room.buzzTimer) { clearTimeout(room.buzzTimer); room.buzzTimer = undefined; }
+
+          io.to(data.roomId).emit('pyramid_answer_result', {
+            playerIndex,
+            playerId: socket.id,
+            playerNickname: currentPlayer?.nickname,
+            correct: result.correct,
+            scores: result.scores,
+            sequence,
+            calculationSteps: result.calculationSteps,
+          });
+
+          if (result.correct) {
+            console.log(`🔺 ${currentPlayer?.nickname} solved pyramid!`);
+            // 정답이면 라운드 종료
+            finishPyramidRound(io, room);
+          } else {
+            console.log(`🔺 ${currentPlayer?.nickname} wrong answer`);
+            // 오답이면 60초 타이머 재시작
+            startPyramidIdleTimer(io, room);
           }
         }
       }
@@ -2915,6 +3413,8 @@ export function setupSocketHandlers(io: Server) {
           room.game = new StroopGame(isHardcore);
         } else if (invitation.gameType === 'hexagon') {
           room.game = new HexagonGame(false);
+        } else if (invitation.gameType === 'pyramid') {
+          room.game = new PyramidGame();
         }
 
         rooms.set(roomId, room);
@@ -3166,6 +3666,36 @@ export function setupSocketHandlers(io: Server) {
             });
 
             setTimeout(() => startHexagonRound(io, room), 1000);
+          }, 500);
+        } else if (invitation.gameType === 'pyramid') {
+          // 수식피라미드 게임
+          socket.emit('accept_invitation_result', {
+            success: true,
+            roomId,
+            gameType: invitation.gameType,
+            gameState: { players, isInvitation: true }
+          });
+
+          inviterSocket!.emit('invitation_accepted', {
+            roomId,
+            gameType: invitation.gameType,
+            acceptedBy: currentPlayer.nickname,
+            gameState: { players, isInvitation: true }
+          });
+
+          setTimeout(() => {
+            io.to(roomId).emit('match_found', {
+              roomId,
+              gameType: invitation.gameType,
+              isInvitation: true,
+              players
+            });
+
+            io.to(roomId).emit('game_start', {
+              gameType: 'pyramid',
+            });
+
+            setTimeout(() => startPyramidRound(io, room), 1000);
           }, 500);
         } else {
           // 턴제 게임
@@ -3879,8 +4409,24 @@ export function setupSocketHandlers(io: Server) {
       }
 
       // 진행 중인 게임에서 제거
-      const roomId = currentRoomId ?? (currentPlayer?.userId ? userRooms.get(currentPlayer.userId) : null);
+      const userId = currentPlayer?.userId;
+      const roomId = currentRoomId ?? (userId ? userRooms.get(userId) : null);
+
       if (roomId) {
+        const room = rooms.get(roomId);
+        // 게임 중 + userId 있음 + 솔로 아님 → 재연결 유예 (15초)
+        if (userId && room && room.status === 'playing' && !room.isSolo) {
+          console.log(`⏳ Grace period started for user ${userId} in room ${roomId} (${RECONNECT_GRACE_MS / 1000}s)`);
+          disconnectGraceTimers.set(userId, setTimeout(() => {
+            console.log(`⏰ Grace period expired for user ${userId}, leaving room ${roomId}`);
+            disconnectGraceTimers.delete(userId);
+            disconnectContexts.delete(userId);
+            leaveRoom(socket, roomId);
+          }, RECONNECT_GRACE_MS));
+          disconnectContexts.set(userId, { socket, roomId });
+          return; // 즉시 leaveRoom 호출 안 함
+        }
+
         leaveRoom(socket, roomId);
       }
     });

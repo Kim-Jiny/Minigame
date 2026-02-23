@@ -285,7 +285,8 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
     });
 
     _socketListeners.on('opponent_left', (data) {
-      if (_status == SpeedTapGameStatus.finished) return;
+      if (_status == SpeedTapGameStatus.idle ||
+          _status == SpeedTapGameStatus.searching) return;
       // 나가기 다이얼로그가 열려있으면 먼저 닫기
       if (_isExitDialogOpen && mounted) {
         Navigator.of(context).pop();

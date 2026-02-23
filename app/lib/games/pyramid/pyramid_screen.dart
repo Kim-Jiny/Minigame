@@ -12,95 +12,64 @@ import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
 import '../../widgets/game_player_profile.dart';
 
-enum HexagonGameStatus {
+enum PyramidGameStatus {
   idle,
   searching,
   matched,
-  memorizing,
   playing,
   buzzing,
   roundEnd,
   finished,
 }
 
-/// 헥사곤 셀 데이터
-class HexCell {
-  final int index;
-  final int number;
-  final String letter;
+/// 피라미드 카드 데이터
+class PyramidCard {
+  final int position; // 0-9
+  final int row;      // 0-3
+  final int col;      // 0~row
+  final String operator; // +, -, *
+  final int value;       // 1-9
 
-  HexCell({required this.index, required this.number, required this.letter});
-}
-
-/// 찾은 조합
-class FoundCombo {
-  final List<int> cells;
-  final String letters;
-  final int playerIndex;
-
-  FoundCombo({required this.cells, required this.letters, required this.playerIndex});
-}
-
-class HexagonCellPainter extends CustomPainter {
-  final Color fillColor;
-  final Color borderColor;
-  final double borderWidth;
-
-  HexagonCellPainter({
-    required this.fillColor,
-    required this.borderColor,
-    required this.borderWidth,
+  PyramidCard({
+    required this.position,
+    required this.row,
+    required this.col,
+    required this.operator,
+    required this.value,
   });
 
-  @override
-  void paint(Canvas canvas, Size size) {
-    final path = Path()
-      ..moveTo(size.width * 0.5, 0)
-      ..lineTo(size.width, size.height * 0.25)
-      ..lineTo(size.width, size.height * 0.75)
-      ..lineTo(size.width * 0.5, size.height)
-      ..lineTo(0, size.height * 0.75)
-      ..lineTo(0, size.height * 0.25)
-      ..close();
-
-    final fillPaint = Paint()
-      ..color = fillColor
-      ..style = PaintingStyle.fill;
-    final strokePaint = Paint()
-      ..color = borderColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = borderWidth;
-
-    canvas.drawPath(path, fillPaint);
-    canvas.drawPath(path, strokePaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant HexagonCellPainter oldDelegate) {
-    return oldDelegate.fillColor != fillColor ||
-        oldDelegate.borderColor != borderColor ||
-        oldDelegate.borderWidth != borderWidth;
+  String get displayText {
+    final op = operator == '*' ? '\u00D7' : operator;
+    return '$op$value';
   }
 }
 
-class HexagonScreen extends StatefulWidget {
-  const HexagonScreen({super.key});
+/// 부모-자식 관계 매핑
+const Map<int, List<int>> childrenMap = {
+  0: [1, 2],
+  1: [3, 4],
+  2: [4, 5],
+  3: [6, 7],
+  4: [7, 8],
+  5: [8, 9],
+};
+
+class PyramidScreen extends StatefulWidget {
+  const PyramidScreen({super.key});
 
   @override
-  State<HexagonScreen> createState() => _HexagonScreenState();
+  State<PyramidScreen> createState() => _PyramidScreenState();
 }
 
-class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateMixin {
+class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateMixin {
   final SocketService _socketService = SocketService();
   final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
 
   // 게임 상태
-  HexagonGameStatus _status = HexagonGameStatus.idle;
-  bool _isSolo = false;
+  PyramidGameStatus _status = PyramidGameStatus.idle;
   // ignore: unused_field
   bool _isInvitationGame = false;
-
-  // 랭킹
+  bool _isSolo = false;
   List<Map<String, dynamic>> _rankings = [];
 
   // 플레이어 정보
@@ -117,26 +86,21 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
   String? _roomId;
 
   // 게임 데이터
-  List<HexCell> _board = [];
-  List<String> _letters = [];
+  List<PyramidCard> _cards = [];
   int _targetNumber = 0;
   int _currentRound = 0;
-  int _totalCombinations = 0;
-  int _remainingCombinations = 0;
   List<int> _scores = [0, 0];
-  List<FoundCombo> _foundCombinations = [];
+  List<List<int>> _validPaths = [];
 
   // 선택 상태
-  List<int> _selectedCells = [];
+  List<int> _selectedSequence = []; // 버저 후 선택한 카드 인덱스 순서
   int? _buzzingPlayerIndex;
 
   // 타이머
-  Timer? _memorizeTimer;
   Timer? _idleTimer;
   Timer? _buzzTimer;
-  int _memorizeRemaining = 30;
   int _idleRemaining = 60;
-  int _buzzRemaining = 10;
+  int _buzzRemaining = 15;
 
   // 결과
   String? _winnerId;
@@ -179,11 +143,8 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
       final shopProvider = context.read<ShopProvider>();
       _myProfileSettings = shopProvider.profileSettings;
 
-      // 초대 게임 체크
       _initFromGameProvider();
-
       _setupSocketListeners();
-      _fetchRankings();
       setState(() {});
     });
   }
@@ -191,7 +152,6 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
   @override
   void dispose() {
     _socketListeners.offAll();
-    _memorizeTimer?.cancel();
     _idleTimer?.cancel();
     _buzzTimer?.cancel();
     _reconnectTimer?.cancel();
@@ -212,123 +172,98 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
           _opponentNickname = game.opponentNickname;
           _opponentAvatarUrl = game.opponentAvatarUrl;
           _isInvitationGame = true;
-          _status = HexagonGameStatus.matched;
+          _status = PyramidGameStatus.matched;
           _opponentProfileSettings = game.opponentProfileSettings;
           _myProfileSettings = game.myProfileSettings;
         });
       }
     } catch (e) {
-      debugPrint('🎮 HexagonScreen: GameProvider 초기화 실패: $e');
+      debugPrint('🔺 PyramidScreen: GameProvider 초기화 실패: $e');
     }
   }
 
   void _setupSocketListeners() {
     // 소켓 재연결 감지: 게임 중이었으면 재연결 대기
     _socketListeners.on('connect', (_) {
-      final isInGame = _status != HexagonGameStatus.idle &&
-          _status != HexagonGameStatus.finished &&
-          _status != HexagonGameStatus.searching;
+      final isInGame = _status != PyramidGameStatus.idle &&
+          _status != PyramidGameStatus.finished &&
+          _status != PyramidGameStatus.searching;
       if (isInGame && _roomId != null) {
-        if (!_isSolo) {
-          // 2인 대전: 재연결 대기 모드 (서버 유예 15초보다 짧게 5초 타임아웃)
-          setState(() => _isReconnecting = true);
-          _reconnectTimer?.cancel();
-          _reconnectTimer = Timer(const Duration(seconds: 5), () {
-            if (!mounted) return;
-            _memorizeTimer?.cancel();
-            _idleTimer?.cancel();
-            _buzzTimer?.cancel();
-            setState(() {
-              _isReconnecting = false;
-              _status = HexagonGameStatus.finished;
-              _opponentLeft = true;
-            });
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('재연결에 실패했습니다'), backgroundColor: Colors.orange),
-            );
-          });
-        } else {
-          // 솔로 모드: 즉시 종료
-          _memorizeTimer?.cancel();
+        // 재연결 대기 모드 (서버 유예 15초보다 짧게 5초 타임아웃)
+        setState(() => _isReconnecting = true);
+        _reconnectTimer?.cancel();
+        _reconnectTimer = Timer(const Duration(seconds: 5), () {
+          if (!mounted) return;
           _idleTimer?.cancel();
           _buzzTimer?.cancel();
           setState(() {
-            _status = HexagonGameStatus.finished;
+            _isReconnecting = false;
+            _status = PyramidGameStatus.finished;
             _opponentLeft = true;
           });
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('연결이 끊겨 게임이 종료되었습니다'), backgroundColor: Colors.orange),
-            );
-          }
-        }
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('재연결에 실패했습니다'), backgroundColor: Colors.orange),
+          );
+        });
       }
     });
 
     // 재연결 시 게임 상태 복원
     _socketListeners.on('rejoin_game_state', (data) {
-      if (data['gameType'] != 'hexagon') return;
+      if (data['gameType'] != 'pyramid') return;
       _reconnectTimer?.cancel();
 
       // 소켓 ID 업데이트 (재연결로 변경됨)
       _myId = _socketService.socket?.id;
 
-      final boardData = data['board'] as List<dynamic>? ?? [];
-      final lettersData = data['letters'] as List<dynamic>? ?? [];
-      final foundData = data['foundCombinations'] as List<dynamic>? ?? [];
+      final cardsData = data['cards'] as List<dynamic>? ?? [];
       final scoreData = data['scores'] as List<dynamic>? ?? [0, 0];
       final roundState = data['roundState'] as String? ?? 'playing';
 
-      _board = boardData.asMap().entries.map((e) => HexCell(
-        index: e.key,
-        number: (e.value['number'] as num).toInt(),
-        letter: e.value['letter'] as String,
+      _cards = cardsData.map((c) => PyramidCard(
+        position: (c['position'] as num).toInt(),
+        row: (c['row'] as num).toInt(),
+        col: (c['col'] as num).toInt(),
+        operator: c['operator'] as String,
+        value: (c['value'] as num).toInt(),
       )).toList();
-      _letters = lettersData.map((l) => l as String).toList();
       _targetNumber = (data['targetNumber'] as num?)?.toInt() ?? 0;
       _currentRound = (data['round'] as num?)?.toInt() ?? 0;
       _scores = scoreData.map((s) => (s as num).toInt()).toList();
-      _totalCombinations = (data['totalCombinations'] as num?)?.toInt() ?? 0;
-      _remainingCombinations = (data['remainingCombinations'] as num?)?.toInt() ?? 0;
-      _isSolo = data['isSolo'] as bool? ?? false;
       _myPlayerIndex = (data['playerIndex'] as num?)?.toInt() ?? 0;
       _roomId = data['roomId'] as String?;
-      _selectedCells = [];
+      _selectedSequence = [];
 
-      _foundCombinations = foundData.map((fc) => FoundCombo(
-        cells: (fc['cells'] as List<dynamic>).map((c) => (c as num).toInt()).toList(),
-        letters: fc['letters'] as String,
-        playerIndex: (fc['playerIndex'] as num).toInt(),
-      )).toList();
+      final validPathsData = data['validPaths'] as List<dynamic>?;
+      if (validPathsData != null) {
+        _validPaths = validPathsData.map((p) =>
+          (p as List<dynamic>).map((v) => (v as num).toInt()).toList()
+        ).toList();
+      }
 
       _buzzingPlayerIndex = data['buzzingPlayer'] != null
           ? (data['buzzingPlayer'] as num).toInt()
           : null;
 
       // 타이머 초기화
-      _memorizeTimer?.cancel();
       _idleTimer?.cancel();
       _buzzTimer?.cancel();
 
       // 라운드 상태에 따라 게임 상태 복원
       switch (roundState) {
-        case 'memorizing':
-          _startMemorizeTimer();
-          _status = HexagonGameStatus.memorizing;
-          break;
         case 'playing':
           _startIdleTimer();
-          _status = HexagonGameStatus.playing;
+          _status = PyramidGameStatus.playing;
           break;
         case 'buzzing':
           if (_buzzingPlayerIndex == _myPlayerIndex) {
             _startBuzzTimer();
           }
-          _status = HexagonGameStatus.buzzing;
+          _status = PyramidGameStatus.buzzing;
           break;
         default:
           _startIdleTimer();
-          _status = HexagonGameStatus.playing;
+          _status = PyramidGameStatus.playing;
       }
 
       setState(() => _isReconnecting = false);
@@ -358,10 +293,11 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     });
 
     _socketListeners.on('waiting_for_match', (_) {
-      setState(() => _status = HexagonGameStatus.searching);
+      setState(() => _status = PyramidGameStatus.searching);
     });
 
     _socketListeners.on('match_found', (data) {
+      debugPrint('🔺 pyramid match_found 수신: roomId=${data['roomId']}');
       final players = data['players'] as List<dynamic>;
       _roomId = data['roomId'] as String?;
       _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
@@ -375,68 +311,72 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
           _opponentProfileSettings = UserProfileSettings.fromJson(profileSettings);
         }
       }
-      setState(() => _status = HexagonGameStatus.matched);
+      setState(() => _status = PyramidGameStatus.matched);
     });
 
-    _socketListeners.on('game_start', (data) {
-      setState(() {
-        _scores = [0, 0];
-        _currentRound = 0;
-        _foundCombinations = [];
-        _isSolo = data['isSolo'] == true;
-      });
-    });
-
-    _socketListeners.on('hexagon_solo_ready', (data) {
+    _socketListeners.on('pyramid_solo_ready', (data) {
       _roomId = data['roomId'] as String?;
     });
 
-    _socketListeners.on('hexagon_round_start', (data) {
-      final boardData = data['board'] as List<dynamic>;
-      _board = boardData.asMap().entries.map((e) => HexCell(
-        index: e.key,
-        number: (e.value['number'] as num).toInt(),
-        letter: e.value['letter'] as String,
+    _socketListeners.on('pyramid_rankings', (data) {
+      final list = data['rankings'] as List<dynamic>? ?? [];
+      setState(() {
+        _rankings = list.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+      });
+    });
+
+    _socketListeners.on('game_start', (data) {
+      debugPrint('🔺 pyramid game_start 수신: $data');
+      setState(() {
+        _isSolo = data['isSolo'] as bool? ?? false;
+        _scores = _isSolo ? [0] : [0, 0];
+        _currentRound = 0;
+      });
+    });
+
+    _socketListeners.on('pyramid_round_start', (data) {
+      debugPrint('🔺 pyramid_round_start 수신: round=${data['round']}, target=${data['targetNumber']}');
+      final cardsData = data['cards'] as List<dynamic>;
+      _cards = cardsData.map((c) => PyramidCard(
+        position: (c['position'] as num).toInt(),
+        row: (c['row'] as num).toInt(),
+        col: (c['col'] as num).toInt(),
+        operator: c['operator'] as String,
+        value: (c['value'] as num).toInt(),
       )).toList();
       _targetNumber = (data['targetNumber'] as num).toInt();
       _currentRound = (data['round'] as num).toInt();
-      _totalCombinations = (data['totalCombinations'] as num).toInt();
-      _remainingCombinations = _totalCombinations;
-      _foundCombinations = [];
-      _selectedCells = [];
+      _selectedSequence = [];
       _buzzingPlayerIndex = null;
       _skipAvailable = false;
       _mySkipVoted = false;
       _opponentSkipVoted = false;
+
+      final validPathsData = data['validPaths'] as List<dynamic>?;
+      if (validPathsData != null) {
+        _validPaths = validPathsData.map((p) =>
+          (p as List<dynamic>).map((v) => (v as num).toInt()).toList()
+        ).toList();
+      }
 
       final scoreData = data['scores'] as List<dynamic>?;
       if (scoreData != null) {
         _scores = scoreData.map((s) => (s as num).toInt()).toList();
       }
 
-      _startMemorizeTimer();
-      setState(() => _status = HexagonGameStatus.memorizing);
-    });
-
-    _socketListeners.on('hexagon_play_start', (data) {
-      final lettersData = data['letters'] as List<dynamic>;
-      _letters = lettersData.map((l) => l as String).toList();
-      _selectedCells = [];
-
-      _memorizeTimer?.cancel();
       _startIdleTimer();
-      setState(() => _status = HexagonGameStatus.playing);
+      setState(() => _status = PyramidGameStatus.playing);
     });
 
-    _socketListeners.on('hexagon_skip_available', (_) {
+    _socketListeners.on('pyramid_skip_available', (_) {
       setState(() => _skipAvailable = true);
     });
 
-    _socketListeners.on('hexagon_skip_voted', (_) {
+    _socketListeners.on('pyramid_skip_voted', (_) {
       setState(() => _opponentSkipVoted = true);
     });
 
-    _socketListeners.on('hexagon_buzz', (data) {
+    _socketListeners.on('pyramid_buzz', (data) {
       _buzzingPlayerIndex = (data['playerIndex'] as num).toInt();
       _idleTimer?.cancel();
       // 버저 누르면 스킵 상태 초기화
@@ -448,47 +388,28 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
         _startBuzzTimer();
       }
 
-      setState(() => _status = HexagonGameStatus.buzzing);
+      setState(() => _status = PyramidGameStatus.buzzing);
     });
 
-    _socketListeners.on('hexagon_answer_result', (data) {
+    _socketListeners.on('pyramid_answer_result', (data) {
       final correct = data['correct'] as bool;
-      final letters = data['letters'] as String? ?? '';
       final playerIdx = (data['playerIndex'] as num).toInt();
       final nickname = data['playerNickname'] as String? ?? '';
-      final alreadyFound = data['alreadyFound'] as bool? ?? false;
 
       final scoreData = data['scores'] as List<dynamic>;
       _scores = scoreData.map((s) => (s as num).toInt()).toList();
-      _remainingCombinations = (data['remainingCombinations'] as num).toInt();
-
-      // 찾은 조합 업데이트
-      final foundData = data['foundCombinations'] as List<dynamic>?;
-      if (foundData != null) {
-        _foundCombinations = foundData.map((fc) => FoundCombo(
-          cells: (fc['cells'] as List<dynamic>).map((c) => (c as num).toInt()).toList(),
-          letters: fc['letters'] as String,
-          playerIndex: (fc['playerIndex'] as num).toInt(),
-        )).toList();
-      }
 
       _buzzTimer?.cancel();
       _buzzingPlayerIndex = null;
-      _selectedCells = [];
+      _selectedSequence = [];
 
-      // 결과 메시지
       if (correct) {
         _lastResultMessage = playerIdx == _myPlayerIndex
-            ? '정답! $letters (+1)'
-            : '$nickname: $letters (+1)';
+            ? '정답! (+1)'
+            : '$nickname: 정답! (+1)';
         _lastResultColor = playerIdx == _myPlayerIndex
             ? Colors.green
             : Colors.orange;
-      } else if (alreadyFound) {
-        _lastResultMessage = playerIdx == _myPlayerIndex
-            ? '이미 찾은 조합! (-1)'
-            : '$nickname: 이미 찾은 조합 (-1)';
-        _lastResultColor = Colors.red;
       } else {
         _lastResultMessage = playerIdx == _myPlayerIndex
             ? '오답! (-1)'
@@ -497,27 +418,31 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
       }
       _resultAnimController.forward(from: 0);
 
-      setState(() => _status = HexagonGameStatus.playing);
-      _startIdleTimer();
+      // 정답이면 라운드 종료 이벤트가 올 것이므로 playing 유지
+      if (!correct) {
+        setState(() => _status = PyramidGameStatus.playing);
+        _startIdleTimer();
+      } else {
+        setState(() {});
+      }
     });
 
-    _socketListeners.on('hexagon_buzz_timeout', (data) {
+    _socketListeners.on('pyramid_buzz_timeout', (data) {
       final scoreData = data['scores'] as List<dynamic>;
       _scores = scoreData.map((s) => (s as num).toInt()).toList();
       _buzzTimer?.cancel();
       _buzzingPlayerIndex = null;
-      _selectedCells = [];
+      _selectedSequence = [];
 
       _lastResultMessage = '시간 초과! (-1)';
       _lastResultColor = Colors.red;
       _resultAnimController.forward(from: 0);
 
-      setState(() => _status = HexagonGameStatus.playing);
+      setState(() => _status = PyramidGameStatus.playing);
       _startIdleTimer();
     });
 
-    _socketListeners.on('hexagon_round_end', (data) {
-      _memorizeTimer?.cancel();
+    _socketListeners.on('pyramid_round_end', (data) {
       _idleTimer?.cancel();
       _buzzTimer?.cancel();
       _buzzingPlayerIndex = null;
@@ -525,33 +450,33 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
       final scoreData = data['scores'] as List<dynamic>;
       _scores = scoreData.map((s) => (s as num).toInt()).toList();
 
-      final foundData = data['foundCombinations'] as List<dynamic>?;
-      if (foundData != null) {
-        _foundCombinations = foundData.map((fc) => FoundCombo(
-          cells: (fc['cells'] as List<dynamic>).map((c) => (c as num).toInt()).toList(),
-          letters: fc['letters'] as String,
-          playerIndex: (fc['playerIndex'] as num).toInt(),
+      final validPathsData = data['validPaths'] as List<dynamic>?;
+      if (validPathsData != null) {
+        _validPaths = validPathsData.map((p) =>
+          (p as List<dynamic>).map((v) => (v as num).toInt()).toList()
+        ).toList();
+      }
+
+      final cardsData = data['cards'] as List<dynamic>?;
+      if (cardsData != null) {
+        _cards = cardsData.map((c) => PyramidCard(
+          position: (c['position'] as num).toInt(),
+          row: (c['row'] as num).toInt(),
+          col: (c['col'] as num).toInt(),
+          operator: c['operator'] as String,
+          value: (c['value'] as num).toInt(),
         )).toList();
       }
 
-      // 보드 데이터 복원 (라운드 종료 시 숫자 보여주기)
-      final boardData = data['board'] as List<dynamic>?;
-      if (boardData != null) {
-        _board = boardData.asMap().entries.map((e) => HexCell(
-          index: e.key,
-          number: (e.value['number'] as num).toInt(),
-          letter: e.value['letter'] as String,
-        )).toList();
-      }
-
-      setState(() => _status = HexagonGameStatus.roundEnd);
+      setState(() => _status = PyramidGameStatus.roundEnd);
     });
 
     _socketListeners.on('game_end', (data) {
-      if (_status == HexagonGameStatus.finished ||
-          _status == HexagonGameStatus.idle ||
-          _status == HexagonGameStatus.searching) return;
-      _memorizeTimer?.cancel();
+      if (_status == PyramidGameStatus.finished ||
+          _status == PyramidGameStatus.idle ||
+          _status == PyramidGameStatus.searching) {
+        return;
+      }
       _idleTimer?.cancel();
       _buzzTimer?.cancel();
 
@@ -561,20 +486,21 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
       }
 
       setState(() {
-        _status = HexagonGameStatus.finished;
+        _status = PyramidGameStatus.finished;
         _winnerId = data['winner'] as String?;
         _isDraw = data['isDraw'] as bool? ?? false;
       });
     });
 
     _socketListeners.on('opponent_left', (_) {
-      if (_status == HexagonGameStatus.idle ||
-          _status == HexagonGameStatus.searching) return;
-      _memorizeTimer?.cancel();
+      if (_status == PyramidGameStatus.idle ||
+          _status == PyramidGameStatus.searching) {
+        return;
+      }
       _idleTimer?.cancel();
       _buzzTimer?.cancel();
       setState(() {
-        _status = HexagonGameStatus.finished;
+        _status = PyramidGameStatus.finished;
         _winnerId = _myId;
         _opponentLeft = true;
         _rematchWaiting = false;
@@ -599,13 +525,6 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
       setState(() => _opponentWantsRematch = false);
     });
 
-    _socketListeners.on('hexagon_rankings', (data) {
-      final rankingsData = data['rankings'] as List<dynamic>? ?? [];
-      setState(() {
-        _rankings = rankingsData.map((r) => Map<String, dynamic>.from(r as Map)).toList();
-      });
-    });
-
     _socketListeners.on('error', (data) {
       final message = data['message'] as String? ?? '';
       if (message.contains('room') && message.contains('invalid')) {
@@ -614,19 +533,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     });
   }
 
-  // 타이머들
-  void _startMemorizeTimer() {
-    _memorizeTimer?.cancel();
-    _memorizeRemaining = 30;
-    _memorizeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_memorizeRemaining > 0) {
-        setState(() => _memorizeRemaining--);
-      } else {
-        timer.cancel();
-      }
-    });
-  }
-
+  // 타이머
   void _startIdleTimer() {
     _idleTimer?.cancel();
     _idleRemaining = 60;
@@ -641,7 +548,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
 
   void _startBuzzTimer() {
     _buzzTimer?.cancel();
-    _buzzRemaining = 10;
+    _buzzRemaining = 15;
     _buzzTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_buzzRemaining > 0) {
         setState(() => _buzzRemaining--);
@@ -651,29 +558,43 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     });
   }
 
-  // 액션들
+  // 액션
   void _findMatch() {
     _socketService.emit('find_match', {
-      'gameType': AppConfig.gameTypeHexagon,
+      'gameType': AppConfig.gameTypePyramid,
     });
-    setState(() => _status = HexagonGameStatus.searching);
-  }
-
-  void _startSolo() {
-    _socketService.emit('hexagon_solo_start', {});
-    _isSolo = true;
-    setState(() => _status = HexagonGameStatus.matched);
+    setState(() => _status = PyramidGameStatus.searching);
   }
 
   void _cancelMatch() {
     _socketService.emit('cancel_match', {
-      'gameType': AppConfig.gameTypeHexagon,
+      'gameType': AppConfig.gameTypePyramid,
     });
-    setState(() => _status = HexagonGameStatus.idle);
+    setState(() => _status = PyramidGameStatus.idle);
+  }
+
+  void _startSolo() {
+    _socketService.emit('pyramid_solo_start', {});
+    _isSolo = true;
+    setState(() => _status = PyramidGameStatus.matched);
+  }
+
+  void _endSoloChallenge() {
+    if (_roomId == null) return;
+    _idleTimer?.cancel();
+    _buzzTimer?.cancel();
+    _socketService.emit('pyramid_solo_end', {'roomId': _roomId});
+    setState(() {
+      _status = PyramidGameStatus.finished;
+    });
+  }
+
+  void _fetchRankings() {
+    _socketService.emit('pyramid_get_rankings', {'limit': 20});
   }
 
   void _buzz() {
-    if (_status != HexagonGameStatus.playing || _roomId == null) return;
+    if (_status != PyramidGameStatus.playing || _roomId == null) return;
     _socketService.emit('game_action', {
       'roomId': _roomId,
       'action': {'type': 'buzz'},
@@ -681,35 +602,80 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
   }
 
   void _submitAnswer() {
-    if (_status != HexagonGameStatus.buzzing || _roomId == null) return;
-    if (_selectedCells.length != 3) return;
+    if (_status != PyramidGameStatus.buzzing || _roomId == null) return;
+    if (_selectedSequence.length != 3) return;
     if (_buzzingPlayerIndex != _myPlayerIndex) return;
 
     _socketService.emit('game_action', {
       'roomId': _roomId,
       'action': {
         'type': 'answer',
-        'cellIndices': _selectedCells,
+        'sequence': _selectedSequence,
       },
     });
   }
 
-  void _toggleCellSelection(int index) {
-    if (_status != HexagonGameStatus.buzzing) return;
+  /// 카드가 현재 선택 가능한지 (피라미드 제약)
+  bool _isCardSelectable(int cardIdx) {
+    final card = _cards.firstWhere((c) => c.position == cardIdx);
+    // 이미 선택했으면 불가
+    if (_selectedSequence.contains(cardIdx)) return false;
+
+    // 맨 아래줄 (Row 3)은 항상 선택 가능
+    if (card.row == 3) return true;
+
+    // 자식 카드가 모두 선택(사용)되어야 선택 가능
+    final children = childrenMap[cardIdx];
+    if (children == null) return true;
+    return children.every((childIdx) => _selectedSequence.contains(childIdx));
+  }
+
+  void _toggleCardSelection(int cardIdx) {
+    if (_status != PyramidGameStatus.buzzing) return;
     if (_buzzingPlayerIndex != _myPlayerIndex) return;
 
     setState(() {
-      if (_selectedCells.contains(index)) {
-        _selectedCells.remove(index);
-      } else if (_selectedCells.length < 3) {
-        _selectedCells.add(index);
+      if (_selectedSequence.isNotEmpty && _selectedSequence.last == cardIdx) {
+        // 마지막 선택 취소 (되돌리기)
+        _selectedSequence.removeLast();
+      } else if (!_selectedSequence.contains(cardIdx) &&
+                 _isCardSelectable(cardIdx) &&
+                 _selectedSequence.length < 3) {
+        _selectedSequence.add(cardIdx);
       }
     });
   }
 
+  /// 현재 선택 시퀀스의 계산 과정
+  List<String> _getCalculationSteps() {
+    if (_selectedSequence.isEmpty) return [];
+    final steps = <String>[];
+    final firstCard = _cards[_selectedSequence[0]];
+    num current = firstCard.value;
+    steps.add('${firstCard.value}');
+
+    for (int i = 1; i < _selectedSequence.length; i++) {
+      final card = _cards[_selectedSequence[i]];
+      final op = card.operator == '*' ? '\u00D7' : card.operator;
+      switch (card.operator) {
+        case '+':
+          current = current + card.value;
+          break;
+        case '-':
+          current = current - card.value;
+          break;
+        case '*':
+          current = current * card.value;
+          break;
+      }
+      steps.add('$op${card.value} = $current');
+    }
+    return steps;
+  }
+
   void _skipRound() {
     if (_roomId == null || _mySkipVoted) return;
-    _socketService.emit('hexagon_skip_round', {'roomId': _roomId});
+    _socketService.emit('pyramid_skip_round', {'roomId': _roomId});
     setState(() => _mySkipVoted = true);
   }
 
@@ -724,25 +690,9 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     setState(() => _rematchWaiting = false);
   }
 
-  void _endSoloChallenge() {
-    if (_roomId == null) return;
-    _memorizeTimer?.cancel();
-    _idleTimer?.cancel();
-    _buzzTimer?.cancel();
-    _socketService.emit('hexagon_solo_end', {'roomId': _roomId});
-    // game_end 이벤트를 기다리지 않고 바로 finished 상태로 전환
-    setState(() {
-      _status = HexagonGameStatus.finished;
-    });
-  }
-
-  void _fetchRankings() {
-    _socketService.emit('hexagon_get_rankings', {'limit': 20});
-  }
-
   void _handleRoomInvalid() {
     setState(() {
-      _status = HexagonGameStatus.idle;
+      _status = PyramidGameStatus.idle;
       _roomId = null;
     });
   }
@@ -756,7 +706,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
             : GameTheme.defaultTheme;
 
         return PopScope(
-          canPop: _status == HexagonGameStatus.idle || _status == HexagonGameStatus.finished,
+          canPop: _status == PyramidGameStatus.idle || _status == PyramidGameStatus.finished,
           onPopInvokedWithResult: (didPop, _) {
             if (!didPop) {
               _showExitDialog(theme);
@@ -765,9 +715,9 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
           child: Scaffold(
             backgroundColor: theme.background2,
             appBar: AppBar(
-              title: const Text('헥사곤', style: TextStyle(fontWeight: FontWeight.bold)),
-              backgroundColor: theme.primary,
-              foregroundColor: theme.textOnPrimary,
+              title: const Text('수식피라미드', style: TextStyle(fontWeight: FontWeight.bold)),
+              backgroundColor: const Color(0xFFE67E22),
+              foregroundColor: Colors.white,
               elevation: 0,
             ),
             body: Container(
@@ -802,20 +752,18 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
 
   Widget _buildBody(GameTheme theme) {
     switch (_status) {
-      case HexagonGameStatus.idle:
+      case PyramidGameStatus.idle:
         return _buildIdleView(theme);
-      case HexagonGameStatus.searching:
+      case PyramidGameStatus.searching:
         return _buildSearchingView(theme);
-      case HexagonGameStatus.matched:
+      case PyramidGameStatus.matched:
         return _buildMatchedView(theme);
-      case HexagonGameStatus.memorizing:
-        return _buildMemorizingView(theme);
-      case HexagonGameStatus.playing:
-      case HexagonGameStatus.buzzing:
+      case PyramidGameStatus.playing:
+      case PyramidGameStatus.buzzing:
         return _buildPlayingView(theme);
-      case HexagonGameStatus.roundEnd:
+      case PyramidGameStatus.roundEnd:
         return _buildRoundEndView(theme);
-      case HexagonGameStatus.finished:
+      case PyramidGameStatus.finished:
         return _buildFinishedView(theme);
     }
   }
@@ -826,12 +774,12 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
       padding: const EdgeInsets.all(24),
       child: Column(
         children: [
-          Icon(Icons.hexagon_outlined, size: 80, color: theme.primary),
+          const Icon(Icons.change_history, size: 80, color: Color(0xFFE67E22)),
           const SizedBox(height: 16),
-          Text('헥사곤', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: theme.primary)),
+          const Text('수식피라미드', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFFE67E22))),
           const SizedBox(height: 12),
           Text(
-            '숫자를 외우고, 합이 맞는 3칸을 찾아라!',
+            '카드를 골라 목표 숫자를 맞춰라!',
             style: TextStyle(fontSize: 16, color: Colors.grey[700]),
             textAlign: TextAlign.center,
           ),
@@ -845,11 +793,12 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _ruleRow('1.', '19칸 보드의 숫자를 30초간 암기'),
-                _ruleRow('2.', '뒤집힌 후 타겟 넘버가 제시'),
-                _ruleRow('3.', '일직선 3칸의 합 = 타겟을 찾으세요'),
-                _ruleRow('4.', '버저를 누르고 10초 내 답변'),
-                _ruleRow('⭕', '정답 +1점 / 오답 -1점'),
+                _ruleRow('1.', '피라미드에서 아래줄부터 카드 선택'),
+                _ruleRow('2.', '정확히 3장을 골라 조합!'),
+                _ruleRow('3.', '첫 카드 = 시작값, 이후 연산 적용'),
+                _ruleRow('4.', '결과가 타겟 넘버와 같으면 정답!'),
+                _ruleRow('5.', '버저를 누르고 15초 내 답변'),
+                _ruleRow('\u2B55', '정답 +1점 / 오답 -1점'),
               ],
             ),
           ),
@@ -878,8 +827,8 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
               icon: const Icon(Icons.people),
               label: const Text('대전 (2인)', style: TextStyle(fontSize: 18)),
               style: ElevatedButton.styleFrom(
-                backgroundColor: theme.primary,
-                foregroundColor: theme.textOnPrimary,
+                backgroundColor: const Color(0xFFE67E22),
+                foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               ),
@@ -923,9 +872,9 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircularProgressIndicator(color: theme.primary),
+          const CircularProgressIndicator(color: Color(0xFFE67E22)),
           const SizedBox(height: 24),
-          Text('상대를 찾는 중...', style: TextStyle(fontSize: 18, color: theme.primary)),
+          const Text('상대를 찾는 중...', style: TextStyle(fontSize: 18, color: Color(0xFFE67E22))),
           const SizedBox(height: 24),
           TextButton(
             onPressed: _cancelMatch,
@@ -943,78 +892,51 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           if (_opponentNickname != null) ...[
-            Text(_opponentNickname!, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: theme.primary)),
+            Text(_opponentNickname!, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFFE67E22))),
             const SizedBox(height: 8),
           ],
           if (_isSolo)
-            Text('랭킹 도전 준비 중...', style: TextStyle(fontSize: 18, color: theme.primary))
+            const Text('랭킹 도전 준비 중...', style: TextStyle(fontSize: 18, color: Color(0xFFE67E22)))
           else
-            Text('게임 시작 준비 중...', style: TextStyle(fontSize: 18, color: theme.primary)),
+            const Text('게임 시작 준비 중...', style: TextStyle(fontSize: 18, color: Color(0xFFE67E22))),
           const SizedBox(height: 16),
-          CircularProgressIndicator(color: theme.primary),
+          const CircularProgressIndicator(color: Color(0xFFE67E22)),
         ],
       ),
     );
   }
 
-  // ==================== MEMORIZING ====================
-  Widget _buildMemorizingView(GameTheme theme) {
-    return Column(
-      children: [
-        _buildHeader(theme),
-        // 타이머
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(
-            children: [
-              Text('숫자를 외우세요!', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: theme.primary)),
-              const SizedBox(height: 4),
-              Text('$_memorizeRemaining초', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: _memorizeRemaining <= 5 ? Colors.red : theme.primary)),
-            ],
-          ),
-        ),
-        // 보드 (숫자 보이기)
-        Expanded(child: _buildHexBoard(theme, showNumbers: true)),
-      ],
-    );
-  }
-
   // ==================== PLAYING / BUZZING ====================
   Widget _buildPlayingView(GameTheme theme) {
-    final iAmBuzzing = _status == HexagonGameStatus.buzzing && _buzzingPlayerIndex == _myPlayerIndex;
-    final otherBuzzing = _status == HexagonGameStatus.buzzing && _buzzingPlayerIndex != _myPlayerIndex;
+    final iAmBuzzing = _status == PyramidGameStatus.buzzing && _buzzingPlayerIndex == _myPlayerIndex;
+    final otherBuzzing = _status == PyramidGameStatus.buzzing && _buzzingPlayerIndex != _myPlayerIndex;
 
     return Column(
       children: [
         _buildHeader(theme),
-        // 타겟 넘버 + 남은 조합
+        // 타겟 넘버
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: theme.primary,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text('타겟: $_targetNumber', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: theme.textOnPrimary)),
-              ),
-              const SizedBox(width: 12),
-              Text('남은 조합: $_remainingCombinations/$_totalCombinations',
-                style: TextStyle(fontSize: 14, color: Colors.grey[600])),
-            ],
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE67E22),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              '\uD83C\uDFAF Target: $_targetNumber',
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+            ),
           ),
         ),
         // 타이머
-        if (_status == HexagonGameStatus.playing)
+        if (_status == PyramidGameStatus.playing)
           Padding(
             padding: const EdgeInsets.only(bottom: 4),
             child: Text('$_idleRemaining초',
               style: TextStyle(fontSize: 16, color: _idleRemaining <= 10 ? Colors.red : Colors.grey[600])),
           ),
-        if (_status == HexagonGameStatus.buzzing)
+        if (_status == PyramidGameStatus.buzzing)
           Padding(
             padding: const EdgeInsets.only(bottom: 4),
             child: Text(
@@ -1036,11 +958,57 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
               );
             },
           ),
-        // 보드 (알파벳)
-        Expanded(child: _buildHexBoard(theme, showNumbers: false)),
-        // 하단 액션
+        // 피라미드 보드
+        Expanded(child: _buildPyramidBoard(theme)),
+        // 계산 미리보기 + 액션바
+        _buildCalculationPreview(theme),
         _buildActionBar(theme, iAmBuzzing, otherBuzzing),
       ],
+    );
+  }
+
+  Widget _buildCalculationPreview(GameTheme theme) {
+    if (_selectedSequence.isEmpty) return const SizedBox.shrink();
+
+    final steps = _getCalculationSteps();
+    final calcText = steps.join(' \u2192 ');
+
+    // 현재 값 계산
+    num currentVal = 0;
+    if (_selectedSequence.isNotEmpty) {
+      currentVal = _cards[_selectedSequence[0]].value;
+      for (int i = 1; i < _selectedSequence.length; i++) {
+        final card = _cards[_selectedSequence[i]];
+        switch (card.operator) {
+          case '+': currentVal = currentVal + card.value; break;
+          case '-': currentVal = currentVal - card.value; break;
+          case '*': currentVal = currentVal * card.value; break;
+        }
+      }
+    }
+
+    final isCorrect = currentVal == _targetNumber && _selectedSequence.length == 3;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      color: Colors.white.withValues(alpha: 0.9),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              calcText,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: isCorrect ? Colors.green : Colors.black87,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (isCorrect)
+            const Text(' \u2713', style: TextStyle(fontSize: 18, color: Colors.green, fontWeight: FontWeight.bold)),
+        ],
+      ),
     );
   }
 
@@ -1054,36 +1022,34 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 선택된 셀 표시
           if (iAmBuzzing) ...[
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                for (int i = 0; i < 3; i++)
-                  Container(
-                    width: 48,
-                    height: 48,
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    decoration: BoxDecoration(
-                      color: i < _selectedCells.length
-                          ? theme.primary.withValues(alpha: 0.2)
-                          : Colors.grey[200],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: theme.primary, width: 2),
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      i < _selectedCells.length ? _letters[_selectedCells[i]] : '?',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: theme.primary),
-                    ),
+                // 되돌리기 버튼
+                if (_selectedSequence.isNotEmpty)
+                  IconButton(
+                    onPressed: () {
+                      setState(() {
+                        _selectedSequence.removeLast();
+                      });
+                    },
+                    icon: const Icon(Icons.undo, size: 28),
+                    color: Colors.grey[700],
                   ),
+                const SizedBox(width: 8),
+                // 선택 수
+                Text(
+                  '${_selectedSequence.length}/3장',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[700]),
+                ),
                 const SizedBox(width: 16),
                 ElevatedButton(
-                  onPressed: _selectedCells.length == 3 ? _submitAnswer : null,
+                  onPressed: _selectedSequence.length == 3 ? _submitAnswer : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
                   ),
                   child: const Text('제출', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 ),
@@ -1127,7 +1093,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
               ),
             ],
           ],
-          if (otherBuzzing)
+          if (otherBuzzing && !_isSolo)
             const Padding(
               padding: EdgeInsets.all(12),
               child: Text('상대방이 답변 중...', style: TextStyle(fontSize: 16, color: Colors.grey)),
@@ -1139,37 +1105,38 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
 
   // ==================== ROUND END ====================
   Widget _buildRoundEndView(GameTheme theme) {
+    final maxRounds = _isSolo ? 10 : 3;
     return Column(
       children: [
         _buildHeader(theme),
         const SizedBox(height: 16),
-        Text('라운드 $_currentRound 종료', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: theme.primary)),
+        Text('라운드 $_currentRound/$maxRounds 종료',
+          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFFE67E22))),
         const SizedBox(height: 8),
-        Text('찾은 조합: ${_foundCombinations.length}/$_totalCombinations',
-          style: TextStyle(fontSize: 16, color: Colors.grey[700])),
+        Text('타겟: $_targetNumber',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[700])),
+        const SizedBox(height: 4),
+        Text('정답 경로: ${_validPaths.length}개',
+          style: TextStyle(fontSize: 14, color: Colors.grey[600])),
         const SizedBox(height: 8),
-        // 보드 (숫자 다시 보이기)
-        Expanded(child: _buildHexBoard(theme, showNumbers: true)),
-        // 찾은 조합 리스트
-        if (_foundCombinations.isNotEmpty)
+        Expanded(child: _buildPyramidBoard(theme, showPaths: true)),
+        // 정답 경로 표시
+        if (_validPaths.isNotEmpty)
           Container(
             padding: const EdgeInsets.all(12),
             color: Colors.white,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('찾은 조합:', style: TextStyle(fontWeight: FontWeight.bold)),
-                Wrap(
-                  spacing: 8,
-                  children: _foundCombinations.map((fc) {
-                    final isMe = fc.playerIndex == _myPlayerIndex;
-                    return Chip(
-                      label: Text(fc.letters, style: TextStyle(color: isMe ? Colors.white : Colors.black)),
-                      backgroundColor: isMe ? theme.primary : Colors.grey[300],
-                    );
-                  }).toList(),
-                ),
-              ],
+            constraints: const BoxConstraints(maxHeight: 100),
+            child: ListView(
+              shrinkWrap: true,
+              children: _validPaths.take(3).map((path) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Text(
+                    _pathToString(path),
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                  ),
+                );
+              }).toList(),
             ),
           ),
         Padding(
@@ -1178,6 +1145,27 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
         ),
       ],
     );
+  }
+
+  String _pathToString(List<int> path) {
+    if (path.isEmpty || _cards.isEmpty) return '';
+    final buf = StringBuffer();
+    final first = _cards[path[0]];
+    buf.write('${first.value}');
+    num current = first.value;
+
+    for (int i = 1; i < path.length; i++) {
+      final card = _cards[path[i]];
+      final op = card.operator == '*' ? '\u00D7' : card.operator;
+      switch (card.operator) {
+        case '+': current = current + card.value; break;
+        case '-': current = current - card.value; break;
+        case '*': current = current * card.value; break;
+      }
+      buf.write(' $op${card.value}');
+    }
+    buf.write(' = $current');
+    return buf.toString();
   }
 
   // ==================== FINISHED ====================
@@ -1196,20 +1184,20 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
               const SizedBox(height: 16),
               Text('최종 점수', style: TextStyle(fontSize: 20, color: Colors.grey[700])),
               Text('${_scores.isNotEmpty ? _scores[0] : 0}점',
-                style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: theme.primary)),
+                style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Color(0xFFE67E22))),
             ] else if (_opponentLeft) ...[
-              Icon(Icons.emoji_events, size: 64, color: Colors.amber),
+              const Icon(Icons.emoji_events, size: 64, color: Colors.amber),
               const SizedBox(height: 16),
-              Text('승리!', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: theme.primary)),
+              const Text('승리!', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFFE67E22))),
               const Text('상대방이 나갔습니다', style: TextStyle(fontSize: 16, color: Colors.grey)),
             ] else if (_isDraw) ...[
               const Icon(Icons.handshake, size: 64, color: Colors.blue),
               const SizedBox(height: 16),
-              Text('무승부', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.blue)),
+              const Text('무승부', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.blue)),
             ] else if (isWinner) ...[
               const Icon(Icons.emoji_events, size: 64, color: Colors.amber),
               const SizedBox(height: 16),
-              Text('승리!', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: theme.primary)),
+              const Text('승리!', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFFE67E22))),
             ] else ...[
               Icon(Icons.sentiment_dissatisfied, size: 64, color: Colors.grey[400]),
               const SizedBox(height: 16),
@@ -1218,58 +1206,10 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
             const SizedBox(height: 16),
             if (!isSoloDone && _scores.length >= 2)
               Text('${_scores[_myPlayerIndex]} : ${_scores[_myPlayerIndex == 0 ? 1 : 0]}',
-                style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: theme.primary)),
+                style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Color(0xFFE67E22))),
             const SizedBox(height: 32),
-            // 찾은 조합 표시
-            if (_foundCombinations.isNotEmpty)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                margin: const EdgeInsets.only(bottom: 24),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.8),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  children: [
-                    const Text('찾은 조합', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    const SizedBox(height: 8),
-                    // 내 조합
-                    if (_foundCombinations.where((fc) => fc.playerIndex == _myPlayerIndex).isNotEmpty) ...[
-                      Text(_myNickname ?? '나', style: TextStyle(fontWeight: FontWeight.bold, color: theme.primary)),
-                      Wrap(
-                        spacing: 6,
-                        children: _foundCombinations
-                            .where((fc) => fc.playerIndex == _myPlayerIndex)
-                            .map((fc) => Chip(
-                              label: Text(fc.letters, style: const TextStyle(color: Colors.white)),
-                              backgroundColor: theme.primary,
-                              visualDensity: VisualDensity.compact,
-                            ))
-                            .toList(),
-                      ),
-                    ],
-                    // 상대 조합 (2인 모드)
-                    if (!_isSolo && _foundCombinations.where((fc) => fc.playerIndex != _myPlayerIndex).isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Text(_opponentNickname ?? '상대', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-                      Wrap(
-                        spacing: 6,
-                        children: _foundCombinations
-                            .where((fc) => fc.playerIndex != _myPlayerIndex)
-                            .map((fc) => Chip(
-                              label: Text(fc.letters),
-                              backgroundColor: Colors.grey[300],
-                              visualDensity: VisualDensity.compact,
-                            ))
-                            .toList(),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            // 버튼들
-            if (!_isSolo && !_opponentLeft) ...[
+            // 버튼
+            if (!isSoloDone && !_opponentLeft) ...[
               if (_opponentWantsRematch && !_rematchWaiting)
                 SizedBox(
                   width: double.infinity,
@@ -1300,8 +1240,8 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
                     icon: const Icon(Icons.replay),
                     label: const Text('재대결'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: theme.primary,
-                      foregroundColor: theme.textOnPrimary,
+                      backgroundColor: const Color(0xFFE67E22),
+                      foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
@@ -1329,12 +1269,12 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
 
   // ==================== HEADER ====================
   Widget _buildHeader(GameTheme theme) {
+    final maxRounds = _isSolo ? 10 : 3;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       color: Colors.white.withValues(alpha: 0.9),
       child: Row(
         children: [
-          // 나
           Expanded(
             child: _buildPlayerColumn(
               theme,
@@ -1345,25 +1285,26 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
               _myProfileSettings,
             ),
           ),
-          // 중앙 정보
           Column(
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: theme.primary.withValues(alpha: 0.1),
+                  color: const Color(0xFFE67E22).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Text('R$_currentRound', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: theme.primary)),
+                child: Text('R$_currentRound/$maxRounds',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFFE67E22))),
               ),
               const SizedBox(height: 4),
               Text(
-                _isSolo ? '${_scores.isNotEmpty ? _scores[0] : 0}점' : '${_scores.isNotEmpty ? _scores[_myPlayerIndex] : 0} : ${_scores.length > 1 ? _scores[_myPlayerIndex == 0 ? 1 : 0] : 0}',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: theme.primary),
+                _isSolo
+                    ? '${_scores.isNotEmpty ? _scores[0] : 0}점'
+                    : '${_scores.isNotEmpty ? _scores[_myPlayerIndex] : 0} : ${_scores.length > 1 ? _scores[_myPlayerIndex == 0 ? 1 : 0] : 0}',
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFFE67E22)),
               ),
             ],
           ),
-          // 상대
           if (!_isSolo)
             Expanded(
               child: _buildPlayerColumn(
@@ -1383,8 +1324,6 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
   }
 
   Widget _buildPlayerColumn(GameTheme theme, String name, String? avatarUrl, bool isMe, int playerIndex, UserProfileSettings? profileSettings) {
-    final myFoundCombos = _foundCombinations.where((fc) => fc.playerIndex == playerIndex).toList();
-
     return Column(
       children: [
         GamePlayerProfile(
@@ -1393,55 +1332,35 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
           isActive: _buzzingPlayerIndex == playerIndex,
           isMe: isMe,
           profileSettings: profileSettings,
-          activeColor: theme.primary,
+          activeColor: const Color(0xFFE67E22),
         ),
-        // 찾은 조합 표시
-        if (myFoundCombos.isNotEmpty)
-          Wrap(
-            spacing: 2,
-            children: myFoundCombos.map((fc) =>
-              Text(fc.letters, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold,
-                color: isMe ? theme.primary : Colors.grey[600])),
-            ).toList(),
-          ),
       ],
     );
   }
 
-  // ==================== HEX BOARD ====================
-  Widget _buildHexBoard(GameTheme theme, {required bool showNumbers}) {
+  // ==================== PYRAMID BOARD ====================
+  Widget _buildPyramidBoard(GameTheme theme, {bool showPaths = false}) {
+    if (_cards.isEmpty) return const SizedBox.shrink();
+
     return LayoutBuilder(
       builder: (context, constraints) {
-        final availableWidth = constraints.maxWidth - 24;
+        final availableWidth = constraints.maxWidth - 32;
         final availableHeight = constraints.maxHeight - 16;
-        // 셀 크기 계산: 5열이 들어가야 함
-        final cellSize = min(availableWidth / 6.2, availableHeight / 6.2);
-        final hexWidth = cellSize * 0.95;
-        final hexHeight = cellSize * 1.1;
 
-        // 행별 셀 수
-        const rowSizes = [3, 4, 5, 4, 3];
-        const rowStarts = [0, 3, 7, 12, 16];
+        // 육각형 크기: 4열(맨 아래)이 들어가야 함
+        final hexSize = min(availableWidth / 5.0, availableHeight / 5.0);
 
         return Center(
           child: SizedBox(
-            width: hexWidth * 5 + 24,
-            height: hexHeight * 4.35 + 24,
+            width: hexSize * 5 + 16,
+            height: hexSize * 4.5 + 16,
             child: Stack(
               alignment: Alignment.center,
               children: [
-                for (int row = 0; row < 5; row++)
-                  for (int col = 0; col < rowSizes[row]; col++)
-                    _buildHexCell(
-                      theme,
-                      rowStarts[row] + col,
-                      row,
-                      col,
-                      rowSizes[row],
-                      hexWidth,
-                      hexHeight,
-                      showNumbers,
-                    ),
+                for (final card in _cards)
+                  _buildPyramidCard(
+                    theme, card, hexSize, showPaths,
+                  ),
               ],
             ),
           ),
@@ -1450,66 +1369,101 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     );
   }
 
-  Widget _buildHexCell(GameTheme theme, int index, int row, int col, int rowSize, double hexWidth, double hexHeight, bool showNumbers) {
-    // 위치 계산
-    final maxCols = 5;
+  Widget _buildPyramidCard(GameTheme theme, PyramidCard card, double hexSize, bool showPaths) {
+    // 피라미드 배치: 각 행의 중앙 정렬
+    final maxCols = 4; // Row 3 has 4 cards
+    final rowSize = card.row + 1;
     final offset = (maxCols - rowSize) / 2.0;
-    final x = (offset + col) * hexWidth * 0.98 + 12;
-    final y = row * hexHeight * 0.78 + 12;
+    final x = (offset + card.col) * hexSize * 1.1 + 8;
+    final y = card.row * hexSize * 1.05 + 8;
 
-    final isSelected = _selectedCells.contains(index);
-    final foundByMe = _foundCombinations.any(
-      (fc) => fc.cells.contains(index) && fc.playerIndex == _myPlayerIndex,
-    );
-    final foundByOpponent = _foundCombinations.any(
-      (fc) => fc.cells.contains(index) && fc.playerIndex != _myPlayerIndex,
-    );
-    final canTap = _status == HexagonGameStatus.buzzing && _buzzingPlayerIndex == _myPlayerIndex;
+    final isSelected = _selectedSequence.contains(card.position);
+    final selectionOrder = _selectedSequence.indexOf(card.position);
+    final canSelect = _status == PyramidGameStatus.buzzing &&
+        _buzzingPlayerIndex == _myPlayerIndex &&
+        _isCardSelectable(card.position);
+    final isLastSelected = _selectedSequence.isNotEmpty && _selectedSequence.last == card.position;
+
+    // 정답 경로 하이라이트 (라운드 종료 시)
+    final isInPath = showPaths && _validPaths.isNotEmpty && _validPaths.first.contains(card.position);
 
     Color bgColor;
-    if (isSelected) {
-      bgColor = theme.primary.withValues(alpha: 0.4);
-    } else if (foundByMe) {
-      bgColor = theme.primary.withValues(alpha: 0.15);
-    } else if (foundByOpponent) {
-      bgColor = Colors.grey.withValues(alpha: 0.15);
-    } else {
-      bgColor = Colors.white;
-    }
+    Color borderColor;
+    double borderW;
 
-    String displayText;
-    if (showNumbers && index < _board.length) {
-      // 암기 단계는 숫자만 노출
-      displayText = '${_board[index].number}';
-    } else if (!showNumbers && index < _letters.length) {
-      displayText = _letters[index];
+    if (isSelected) {
+      bgColor = const Color(0xFFE67E22).withValues(alpha: 0.3);
+      borderColor = const Color(0xFFE67E22);
+      borderW = 3;
+    } else if (isInPath) {
+      bgColor = Colors.green.withValues(alpha: 0.2);
+      borderColor = Colors.green;
+      borderW = 2.5;
+    } else if (canSelect) {
+      bgColor = Colors.white;
+      borderColor = const Color(0xFFE67E22).withValues(alpha: 0.5);
+      borderW = 2;
     } else {
-      displayText = '';
+      bgColor = Colors.grey[200]!;
+      borderColor = Colors.grey[400]!;
+      borderW = 1;
     }
 
     return Positioned(
       left: x,
       top: y,
       child: GestureDetector(
-        onTap: canTap ? () => _toggleCellSelection(index) : null,
+        onTap: () {
+          if (isLastSelected) {
+            _toggleCardSelection(card.position);
+          } else if (canSelect) {
+            _toggleCardSelection(card.position);
+          }
+        },
         child: SizedBox(
-          width: hexWidth * 0.9,
-          height: hexHeight * 0.9,
+          width: hexSize,
+          height: hexSize,
           child: CustomPaint(
-            painter: HexagonCellPainter(
+            painter: _HexagonPainter(
               fillColor: bgColor,
-              borderColor: isSelected ? theme.primary : Colors.grey[500]!,
-              borderWidth: isSelected ? 3 : 1.6,
+              borderColor: borderColor,
+              borderWidth: borderW,
+              shadowColor: isSelected
+                  ? const Color(0xFFE67E22).withValues(alpha: 0.3)
+                  : Colors.black.withValues(alpha: 0.1),
             ),
             child: Center(
-              child: Text(
-                displayText,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: showNumbers ? hexWidth * 0.23 : hexWidth * 0.3,
-                  fontWeight: FontWeight.bold,
-                  color: showNumbers ? Colors.black87 : theme.primary,
-                ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Text(
+                    card.displayText,
+                    style: TextStyle(
+                      fontSize: hexSize * 0.28,
+                      fontWeight: FontWeight.bold,
+                      color: isSelected ? const Color(0xFFE67E22) : Colors.black87,
+                    ),
+                  ),
+                  // 선택 순서 번호
+                  if (isSelected && selectionOrder >= 0)
+                    Positioned(
+                      top: hexSize * 0.12,
+                      right: hexSize * 0.12,
+                      child: Container(
+                        width: 20,
+                        height: 20,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFE67E22),
+                          shape: BoxShape.circle,
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          '${selectionOrder + 1}',
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           ),
@@ -1545,9 +1499,9 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
                   padding: const EdgeInsets.all(16),
                   child: Row(
                     children: [
-                      Icon(Icons.leaderboard, color: theme.primary),
+                      const Icon(Icons.leaderboard, color: Color(0xFFE67E22)),
                       const SizedBox(width: 8),
-                      Text('솔로 랭킹', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: theme.primary)),
+                      const Text('솔로 랭킹', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFFE67E22))),
                       const Spacer(),
                       IconButton(
                         onPressed: () => Navigator.pop(ctx),
@@ -1590,7 +1544,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
                               title: Text(nickname, style: const TextStyle(fontWeight: FontWeight.w600)),
                               trailing: Text(
                                 '$score점',
-                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: theme.primary),
+                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFFE67E22)),
                               ),
                             );
                           },
@@ -1606,7 +1560,6 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
 
   void _leaveGame() {
     if (_roomId != null) {
-      _memorizeTimer?.cancel();
       _idleTimer?.cancel();
       _buzzTimer?.cancel();
       _socketService.emit('leave_room', {'roomId': _roomId});
@@ -1615,11 +1568,11 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
   }
 
   void _showExitDialog(GameTheme theme) {
-    if (_status == HexagonGameStatus.idle || _status == HexagonGameStatus.finished) {
+    if (_status == PyramidGameStatus.idle || _status == PyramidGameStatus.finished) {
       Navigator.pop(context);
       return;
     }
-    if (_status == HexagonGameStatus.searching) {
+    if (_status == PyramidGameStatus.searching) {
       _cancelMatch();
       Navigator.pop(context);
       return;
@@ -1651,5 +1604,80 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
         ],
       ),
     );
+  }
+}
+
+/// 육각형 카드 페인터
+class _HexagonPainter extends CustomPainter {
+  final Color fillColor;
+  final Color borderColor;
+  final double borderWidth;
+  final Color shadowColor;
+
+  _HexagonPainter({
+    required this.fillColor,
+    required this.borderColor,
+    required this.borderWidth,
+    required this.shadowColor,
+  });
+
+  Path _hexPath(Size size) {
+    final w = size.width;
+    final h = size.height;
+    final cx = w / 2;
+    final cy = h / 2;
+    // Flat-top hexagon: 6 vertices
+    final r = min(w, h) / 2 * 0.95;
+    final path = Path();
+    for (int i = 0; i < 6; i++) {
+      final angle = (pi / 180) * (60 * i - 30);
+      final x = cx + r * cos(angle);
+      final y = cy + r * sin(angle);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    path.close();
+    return path;
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = _hexPath(size);
+
+    // Shadow
+    final shadowPaint = Paint()
+      ..color = shadowColor
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+    canvas.drawPath(path.shift(const Offset(0, 2)), shadowPaint);
+
+    // Fill
+    final fillPaint = Paint()
+      ..color = fillColor
+      ..style = PaintingStyle.fill;
+    canvas.drawPath(path, fillPaint);
+
+    // Border
+    final borderPaint = Paint()
+      ..color = borderColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = borderWidth;
+    canvas.drawPath(path, borderPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _HexagonPainter oldDelegate) {
+    return fillColor != oldDelegate.fillColor ||
+        borderColor != oldDelegate.borderColor ||
+        borderWidth != oldDelegate.borderWidth ||
+        shadowColor != oldDelegate.shadowColor;
+  }
+
+  @override
+  bool hitTest(Offset position) {
+    // Only respond to taps inside the hexagon
+    return true;
   }
 }
