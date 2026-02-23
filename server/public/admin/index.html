@@ -23,75 +23,142 @@
     .header h1 { font-size: 20px; }
     .header button { background: rgba(255,255,255,0.2); border: none; color: white; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
 
-    .stats { display: flex; gap: 16px; padding: 24px; flex-wrap: wrap; }
-    .stat-card { background: white; padding: 20px; border-radius: 12px; flex: 1; min-width: 150px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
-    .stat-card h3 { color: #888; font-size: 14px; margin-bottom: 8px; }
-    .stat-card .number { font-size: 32px; font-weight: bold; color: #333; }
-    .stat-card.pending .number { color: #e74c3c; }
+    /* Tab Navigation */
+    .nav-tabs { display: flex; background: white; border-bottom: 2px solid #eee; padding: 0 24px; }
+    .nav-tabs button { padding: 14px 24px; border: none; background: none; cursor: pointer; font-size: 15px; font-weight: 500; color: #888; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all 0.2s; }
+    .nav-tabs button.active { color: #6C5CE7; border-bottom-color: #6C5CE7; }
+    .nav-tabs button:hover { color: #6C5CE7; }
 
-    .content { padding: 0 24px 24px; }
-    .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
-    .tabs button { padding: 10px 20px; border: none; background: #e0e0e0; border-radius: 8px; cursor: pointer; }
-    .tabs button.active { background: #6C5CE7; color: white; }
+    .tab-content { display: none; padding: 24px; }
+    .tab-content.active { display: block; }
 
-    .inquiry-list { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
-    .inquiry-item { padding: 16px 20px; border-bottom: 1px solid #eee; cursor: pointer; }
-    .inquiry-item:hover { background: #f9f9f9; }
-    .inquiry-item:last-child { border-bottom: none; }
-    .inquiry-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-    .inquiry-title { font-weight: 600; color: #333; }
-    .inquiry-meta { display: flex; gap: 12px; font-size: 13px; color: #888; }
-    .badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+    /* Stats Cards */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .stat-card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    .stat-card h3 { color: #888; font-size: 13px; margin-bottom: 8px; }
+    .stat-card .number { font-size: 28px; font-weight: bold; color: #333; }
+    .stat-card .sub { font-size: 12px; color: #aaa; margin-top: 4px; }
+    .stat-card.accent .number { color: #6C5CE7; }
+    .stat-card.warn .number { color: #e74c3c; }
+    .stat-card.success .number { color: #27ae60; }
+
+    /* Game Popularity Chart */
+    .chart-container { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    .chart-container h3 { margin-bottom: 16px; color: #333; font-size: 16px; }
+    .bar-chart .bar-row { display: flex; align-items: center; margin-bottom: 10px; }
+    .bar-row .bar-label { width: 140px; font-size: 13px; color: #555; flex-shrink: 0; }
+    .bar-row .bar-track { flex: 1; height: 24px; background: #f0f0f0; border-radius: 12px; overflow: hidden; margin-right: 12px; }
+    .bar-row .bar-fill { height: 100%; background: linear-gradient(90deg, #6C5CE7, #A29BFE); border-radius: 12px; transition: width 0.5s; min-width: 2px; }
+    .bar-row .bar-count { font-size: 13px; color: #888; width: 50px; text-align: right; }
+
+    /* Tables */
+    .data-table { width: 100%; border-collapse: collapse; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    .data-table th, .data-table td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+    .data-table th { background: #fafafa; color: #888; font-weight: 600; font-size: 13px; }
+    .data-table tr:hover { background: #f9f9f9; }
+    .data-table tr:last-child td { border-bottom: none; }
+    .data-table tr { cursor: pointer; }
+
+    /* Search / Toolbar */
+    .toolbar { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
+    .toolbar input[type="text"] { padding: 10px 16px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; min-width: 280px; }
+    .toolbar button { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
+
+    /* Pagination */
+    .pagination { display: flex; gap: 8px; justify-content: center; margin-top: 16px; align-items: center; }
+    .pagination button { padding: 8px 14px; border: 1px solid #ddd; background: white; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .pagination button.active { background: #6C5CE7; color: white; border-color: #6C5CE7; }
+    .pagination button:disabled { opacity: 0.4; cursor: default; }
+    .pagination span { font-size: 13px; color: #888; }
+
+    /* Filter Tabs */
+    .filter-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+    .filter-tabs button { padding: 8px 16px; border: none; background: #e0e0e0; border-radius: 8px; cursor: pointer; font-size: 13px; }
+    .filter-tabs button.active { background: #6C5CE7; color: white; }
+
+    /* Badges */
+    .badge { padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 500; }
     .badge.pending { background: #fff3cd; color: #856404; }
     .badge.replied { background: #d4edda; color: #155724; }
     .badge.bug { background: #f8d7da; color: #721c24; }
     .badge.suggestion { background: #fff3cd; color: #856404; }
     .badge.account { background: #cce5ff; color: #004085; }
     .badge.other { background: #e2e3e5; color: #383d41; }
+    .badge.general { background: #e2e3e5; color: #383d41; }
+    .badge.maintenance { background: #fff3cd; color: #856404; }
+    .badge.event { background: #d4edda; color: #155724; }
+    .badge.urgent { background: #f8d7da; color: #721c24; }
+    .badge.active { background: #d4edda; color: #155724; }
+    .badge.inactive { background: #e2e3e5; color: #888; }
+    .badge.ban-active { background: #f8d7da; color: #721c24; }
+    .badge.ban-revoked { background: #e2e3e5; color: #888; text-decoration: line-through; }
 
     /* Modal */
-    .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 100; }
+    .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); justify-content: center; align-items: flex-start; z-index: 100; overflow-y: auto; padding: 40px 20px; }
     .modal.show { display: flex; }
-    .modal-content { background: white; border-radius: 12px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; margin: 20px; }
-    .modal-header { padding: 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+    .modal-content { background: white; border-radius: 12px; width: 100%; max-width: 800px; margin: auto; }
+    .modal-header { padding: 20px 24px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: white; border-radius: 12px 12px 0 0; z-index: 1; }
     .modal-header h2 { font-size: 18px; }
     .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: #888; }
-    .modal-body { padding: 20px; }
-    .modal-body label { display: block; font-weight: 600; margin-bottom: 8px; color: #555; }
-    .modal-body .content-box { background: #f5f5f5; padding: 16px; border-radius: 8px; margin-bottom: 20px; white-space: pre-wrap; }
-    .modal-body textarea { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; resize: vertical; min-height: 120px; }
-    .modal-footer { padding: 20px; border-top: 1px solid #eee; display: flex; gap: 12px; justify-content: flex-end; }
+    .modal-body { padding: 24px; }
+    .modal-footer { padding: 16px 24px; border-top: 1px solid #eee; display: flex; gap: 12px; justify-content: flex-end; }
     .modal-footer button { padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; }
-    .btn-primary { background: #6C5CE7; color: white; border: none; }
-    .btn-danger { background: #e74c3c; color: white; border: none; }
-    .btn-secondary { background: #e0e0e0; border: none; }
+
+    /* Buttons */
+    .btn-primary { background: #6C5CE7; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+    .btn-primary:hover { background: #5B4BD5; }
+    .btn-danger { background: #e74c3c; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+    .btn-success { background: #27ae60; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+    .btn-warning { background: #f39c12; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+    .btn-secondary { background: #e0e0e0; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+    .btn-sm { padding: 6px 12px; font-size: 12px; }
+
+    /* Collapsible Sections */
+    .section-toggle { background: #f5f5f5; padding: 12px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 14px; }
+    .section-toggle:hover { background: #eee; }
+    .section-body { display: none; padding: 12px; background: #fafafa; border-radius: 8px; margin-bottom: 12px; }
+    .section-body.show { display: block; }
+
+    /* Forms */
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-weight: 600; margin-bottom: 6px; color: #555; font-size: 13px; }
+    .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+    .form-group textarea { resize: vertical; min-height: 100px; }
+    .form-row { display: flex; gap: 12px; }
+    .form-row .form-group { flex: 1; }
+
+    /* Info Table */
+    .info-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .info-table th, .info-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #eee; }
+    .info-table th { background: #f5f5f5; font-weight: 600; width: 130px; }
+    .info-table tr:last-child td, .info-table tr:last-child th { border-bottom: none; }
+
+    .content-box { background: #f5f5f5; padding: 14px; border-radius: 8px; margin-bottom: 16px; white-space: pre-wrap; font-size: 14px; }
 
     .empty { text-align: center; padding: 60px; color: #888; }
 
-    /* User Info Section */
-    .user-info-section { margin: 20px 0; }
-    .section-title { background: #f0f0f0; padding: 12px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-    .section-title:hover { background: #e8e8e8; }
-    .section-content { display: none; padding: 12px; background: #fafafa; border-radius: 8px; margin-bottom: 12px; }
-    .section-content.show { display: block; }
-    .info-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    .info-table th, .info-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #eee; }
-    .info-table th { background: #f5f5f5; font-weight: 600; width: 120px; }
-    .info-table tr:last-child td, .info-table tr:last-child th { border-bottom: none; }
-    .session-item { background: white; padding: 10px; border-radius: 6px; margin-bottom: 8px; font-size: 13px; }
-    .session-item:last-child { margin-bottom: 0; }
+    /* Coin display */
+    .coin-display { display: flex; align-items: center; gap: 8px; }
+    .coin-badge { background: #ffd700; color: #333; padding: 4px 12px; border-radius: 12px; font-weight: 600; font-size: 16px; }
+
+    /* Session / Record items */
+    .session-item { background: white; padding: 10px 12px; border-radius: 6px; margin-bottom: 8px; font-size: 13px; border: 1px solid #f0f0f0; }
     .session-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
     .session-platform { font-weight: 600; color: #6C5CE7; }
     .session-date { color: #888; font-size: 12px; }
     .session-detail { color: #666; }
-    .game-record { display: flex; justify-content: space-between; align-items: center; padding: 8px; background: white; border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
-    .game-record:last-child { margin-bottom: 0; }
-    .game-result.win { color: #27ae60; font-weight: 600; }
-    .game-result.lose { color: #e74c3c; font-weight: 600; }
-    .game-result.draw { color: #888; }
-    .stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
-    .stat-row:last-child { border-bottom: none; }
-    .mileage-badge { background: #ffd700; color: #333; padding: 4px 12px; border-radius: 12px; font-weight: 600; }
+
+    .mileage-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: white; border-radius: 6px; margin-bottom: 6px; font-size: 13px; border: 1px solid #f0f0f0; }
+    .mileage-amount.positive { color: #27ae60; font-weight: 600; }
+    .mileage-amount.negative { color: #e74c3c; font-weight: 600; }
+
+    /* Toggle switch */
+    .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; border-radius: 24px; transition: .3s; }
+    .toggle-slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; border-radius: 50%; transition: .3s; }
+    .toggle-switch input:checked + .toggle-slider { background-color: #6C5CE7; }
+    .toggle-switch input:checked + .toggle-slider:before { transform: translateX(20px); }
   </style>
 </head>
 <body>
@@ -113,82 +180,154 @@
       <button onclick="logout()">Logout</button>
     </div>
 
-    <div class="stats" id="stats">
-      <div class="stat-card">
-        <h3>Total Users</h3>
-        <div class="number" id="totalUsers">-</div>
-      </div>
-      <div class="stat-card">
-        <h3>Total Inquiries</h3>
-        <div class="number" id="totalInquiries">-</div>
-      </div>
-      <div class="stat-card pending">
-        <h3>Pending</h3>
-        <div class="number" id="pendingInquiries">-</div>
+    <div class="nav-tabs">
+      <button class="active" onclick="switchTab('dashboard', this)">Dashboard</button>
+      <button onclick="switchTab('users', this)">Users</button>
+      <button onclick="switchTab('inquiries', this)">Inquiries</button>
+      <button onclick="switchTab('notices', this)">Notices</button>
+    </div>
+
+    <!-- Dashboard Tab -->
+    <div class="tab-content active" id="tab-dashboard">
+      <div class="stats-grid" id="statsGrid"></div>
+      <div class="chart-container">
+        <h3>Game Popularity</h3>
+        <div class="bar-chart" id="gameChart"></div>
       </div>
     </div>
 
-    <div class="content">
-      <div class="tabs">
+    <!-- Users Tab -->
+    <div class="tab-content" id="tab-users">
+      <div class="toolbar">
+        <input type="text" id="userSearch" placeholder="Search by nickname, ID, or email..." onkeypress="if(event.key==='Enter')searchUsers()">
+        <button class="btn-primary" onclick="searchUsers()">Search</button>
+      </div>
+      <table class="data-table" id="usersTable">
+        <thead>
+          <tr><th>ID</th><th>Nickname</th><th>Email</th><th>Provider</th><th>Coins</th><th>Joined</th></tr>
+        </thead>
+        <tbody id="usersBody"><tr><td colspan="6" class="empty">Search for users</td></tr></tbody>
+      </table>
+      <div class="pagination" id="usersPagination"></div>
+    </div>
+
+    <!-- Inquiries Tab -->
+    <div class="tab-content" id="tab-inquiries">
+      <div class="filter-tabs" id="inquiryFilters">
         <button class="active" onclick="filterInquiries('all', this)">All</button>
         <button onclick="filterInquiries('pending', this)">Pending</button>
         <button onclick="filterInquiries('replied', this)">Replied</button>
       </div>
-      <div class="inquiry-list" id="inquiryList">
+      <table class="data-table">
+        <thead>
+          <tr><th>ID</th><th>Title</th><th>Category</th><th>User</th><th>Status</th><th>Date</th></tr>
+        </thead>
+        <tbody id="inquiriesBody"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- Notices Tab -->
+    <div class="tab-content" id="tab-notices">
+      <div class="toolbar">
+        <button class="btn-primary" onclick="openNoticeModal()">+ New Notice</button>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr><th>ID</th><th>Title</th><th>Type</th><th>Status</th><th>Created</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="noticesBody"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Inquiry Detail Modal -->
+  <div class="modal" id="inquiryModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="inqModalTitle">Inquiry Detail</h2>
+        <button class="modal-close" onclick="closeModal('inquiryModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label style="font-weight:600;color:#555;font-size:13px">User</label>
+        <div class="content-box" id="inqUser"></div>
+        <label style="font-weight:600;color:#555;font-size:13px">Category</label>
+        <div class="content-box" id="inqCategory"></div>
+        <label style="font-weight:600;color:#555;font-size:13px">Content</label>
+        <div class="content-box" id="inqContent"></div>
+
+        <div class="section-toggle" onclick="toggleSection('inqDeviceInfo')">Device Info <span>&#9660;</span></div>
+        <div id="inqDeviceInfo" class="section-body"></div>
+        <div class="section-toggle" onclick="toggleSection('inqGameStats')">Game Stats <span>&#9660;</span></div>
+        <div id="inqGameStats" class="section-body"></div>
+        <div class="section-toggle" onclick="toggleSection('inqRecentGames')">Recent Games <span>&#9660;</span></div>
+        <div id="inqRecentGames" class="section-body"></div>
+
+        <div id="inqReplySection">
+          <label style="font-weight:600;color:#555;font-size:13px">Reply</label>
+          <textarea id="inqReplyText" placeholder="Enter reply..." style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;min-height:100px;font-size:14px"></textarea>
+        </div>
+        <div id="inqExistingReply" style="display:none">
+          <label style="font-weight:600;color:#555;font-size:13px">Reply (Sent)</label>
+          <div class="content-box" id="inqReplyContent"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-danger btn-sm" onclick="deleteInquiry()">Delete</button>
+        <button class="btn-secondary" onclick="closeModal('inquiryModal')">Close</button>
+        <button class="btn-primary" id="inqReplyBtn" onclick="submitInquiryReply()">Send Reply</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- User Detail Modal -->
+  <div class="modal" id="userModal">
+    <div class="modal-content" style="max-width:900px">
+      <div class="modal-header">
+        <h2 id="userModalTitle">User Detail</h2>
+        <button class="modal-close" onclick="closeModal('userModal')">&times;</button>
+      </div>
+      <div class="modal-body" id="userModalBody">
         <div class="empty">Loading...</div>
       </div>
     </div>
   </div>
 
-  <!-- Modal -->
-  <div class="modal" id="modal">
-    <div class="modal-content">
+  <!-- Notice Modal -->
+  <div class="modal" id="noticeModal">
+    <div class="modal-content" style="max-width:600px">
       <div class="modal-header">
-        <h2 id="modalTitle">문의 상세</h2>
-        <button class="modal-close" onclick="closeModal()">&times;</button>
+        <h2 id="noticeModalTitle">New Notice</h2>
+        <button class="modal-close" onclick="closeModal('noticeModal')">&times;</button>
       </div>
       <div class="modal-body">
-        <label>User</label>
-        <div class="content-box" id="modalUser"></div>
-
-        <label>Category</label>
-        <div class="content-box" id="modalCategory"></div>
-
-        <label>Content</label>
-        <div class="content-box" id="modalContent"></div>
-
-        <!-- User Info Section -->
-        <div class="user-info-section">
-          <div class="section-title" onclick="toggleSection('deviceInfo')">
-            📱 Device Info <span class="toggle-icon">▼</span>
-          </div>
-          <div id="deviceInfo" class="section-content"></div>
-
-          <div class="section-title" onclick="toggleSection('gameStats')">
-            🎮 Game Stats <span class="toggle-icon">▼</span>
-          </div>
-          <div id="gameStats" class="section-content"></div>
-
-          <div class="section-title" onclick="toggleSection('recentGames')">
-            📋 Recent Games <span class="toggle-icon">▼</span>
-          </div>
-          <div id="recentGames" class="section-content"></div>
+        <div class="form-group">
+          <label>Title</label>
+          <input type="text" id="noticeTitle" placeholder="Notice title">
         </div>
-
-        <div id="replySection">
-          <label>Reply</label>
-          <textarea id="replyText" placeholder="답변을 입력하세요..."></textarea>
+        <div class="form-group">
+          <label>Type</label>
+          <select id="noticeType">
+            <option value="general">General</option>
+            <option value="maintenance">Maintenance</option>
+            <option value="event">Event</option>
+            <option value="urgent">Urgent</option>
+          </select>
         </div>
-
-        <div id="existingReply" style="display:none;">
-          <label>Reply (Sent)</label>
-          <div class="content-box" id="modalReply"></div>
+        <div class="form-group">
+          <label>Content</label>
+          <textarea id="noticeContent" placeholder="Notice content..."></textarea>
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:12px">
+          <label style="margin:0">Active</label>
+          <label class="toggle-switch">
+            <input type="checkbox" id="noticeActive" checked>
+            <span class="toggle-slider"></span>
+          </label>
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn-danger" onclick="deleteInquiry()">Delete</button>
-        <button class="btn-secondary" onclick="closeModal()">Close</button>
-        <button class="btn-primary" id="replyBtn" onclick="submitReply()">Send Reply</button>
+        <button class="btn-secondary" onclick="closeModal('noticeModal')">Cancel</button>
+        <button class="btn-primary" id="noticeSaveBtn" onclick="saveNotice()">Create</button>
       </div>
     </div>
   </div>
@@ -196,17 +335,18 @@
   <script>
     let token = localStorage.getItem('adminToken');
     let currentInquiry = null;
+    let currentUserPage = 1;
+    let editingNoticeId = null;
 
-    // Check login
-    if (token) {
-      showDashboard();
-    }
+    if (token) showDashboard();
 
+    // ============================================================
+    // Auth
+    // ============================================================
     async function login() {
       const username = document.getElementById('username').value;
       const password = document.getElementById('password').value;
       const errorEl = document.getElementById('loginError');
-
       try {
         const res = await fetch('/api/admin/login', {
           method: 'POST',
@@ -214,7 +354,6 @@
           body: JSON.stringify({ username, password })
         });
         const data = await res.json();
-
         if (data.success) {
           token = data.token;
           localStorage.setItem('adminToken', token);
@@ -239,122 +378,421 @@
       document.getElementById('dashboard').style.display = 'block';
       loadStats();
       loadInquiries('all');
+      loadNotices();
+      searchUsers();
     }
 
+    function api(url, options = {}) {
+      return fetch(url, {
+        ...options,
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, ...(options.headers || {}) }
+      }).then(r => {
+        if (r.status === 401) { logout(); throw new Error('Unauthorized'); }
+        return r.json();
+      });
+    }
+
+    // ============================================================
+    // Tabs
+    // ============================================================
+    function switchTab(tabName, btn) {
+      document.querySelectorAll('.nav-tabs button').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('tab-' + tabName).classList.add('active');
+    }
+
+    // ============================================================
+    // Dashboard / Stats
+    // ============================================================
     async function loadStats() {
       try {
-        const res = await fetch('/api/admin/stats', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const data = await res.json();
-        document.getElementById('totalUsers').textContent = data.totalUsers;
-        document.getElementById('totalInquiries').textContent = data.totalInquiries;
-        document.getElementById('pendingInquiries').textContent = data.pendingInquiries;
+        const data = await api('/api/admin/stats');
+        const grid = document.getElementById('statsGrid');
+        grid.innerHTML = `
+          <div class="stat-card"><h3>Total Users</h3><div class="number">${data.totalUsers}</div></div>
+          <div class="stat-card accent"><h3>New Today</h3><div class="number">${data.newUsersToday}</div><div class="sub">Week: ${data.newUsersWeek} / Month: ${data.newUsersMonth}</div></div>
+          <div class="stat-card success"><h3>Active Users (7d)</h3><div class="number">${data.activeUsers}</div></div>
+          <div class="stat-card"><h3>Games Today</h3><div class="number">${data.gamesToday}</div></div>
+          <div class="stat-card warn"><h3>Pending Inquiries</h3><div class="number">${data.pendingInquiries}</div><div class="sub">Total: ${data.totalInquiries}</div></div>
+          <div class="stat-card"><h3>Shop Revenue</h3><div class="number">${data.shopRevenue.today}</div><div class="sub">Total: ${data.shopRevenue.total}</div></div>
+        `;
+
+        // Game popularity chart
+        const chart = document.getElementById('gameChart');
+        if (data.gamePopularity && data.gamePopularity.length > 0) {
+          const max = Math.max(...data.gamePopularity.map(g => parseInt(g.count)));
+          chart.innerHTML = data.gamePopularity.map(g => {
+            const pct = max > 0 ? (parseInt(g.count) / max * 100) : 0;
+            return `<div class="bar-row">
+              <span class="bar-label">${getGameLabel(g.game_type)}</span>
+              <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+              <span class="bar-count">${g.count}</span>
+            </div>`;
+          }).join('');
+        } else {
+          chart.innerHTML = '<div class="empty" style="padding:20px">No game data</div>';
+        }
       } catch (e) {
-        console.error('Failed to load stats');
+        console.error('Failed to load stats', e);
       }
     }
 
-    async function loadInquiries(status) {
-      const list = document.getElementById('inquiryList');
+    // ============================================================
+    // Users
+    // ============================================================
+    async function searchUsers(page) {
+      page = page || 1;
+      currentUserPage = page;
+      const q = document.getElementById('userSearch').value;
       try {
-        const res = await fetch(`/api/admin/inquiries?status=${status}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const data = await res.json();
-
-        if (data.inquiries.length === 0) {
-          list.innerHTML = '<div class="empty">No inquiries</div>';
-          return;
+        const data = await api(`/api/admin/users?q=${encodeURIComponent(q)}&page=${page}&limit=20`);
+        const tbody = document.getElementById('usersBody');
+        if (data.users.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="empty">No users found</td></tr>';
+        } else {
+          tbody.innerHTML = data.users.map(u => `
+            <tr onclick="openUserDetail(${u.id})">
+              <td>${u.id}</td>
+              <td>${escapeHtml(u.nickname)}</td>
+              <td>${u.email || '-'}</td>
+              <td>${u.provider}</td>
+              <td>${u.coins}</td>
+              <td>${formatDate(u.created_at)}</td>
+            </tr>
+          `).join('');
         }
 
-        list.innerHTML = data.inquiries.map(i => `
-          <div class="inquiry-item" onclick='openInquiry(${JSON.stringify(i).replace(/'/g, "\\'")})'>
-            <div class="inquiry-header">
-              <span class="inquiry-title">${escapeHtml(i.title)}</span>
-              <span class="badge ${i.status}">${i.status === 'pending' ? 'Pending' : 'Replied'}</span>
+        // Pagination
+        const pg = document.getElementById('usersPagination');
+        if (data.totalPages > 1) {
+          let html = `<button ${page<=1?'disabled':''} onclick="searchUsers(${page-1})">Prev</button>`;
+          html += `<span>Page ${data.page} / ${data.totalPages} (${data.total} users)</span>`;
+          html += `<button ${page>=data.totalPages?'disabled':''} onclick="searchUsers(${page+1})">Next</button>`;
+          pg.innerHTML = html;
+        } else {
+          pg.innerHTML = data.total > 0 ? `<span>${data.total} users</span>` : '';
+        }
+      } catch (e) {
+        console.error('Failed to search users', e);
+      }
+    }
+
+    async function openUserDetail(userId) {
+      document.getElementById('userModalTitle').textContent = 'User #' + userId;
+      document.getElementById('userModalBody').innerHTML = '<div class="empty">Loading...</div>';
+      document.getElementById('userModal').classList.add('show');
+
+      try {
+        const data = await api(`/api/admin/users/${userId}`);
+        renderUserDetail(data);
+      } catch (e) {
+        document.getElementById('userModalBody').innerHTML = '<div class="empty">Failed to load</div>';
+      }
+    }
+
+    function renderUserDetail(data) {
+      const u = data.user;
+      const body = document.getElementById('userModalBody');
+      const isBanned = data.bans.some(b => b.is_active && b.ban_type !== 'nickname_forced');
+
+      let html = '';
+
+      // Basic Info
+      html += `<div class="section-toggle" onclick="toggleSection('udBasic')">Basic Info <span>&#9660;</span></div>
+      <div id="udBasic" class="section-body show">
+        <table class="info-table">
+          <tr><th>ID</th><td>${u.id}</td></tr>
+          <tr><th>Nickname</th><td>${escapeHtml(u.nickname)}</td></tr>
+          <tr><th>Email</th><td>${u.email || '-'}</td></tr>
+          <tr><th>Provider</th><td>${u.provider}</td></tr>
+          <tr><th>Joined</th><td>${formatDateTime(u.created_at)}</td></tr>
+          <tr><th>Status</th><td>${isBanned ? '<span class="badge ban-active">BANNED</span>' : '<span class="badge active">Active</span>'}</td></tr>
+        </table>
+      </div>`;
+
+      // Coin Management
+      html += `<div class="section-toggle" onclick="toggleSection('udCoins')">Coin Management <span>&#9660;</span></div>
+      <div id="udCoins" class="section-body show">
+        <div class="coin-display" style="margin-bottom:16px">
+          <span>Balance:</span> <span class="coin-badge">${u.coins}</span>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Amount</label><input type="number" id="coinAmount" placeholder="+ or - amount"></div>
+          <div class="form-group"><label>Reason</label><input type="text" id="coinReason" placeholder="Reason"></div>
+        </div>
+        <button class="btn-primary btn-sm" onclick="grantCoins(${u.id})">Apply</button>
+      </div>`;
+
+      // Game Stats
+      html += `<div class="section-toggle" onclick="toggleSection('udStats')">Game Stats <span>&#9660;</span></div>
+      <div id="udStats" class="section-body">`;
+      if (data.stats.length > 0) {
+        html += '<table class="info-table"><tr><th>Game</th><th>Win</th><th>Lose</th><th>Draw</th><th>Level</th></tr>';
+        data.stats.forEach(s => {
+          html += `<tr><td>${getGameLabel(s.game_type)}</td><td style="color:#27ae60">${s.wins}</td><td style="color:#e74c3c">${s.losses}</td><td>${s.draws}</td><td>Lv.${s.level}</td></tr>`;
+        });
+        html += '</table>';
+      } else {
+        html += '<div style="color:#888;padding:8px">No game stats</div>';
+      }
+      html += '</div>';
+
+      // Items
+      html += `<div class="section-toggle" onclick="toggleSection('udItems')">Owned Items (${data.items.length}) <span>&#9660;</span></div>
+      <div id="udItems" class="section-body">`;
+      if (data.items.length > 0) {
+        html += '<table class="info-table"><tr><th>Name</th><th>Category</th><th>Rarity</th><th>Purchased</th><th>Expires</th></tr>';
+        data.items.forEach(it => {
+          html += `<tr><td>${escapeHtml(it.name)}</td><td>${it.category}</td><td>${it.rarity}</td><td>${formatDate(it.purchased_at)}</td><td>${it.expires_at ? formatDateTime(it.expires_at) : '-'}</td></tr>`;
+        });
+        html += '</table>';
+      } else {
+        html += '<div style="color:#888;padding:8px">No items</div>';
+      }
+      html += '</div>';
+
+      // Profile Settings
+      html += `<div class="section-toggle" onclick="toggleSection('udProfile')">Profile Settings <span>&#9660;</span></div>
+      <div id="udProfile" class="section-body">`;
+      if (data.profileSettings) {
+        const ps = data.profileSettings;
+        html += `<table class="info-table">
+          <tr><th>Frame</th><td>${ps.frame_name || '-'}</td></tr>
+          <tr><th>Title</th><td>${ps.title_name || '-'}</td></tr>
+          <tr><th>Theme</th><td>${ps.theme_name || '-'}</td></tr>
+          <tr><th>Avatar</th><td>${ps.avatar_name || '-'}</td></tr>
+        </table>`;
+      } else {
+        html += '<div style="color:#888;padding:8px">Default settings</div>';
+      }
+      html += '</div>';
+
+      // Sessions
+      html += `<div class="section-toggle" onclick="toggleSection('udSessions')">Recent Sessions <span>&#9660;</span></div>
+      <div id="udSessions" class="section-body">`;
+      if (data.sessions.length > 0) {
+        data.sessions.forEach(s => {
+          html += `<div class="session-item">
+            <div class="session-header">
+              <span class="session-platform">${s.platform || 'Unknown'} ${s.os_version || ''}</span>
+              <span class="session-date">${formatDateTime(s.created_at)}</span>
             </div>
-            <div class="inquiry-meta">
-              <span class="badge ${i.category}">${getCategoryLabel(i.category)}</span>
-              <span>${i.nickname || 'Unknown'}</span>
-              <span>${formatDate(i.created_at)}</span>
+            <div class="session-detail">${s.device_model || 'Unknown'} | v${s.app_version || '?'}(${s.build_number || '?'}) | ${s.ip_address || 'Unknown'}</div>
+          </div>`;
+        });
+      } else {
+        html += '<div style="color:#888;padding:8px">No session data</div>';
+      }
+      html += '</div>';
+
+      // Mileage History
+      html += `<div class="section-toggle" onclick="toggleSection('udMileage')">Mileage History <span>&#9660;</span></div>
+      <div id="udMileage" class="section-body">`;
+      if (data.mileageHistory.length > 0) {
+        data.mileageHistory.forEach(m => {
+          const cls = m.amount >= 0 ? 'positive' : 'negative';
+          const sign = m.amount >= 0 ? '+' : '';
+          html += `<div class="mileage-item">
+            <span>${m.reason}</span>
+            <span>
+              <span class="mileage-amount ${cls}">${sign}${m.amount}</span>
+              <span style="color:#888;margin-left:8px;font-size:12px">${formatDateTime(m.created_at)}</span>
+            </span>
+          </div>`;
+        });
+      } else {
+        html += '<div style="color:#888;padding:8px">No mileage history</div>';
+      }
+      html += '</div>';
+
+      // Ban Management
+      html += `<div class="section-toggle" onclick="toggleSection('udBan')">Ban Management <span>&#9660;</span></div>
+      <div id="udBan" class="section-body show">`;
+
+      // Ban/Unban actions
+      if (isBanned) {
+        html += `<div style="margin-bottom:16px"><button class="btn-success btn-sm" onclick="unbanUser(${u.id})">Unban User</button></div>`;
+      } else {
+        html += `<div style="margin-bottom:16px">
+          <div class="form-row">
+            <div class="form-group"><label>Ban Type</label>
+              <select id="banType"><option value="temporary">Temporary</option><option value="permanent">Permanent</option></select>
             </div>
+            <div class="form-group"><label>Duration (hours)</label><input type="number" id="banDuration" placeholder="e.g. 24" value="24"></div>
           </div>
+          <div class="form-group"><label>Reason</label><input type="text" id="banReason" placeholder="Ban reason"></div>
+          <button class="btn-danger btn-sm" onclick="banUser(${u.id})">Ban User</button>
+        </div>`;
+      }
+
+      // Nickname change
+      html += `<div style="margin-top:16px;padding-top:16px;border-top:1px solid #eee">
+        <div class="form-row">
+          <div class="form-group"><label>New Nickname</label><input type="text" id="newNickname" placeholder="New nickname"></div>
+          <div class="form-group"><label>Reason</label><input type="text" id="nickReason" placeholder="Reason for change"></div>
+        </div>
+        <button class="btn-warning btn-sm" onclick="forceNickname(${u.id})">Force Change Nickname</button>
+      </div>`;
+
+      // Ban history
+      if (data.bans.length > 0) {
+        html += '<h4 style="margin:16px 0 8px;font-size:13px;color:#555">Ban History</h4>';
+        html += '<table class="info-table"><tr><th>Type</th><th>Reason</th><th>Date</th><th>Status</th><th>By</th></tr>';
+        data.bans.forEach(b => {
+          const status = b.is_active
+            ? (b.ban_type === 'nickname_forced' ? '<span class="badge other">nickname</span>' : '<span class="badge ban-active">Active</span>')
+            : '<span class="badge ban-revoked">Revoked</span>';
+          html += `<tr><td>${b.ban_type}</td><td>${escapeHtml(b.reason)}</td><td>${formatDateTime(b.banned_at)}</td><td>${status}</td><td>${b.banned_by_name || '-'}</td></tr>`;
+        });
+        html += '</table>';
+      }
+      html += '</div>';
+
+      body.innerHTML = html;
+    }
+
+    async function grantCoins(userId) {
+      const amount = parseInt(document.getElementById('coinAmount').value);
+      const reason = document.getElementById('coinReason').value;
+      if (!amount || !reason.trim()) return alert('Amount and reason are required');
+      try {
+        const data = await api(`/api/admin/users/${userId}/coins`, {
+          method: 'POST', body: JSON.stringify({ amount, reason })
+        });
+        if (data.success) {
+          alert('Coins updated. New balance: ' + data.newBalance);
+          openUserDetail(userId);
+        } else {
+          alert(data.error || 'Failed');
+        }
+      } catch (e) { alert('Error'); }
+    }
+
+    async function banUser(userId) {
+      const ban_type = document.getElementById('banType').value;
+      const reason = document.getElementById('banReason').value;
+      const duration_hours = parseInt(document.getElementById('banDuration').value) || null;
+      if (!reason.trim()) return alert('Reason is required');
+      if (!confirm('Ban this user?')) return;
+      try {
+        const data = await api(`/api/admin/users/${userId}/ban`, {
+          method: 'POST', body: JSON.stringify({ ban_type, reason, duration_hours })
+        });
+        if (data.success) { alert('User banned'); openUserDetail(userId); }
+        else alert(data.error || 'Failed');
+      } catch (e) { alert('Error'); }
+    }
+
+    async function unbanUser(userId) {
+      if (!confirm('Unban this user?')) return;
+      try {
+        const data = await api(`/api/admin/users/${userId}/unban`, { method: 'POST', body: '{}' });
+        if (data.success) { alert('User unbanned'); openUserDetail(userId); }
+        else alert(data.error || 'Failed');
+      } catch (e) { alert('Error'); }
+    }
+
+    async function forceNickname(userId) {
+      const nickname = document.getElementById('newNickname').value;
+      const reason = document.getElementById('nickReason').value;
+      if (!nickname.trim() || !reason.trim()) return alert('Nickname and reason are required');
+      if (!confirm(`Change nickname to "${nickname}"?`)) return;
+      try {
+        const data = await api(`/api/admin/users/${userId}/nickname`, {
+          method: 'PUT', body: JSON.stringify({ nickname, reason })
+        });
+        if (data.success) { alert('Nickname changed'); openUserDetail(userId); searchUsers(currentUserPage); }
+        else alert(data.error || 'Failed');
+      } catch (e) { alert('Error'); }
+    }
+
+    // ============================================================
+    // Inquiries
+    // ============================================================
+    async function loadInquiries(status) {
+      try {
+        const data = await api(`/api/admin/inquiries?status=${status}`);
+        const tbody = document.getElementById('inquiriesBody');
+        if (!data.inquiries || data.inquiries.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="empty">No inquiries</td></tr>';
+          return;
+        }
+        tbody.innerHTML = data.inquiries.map(i => `
+          <tr onclick='openInquiry(${i.id})'>
+            <td>${i.id}</td>
+            <td>${escapeHtml(i.title)}</td>
+            <td><span class="badge ${i.category}">${getCategoryLabel(i.category)}</span></td>
+            <td>${escapeHtml(i.nickname || 'Unknown')}</td>
+            <td><span class="badge ${i.status}">${i.status === 'pending' ? 'Pending' : 'Replied'}</span></td>
+            <td>${formatDate(i.created_at)}</td>
+          </tr>
         `).join('');
       } catch (e) {
-        list.innerHTML = '<div class="empty">Failed to load</div>';
+        document.getElementById('inquiriesBody').innerHTML = '<tr><td colspan="6" class="empty">Failed to load</td></tr>';
       }
     }
 
     function filterInquiries(status, btn) {
-      document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('#inquiryFilters button').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       loadInquiries(status);
     }
 
-    async function openInquiry(inquiry) {
-      currentInquiry = inquiry;
-      document.getElementById('modalTitle').textContent = inquiry.title;
-      document.getElementById('modalUser').textContent = `${inquiry.nickname || 'Unknown'} (${inquiry.email || 'No email'})`;
-      document.getElementById('modalCategory').textContent = getCategoryLabel(inquiry.category);
-      document.getElementById('modalContent').textContent = inquiry.content;
+    async function openInquiry(inquiryId) {
+      document.getElementById('inquiryModal').classList.add('show');
+      document.getElementById('inqDeviceInfo').innerHTML = '<div style="color:#888">Loading...</div>';
+      document.getElementById('inqGameStats').innerHTML = '<div style="color:#888">Loading...</div>';
+      document.getElementById('inqRecentGames').innerHTML = '<div style="color:#888">Loading...</div>';
+      document.querySelectorAll('#inquiryModal .section-body').forEach(el => el.classList.remove('show'));
 
-      // Reset sections
-      document.getElementById('deviceInfo').innerHTML = '<div style="color:#888">Loading...</div>';
-      document.getElementById('gameStats').innerHTML = '<div style="color:#888">Loading...</div>';
-      document.getElementById('recentGames').innerHTML = '<div style="color:#888">Loading...</div>';
-      document.querySelectorAll('.section-content').forEach(el => el.classList.remove('show'));
-
-      if (inquiry.reply) {
-        document.getElementById('replySection').style.display = 'none';
-        document.getElementById('existingReply').style.display = 'block';
-        document.getElementById('modalReply').textContent = inquiry.reply;
-        document.getElementById('replyBtn').style.display = 'none';
-      } else {
-        document.getElementById('replySection').style.display = 'block';
-        document.getElementById('existingReply').style.display = 'none';
-        document.getElementById('replyText').value = '';
-        document.getElementById('replyBtn').style.display = 'inline-block';
-      }
-
-      document.getElementById('modal').classList.add('show');
-
-      // Load detailed info
       try {
-        const res = await fetch(`/api/admin/inquiries/${inquiry.id}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const data = await res.json();
-        renderUserInfo(data);
+        const data = await api(`/api/admin/inquiries/${inquiryId}`);
+        currentInquiry = data.inquiry;
+
+        document.getElementById('inqModalTitle').textContent = data.inquiry.title;
+        document.getElementById('inqUser').textContent = `${data.inquiry.nickname || 'Unknown'} (${data.inquiry.email || 'No email'})`;
+        document.getElementById('inqCategory').textContent = getCategoryLabel(data.inquiry.category);
+        document.getElementById('inqContent').textContent = data.inquiry.content;
+
+        if (data.inquiry.reply) {
+          document.getElementById('inqReplySection').style.display = 'none';
+          document.getElementById('inqExistingReply').style.display = 'block';
+          document.getElementById('inqReplyContent').textContent = data.inquiry.reply;
+          document.getElementById('inqReplyBtn').style.display = 'none';
+        } else {
+          document.getElementById('inqReplySection').style.display = 'block';
+          document.getElementById('inqExistingReply').style.display = 'none';
+          document.getElementById('inqReplyText').value = '';
+          document.getElementById('inqReplyBtn').style.display = 'inline-block';
+        }
+
+        renderInquiryUserInfo(data);
       } catch (e) {
         console.error('Failed to load inquiry detail');
       }
     }
 
-    function renderUserInfo(data) {
+    function renderInquiryUserInfo(data) {
       // Device Info
-      const deviceInfoEl = document.getElementById('deviceInfo');
+      const deviceEl = document.getElementById('inqDeviceInfo');
       if (data.sessions && data.sessions.length > 0) {
-        deviceInfoEl.innerHTML = data.sessions.map(s => `
+        deviceEl.innerHTML = data.sessions.map(s => `
           <div class="session-item">
             <div class="session-header">
               <span class="session-platform">${s.platform || 'Unknown'} ${s.os_version || ''}</span>
               <span class="session-date">${formatDateTime(s.created_at)}</span>
             </div>
-            <div class="session-detail">
-              📱 ${s.device_model || 'Unknown'} &nbsp;|&nbsp;
-              📦 v${s.app_version || '?'}(${s.build_number || '?'}) &nbsp;|&nbsp;
-              🌐 ${s.ip_address || 'Unknown'}
-            </div>
+            <div class="session-detail">${s.device_model || 'Unknown'} | v${s.app_version || '?'}(${s.build_number || '?'}) | ${s.ip_address || 'Unknown'}</div>
           </div>
         `).join('');
       } else {
-        deviceInfoEl.innerHTML = '<div style="color:#888">No session data</div>';
+        deviceEl.innerHTML = '<div style="color:#888">No session data</div>';
       }
 
       // Game Stats
-      const gameStatsEl = document.getElementById('gameStats');
-      let statsHtml = `<div style="margin-bottom:12px">💰 Mileage: <span class="mileage-badge">${data.mileage || 0}</span></div>`;
+      const statsEl = document.getElementById('inqGameStats');
+      let statsHtml = `<div style="margin-bottom:12px">Mileage: <span class="coin-badge">${data.mileage || 0}</span></div>`;
       if (data.stats && data.stats.length > 0) {
         statsHtml += '<table class="info-table"><tr><th>Game</th><th>Win</th><th>Lose</th><th>Draw</th><th>Level</th></tr>';
         data.stats.forEach(s => {
@@ -364,111 +802,167 @@
       } else {
         statsHtml += '<div style="color:#888">No game stats</div>';
       }
-      gameStatsEl.innerHTML = statsHtml;
+      statsEl.innerHTML = statsHtml;
 
       // Recent Games
-      const recentGamesEl = document.getElementById('recentGames');
+      const gamesEl = document.getElementById('inqRecentGames');
       if (data.recentGames && data.recentGames.length > 0) {
         const userNickname = data.inquiry.nickname;
-        recentGamesEl.innerHTML = data.recentGames.map(g => {
-          let result = 'draw';
-          let resultText = 'Draw';
+        gamesEl.innerHTML = data.recentGames.map(g => {
+          let result = 'draw', resultText = 'Draw';
           if (g.winner_id) {
-            const isWinner = (g.player1_nickname === userNickname && g.winner_id === data.inquiry.user_id) ||
-                            (g.player2_nickname === userNickname && g.winner_id === data.inquiry.user_id);
+            const isWinner = g.winner_id === data.inquiry.user_id;
             result = isWinner ? 'win' : 'lose';
             resultText = isWinner ? 'Win' : 'Lose';
           }
           const opponent = g.player1_nickname === userNickname ? g.player2_nickname : g.player1_nickname;
-          return `
-            <div class="game-record">
-              <span>${getGameLabel(g.game_type)} vs ${opponent || 'Unknown'}</span>
-              <span>
-                <span class="game-result ${result}">${resultText}</span>
-                <span style="color:#888;margin-left:8px;font-size:12px">${formatDateTime(g.created_at)}</span>
-              </span>
-            </div>
-          `;
+          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px;background:white;border-radius:6px;margin-bottom:6px;font-size:13px;border:1px solid #f0f0f0">
+            <span>${getGameLabel(g.game_type)} vs ${opponent || 'Unknown'}</span>
+            <span><span style="font-weight:600;color:${result==='win'?'#27ae60':result==='lose'?'#e74c3c':'#888'}">${resultText}</span>
+            <span style="color:#888;margin-left:8px;font-size:12px">${formatDateTime(g.created_at)}</span></span>
+          </div>`;
         }).join('');
       } else {
-        recentGamesEl.innerHTML = '<div style="color:#888">No recent games</div>';
+        gamesEl.innerHTML = '<div style="color:#888">No recent games</div>';
       }
     }
 
-    function toggleSection(id) {
-      const el = document.getElementById(id);
-      el.classList.toggle('show');
-    }
-
-    function getGameLabel(gameType) {
-      const labels = {
-        'tictactoe': 'Tic-Tac-Toe',
-        'infinite_tictactoe': 'Infinite TTT',
-        'gomoku': 'Gomoku',
-        'reaction': 'Reaction',
-        'speed_tap': 'Speed Tap',
-        'rps': 'Rock Paper Scissors',
-        'sequence_memory': 'Sequence Memory',
-        'stroop': 'Stroop'
-      };
-      return labels[gameType] || gameType;
-    }
-
-    function formatDateTime(dateStr) {
-      const d = new Date(dateStr);
-      return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-    }
-
-    function closeModal() {
-      document.getElementById('modal').classList.remove('show');
-      currentInquiry = null;
-    }
-
-    async function submitReply() {
-      const reply = document.getElementById('replyText').value;
+    async function submitInquiryReply() {
+      const reply = document.getElementById('inqReplyText').value;
       if (!reply.trim() || !currentInquiry) return;
-
       try {
-        const res = await fetch(`/api/admin/inquiries/${currentInquiry.id}/reply`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({ reply })
+        const data = await api(`/api/admin/inquiries/${currentInquiry.id}/reply`, {
+          method: 'PUT', body: JSON.stringify({ reply })
         });
-        const data = await res.json();
-
         if (data.success) {
-          closeModal();
+          closeModal('inquiryModal');
           loadStats();
           loadInquiries('all');
         } else {
           alert(data.error || 'Failed to reply');
         }
-      } catch (e) {
-        alert('Connection error');
-      }
+      } catch (e) { alert('Connection error'); }
     }
 
     async function deleteInquiry() {
       if (!currentInquiry || !confirm('Delete this inquiry?')) return;
-
       try {
-        const res = await fetch(`/api/admin/inquiries/${currentInquiry.id}`, {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const data = await res.json();
-
+        const data = await api(`/api/admin/inquiries/${currentInquiry.id}`, { method: 'DELETE' });
         if (data.success) {
-          closeModal();
+          closeModal('inquiryModal');
           loadStats();
           loadInquiries('all');
         }
+      } catch (e) { alert('Failed to delete'); }
+    }
+
+    // ============================================================
+    // Notices
+    // ============================================================
+    async function loadNotices() {
+      try {
+        const data = await api('/api/admin/notices');
+        const tbody = document.getElementById('noticesBody');
+        if (!data.notices || data.notices.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="empty">No notices</td></tr>';
+          return;
+        }
+        tbody.innerHTML = data.notices.map(n => `
+          <tr>
+            <td>${n.id}</td>
+            <td>${escapeHtml(n.title)}</td>
+            <td><span class="badge ${n.type}">${getNoticeTypeLabel(n.type)}</span></td>
+            <td><span class="badge ${n.is_active ? 'active' : 'inactive'}">${n.is_active ? 'Active' : 'Inactive'}</span></td>
+            <td>${formatDate(n.created_at)}</td>
+            <td>
+              <button class="btn-primary btn-sm" onclick="event.stopPropagation();editNotice(${n.id},'${escapeAttr(n.title)}','${escapeAttr(n.content)}','${n.type}',${n.is_active})">Edit</button>
+              <button class="btn-danger btn-sm" onclick="event.stopPropagation();deleteNotice(${n.id})">Del</button>
+            </td>
+          </tr>
+        `).join('');
       } catch (e) {
-        alert('Failed to delete');
+        document.getElementById('noticesBody').innerHTML = '<tr><td colspan="6" class="empty">Failed to load</td></tr>';
       }
+    }
+
+    function openNoticeModal() {
+      editingNoticeId = null;
+      document.getElementById('noticeModalTitle').textContent = 'New Notice';
+      document.getElementById('noticeTitle').value = '';
+      document.getElementById('noticeType').value = 'general';
+      document.getElementById('noticeContent').value = '';
+      document.getElementById('noticeActive').checked = true;
+      document.getElementById('noticeSaveBtn').textContent = 'Create';
+      document.getElementById('noticeModal').classList.add('show');
+    }
+
+    function editNotice(id, title, content, type, isActive) {
+      editingNoticeId = id;
+      document.getElementById('noticeModalTitle').textContent = 'Edit Notice';
+      document.getElementById('noticeTitle').value = title;
+      document.getElementById('noticeType').value = type;
+      document.getElementById('noticeContent').value = content;
+      document.getElementById('noticeActive').checked = isActive;
+      document.getElementById('noticeSaveBtn').textContent = 'Update';
+      document.getElementById('noticeModal').classList.add('show');
+    }
+
+    async function saveNotice() {
+      const title = document.getElementById('noticeTitle').value;
+      const content = document.getElementById('noticeContent').value;
+      const type = document.getElementById('noticeType').value;
+      const is_active = document.getElementById('noticeActive').checked;
+
+      if (!title.trim() || !content.trim()) return alert('Title and content are required');
+
+      try {
+        let data;
+        if (editingNoticeId) {
+          data = await api(`/api/admin/notices/${editingNoticeId}`, {
+            method: 'PUT', body: JSON.stringify({ title, content, type, is_active })
+          });
+        } else {
+          data = await api('/api/admin/notices', {
+            method: 'POST', body: JSON.stringify({ title, content, type, is_active })
+          });
+        }
+        if (data.success) {
+          closeModal('noticeModal');
+          loadNotices();
+        } else {
+          alert(data.error || 'Failed');
+        }
+      } catch (e) { alert('Error'); }
+    }
+
+    async function deleteNotice(id) {
+      if (!confirm('Delete this notice?')) return;
+      try {
+        const data = await api(`/api/admin/notices/${id}`, { method: 'DELETE' });
+        if (data.success) loadNotices();
+      } catch (e) { alert('Failed to delete'); }
+    }
+
+    // ============================================================
+    // Helpers
+    // ============================================================
+    function closeModal(modalId) {
+      document.getElementById(modalId).classList.remove('show');
+      if (modalId === 'inquiryModal') currentInquiry = null;
+    }
+
+    function toggleSection(id) {
+      document.getElementById(id).classList.toggle('show');
+    }
+
+    function getGameLabel(gameType) {
+      const labels = {
+        'tictactoe': 'Tic-Tac-Toe', 'infinite_tictactoe': 'Infinite TTT',
+        'gomoku': 'Gomoku', 'reaction': 'Reaction', 'speed_tap': 'Speed Tap',
+        'rps': 'Rock Paper Scissors', 'sequence_memory': 'Sequence Memory',
+        'stroop': 'Stroop', 'hexagon': 'Hexagon'
+      };
+      return labels[gameType] || gameType;
     }
 
     function getCategoryLabel(cat) {
@@ -476,20 +970,45 @@
       return labels[cat] || cat;
     }
 
+    function getNoticeTypeLabel(type) {
+      const labels = { general: 'General', maintenance: 'Maintenance', event: 'Event', urgent: 'Urgent' };
+      return labels[type] || type;
+    }
+
     function formatDate(dateStr) {
+      if (!dateStr) return '-';
       const d = new Date(dateStr);
       return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
     }
 
+    function formatDateTime(dateStr) {
+      if (!dateStr) return '-';
+      const d = new Date(dateStr);
+      return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    }
+
     function escapeHtml(str) {
+      if (!str) return '';
       const div = document.createElement('div');
       div.textContent = str;
       return div.innerHTML;
     }
 
+    function escapeAttr(str) {
+      if (!str) return '';
+      return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, '\\n');
+    }
+
     // Enter key for login
     document.getElementById('password').addEventListener('keypress', e => {
       if (e.key === 'Enter') login();
+    });
+
+    // Close modals on backdrop click
+    document.querySelectorAll('.modal').forEach(modal => {
+      modal.addEventListener('click', e => {
+        if (e.target === modal) modal.classList.remove('show');
+      });
     });
   </script>
 </body>
