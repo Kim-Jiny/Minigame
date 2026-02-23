@@ -2,9 +2,12 @@ import { getPool } from '../config/database';
 import { HunminGame } from '../games/hunmin';
 
 class DictionaryService {
-  private apiKey: string | null;
+  private apiKey: string | null = null;
+  private initialized = false;
 
-  constructor() {
+  private ensureInit() {
+    if (this.initialized) return;
+    this.initialized = true;
     this.apiKey = process.env.KRDICT_API_KEY || null;
     if (this.apiKey) {
       console.log('✅ Korean dictionary API key loaded');
@@ -17,6 +20,7 @@ class DictionaryService {
    * 단어 유효성 검증 (하이브리드: 로컬 DB → API 폴백)
    */
   async isValidWord(word: string): Promise<{ valid: boolean; source: 'local' | 'api' | 'none' }> {
+    this.ensureInit();
     // 1차: 로컬 DB 조회
     const localResult = await this.checkLocalDB(word);
     if (localResult) {
@@ -72,7 +76,10 @@ class DictionaryService {
       });
 
       const url = `https://krdict.korean.go.kr/api/search?${params.toString()}`;
-      const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(5000),
+        headers: { 'User-Agent': 'Mozilla/5.0 MinigameServer' },
+      });
 
       if (!response.ok) {
         console.error(`Krdict API error: ${response.status}`);
