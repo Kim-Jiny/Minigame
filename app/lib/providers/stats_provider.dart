@@ -61,6 +61,8 @@ class GameRecord {
         return '헥사곤';
       case 'pyramid':
         return '수식피라미드';
+      case 'hunmin':
+        return '훈민정음';
       default:
         return gameType;
     }
@@ -139,6 +141,8 @@ class GameStats {
         return '헥사곤';
       case 'pyramid':
         return '수식피라미드';
+      case 'hunmin':
+        return '훈민정음';
       default:
         return gameType;
     }

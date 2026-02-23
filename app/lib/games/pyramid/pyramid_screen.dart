@@ -615,19 +615,13 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
     });
   }
 
-  /// 카드가 현재 선택 가능한지 (피라미드 제약)
+  /// 카드가 현재 선택 가능한지
   bool _isCardSelectable(int cardIdx) {
-    final card = _cards.firstWhere((c) => c.position == cardIdx);
     // 이미 선택했으면 불가
     if (_selectedSequence.contains(cardIdx)) return false;
 
-    // 맨 아래줄 (Row 3)은 항상 선택 가능
-    if (card.row == 3) return true;
-
-    // 자식 카드가 모두 선택(사용)되어야 선택 가능
-    final children = childrenMap[cardIdx];
-    if (children == null) return true;
-    return children.every((childIdx) => _selectedSequence.contains(childIdx));
+    // 모든 카드 자유롭게 선택 가능
+    return true;
   }
 
   void _toggleCardSelection(int cardIdx) {

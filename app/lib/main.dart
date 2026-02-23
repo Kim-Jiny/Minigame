@@ -25,6 +25,7 @@ import 'games/sequence/sequence_screen.dart';
 import 'games/stroop/stroop_screen.dart';
 import 'games/hexagon/hexagon_screen.dart';
 import 'games/pyramid/pyramid_screen.dart';
+import 'games/hunmin/hunmin_screen.dart';
 
 // 앱 테마 색상 정의
 class AppColors {
@@ -152,6 +153,7 @@ class MinigameApp extends StatelessWidget {
           '/game/stroop': (context) => const StroopScreen(),
           '/game/hexagon': (context) => const HexagonScreen(),
           '/game/pyramid': (context) => const PyramidScreen(),
+          '/game/hunmin': (context) => const HunminScreen(),
         },
       ),
     );

@@ -29,4 +29,6 @@ class AppConfig {
   static const String gameTypeSequence = 'sequence';
   static const String gameTypeStroop = 'stroop';
   static const String gameTypeHexagon = 'hexagon';
+  static const String gameTypePyramid = 'pyramid';
+  static const String gameTypeHunmin = 'hunmin';
 }

@@ -302,14 +302,11 @@ export class PyramidGame {
     const card = this.cards[cardIdx];
     if (!card) return false;
 
-    // 맨 아래줄 (Row 3)은 항상 선택 가능
-    if (card.row === 3) return true;
+    // 이미 선택한 카드는 불가
+    if (usedCards.has(cardIdx)) return false;
 
-    // 위쪽 카드는 자식 카드가 모두 사용(제거)되어야 선택 가능
-    const children = CHILDREN_MAP[cardIdx];
-    if (!children) return true;
-
-    return children.every(childIdx => usedCards.has(childIdx));
+    // 모든 카드 자유롭게 선택 가능
+    return true;
   }
 
   // 시퀀스 계산

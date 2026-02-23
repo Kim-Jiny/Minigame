@@ -9,6 +9,8 @@ import { SequenceGame } from '../games/sequence';
 import { StroopGame } from '../games/stroop';
 import { HexagonGame } from '../games/hexagon';
 import { PyramidGame } from '../games/pyramid';
+import { HunminGame } from '../games/hunmin';
+import { dictionaryService } from '../services/dictionaryService';
 import { friendService } from '../services/friendService';
 import { invitationService } from '../services/invitationService';
 import { statsService } from '../services/statsService';
@@ -60,7 +62,7 @@ interface GameRoom {
   id: string;
   gameType: string;
   players: Player[];
-  game: TicTacToeGame | InfiniteTicTacToeGame | GomokuGame | ReactionGame | RpsGame | SpeedTapGame | SequenceGame | StroopGame | HexagonGame | PyramidGame | null;
+  game: TicTacToeGame | InfiniteTicTacToeGame | GomokuGame | ReactionGame | RpsGame | SpeedTapGame | SequenceGame | StroopGame | HexagonGame | PyramidGame | HunminGame | null;
   status: 'waiting' | 'playing' | 'finished';
   rematchRequests?: Set<string>;
   turnTimer?: NodeJS.Timeout;
@@ -1214,6 +1216,154 @@ async function finishPyramidGame(io: Server, room: GameRoom) {
   }
 }
 
+// ====== 훈민정음 게임 헬퍼 함수 ======
+
+function clearHunminTimers(room: GameRoom) {
+  if (room.turnTimer) { clearTimeout(room.turnTimer); room.turnTimer = undefined; }
+  if (room.skipTimer) { clearTimeout(room.skipTimer); room.skipTimer = undefined; }
+}
+
+function startHunminRound(io: Server, room: GameRoom) {
+  if (room.gameType !== 'hunmin' || !(room.game instanceof HunminGame)) return;
+  if (room.status === 'finished') return;
+
+  const game = room.game;
+  const { round, chosung, firstPlayer, scores } = game.startRound();
+
+  io.to(room.id).emit('hunmin_round_start', {
+    round,
+    chosung,
+    firstPlayer,
+    scores,
+  });
+
+  console.log(`📝 Hunmin Round ${round}: chosung=${chosung}, firstPlayer=${firstPlayer}`);
+
+  // 첫 턴 타이머 시작
+  startHunminTurnTimer(io, room);
+}
+
+function startHunminTurnTimer(io: Server, room: GameRoom) {
+  clearHunminTimers(room);
+
+  if (!(room.game instanceof HunminGame)) return;
+  if (room.status === 'finished') return;
+
+  const game = room.game;
+
+  // 턴 시작 알림
+  io.to(room.id).emit('hunmin_turn_start', {
+    playerIndex: game.getCurrentTurnPlayer(),
+    timeLimit: HunminGame.TURN_TIME_LIMIT,
+  });
+
+  room.turnStartTime = Date.now();
+  room.turnTimer = setTimeout(() => {
+    if (!(room.game instanceof HunminGame)) return;
+    if (room.status !== 'playing') return;
+
+    const result = game.handleTimeout();
+    console.log(`⏰ Hunmin timeout: player ${result.loserIndex} loses round ${game.getCurrentRound()}`);
+
+    finishHunminRound(io, room, result.winnerIndex, result.loserIndex, 'timeout', result.scores);
+  }, HunminGame.TURN_TIME_LIMIT);
+}
+
+function finishHunminRound(
+  io: Server,
+  room: GameRoom,
+  winnerIndex: number,
+  loserIndex: number,
+  reason: string,
+  scores: number[]
+) {
+  clearHunminTimers(room);
+
+  if (!(room.game instanceof HunminGame)) return;
+
+  io.to(room.id).emit('hunmin_round_end', {
+    winnerIndex,
+    loserIndex,
+    reason,
+    scores,
+    round: room.game.getCurrentRound(),
+  });
+
+  console.log(`📝 Hunmin Round ${room.game.getCurrentRound()} ended: winner=${winnerIndex}, reason=${reason}`);
+
+  if (room.game.checkGameOver()) {
+    setTimeout(() => finishHunminGame(io, room), 2000);
+  } else {
+    setTimeout(() => startHunminRound(io, room), 3000);
+  }
+}
+
+async function finishHunminGame(io: Server, room: GameRoom) {
+  if (!(room.game instanceof HunminGame)) return;
+  if (!markRoomFinishedOnce(room, 'hunmin_game_end')) return;
+  clearHunminTimers(room);
+
+  const game = room.game;
+  const scores = game.getScores();
+  const winnerIndex = game.getWinner();
+  const winner = winnerIndex !== null ? room.players[winnerIndex] : null;
+  const winnerId = winner?.id ?? null;
+  const winnerNickname = winner?.nickname ?? null;
+  const isDraw = winnerIndex === null;
+
+  const rewardResults: { [key: string]: any } = {};
+
+  for (let i = 0; i < room.players.length; i++) {
+    const player = room.players[i];
+    const opponent = room.players[i === 0 ? 1 : 0];
+    if (player.userId) {
+      let gameResult: 'win' | 'loss' | 'draw';
+      if (isDraw) gameResult = 'draw';
+      else if (winnerIndex === i) gameResult = 'win';
+      else gameResult = 'loss';
+
+      try {
+        const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
+        player.socket.emit('stats_updated', { stats });
+        if (i === 0 && opponent.userId) {
+          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult, {
+            isRanked: room.isRanked,
+            rankedMatchId: room.isRanked ? room.id : undefined,
+            rankedGameIndex: room.isRanked ? room.rankedCurrentIndex : undefined,
+          });
+        }
+        if (opponent.userId) {
+          const reward = await coinService.processGameReward(player.userId, opponent.userId, gameResult);
+          rewardResults[player.id] = reward;
+          player.socket.emit('coins_updated', {
+            coins: reward.totalCoins,
+            earned: reward.coinsEarned,
+            streak: reward.streakAfter,
+            streakBonus: reward.streakBonusEarned,
+          });
+        }
+      } catch (err) {
+        console.error('Failed to update stats:', err);
+      }
+    }
+  }
+
+  io.to(room.id).emit('game_end', {
+    winner: winnerId,
+    winnerNickname,
+    isDraw,
+    scores,
+    roundResults: game.getRoundResults(),
+    rewards: rewardResults,
+  });
+
+  console.log(`🏆 Hunmin game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores[0]}-${scores[1]})`);
+
+  if (room.isRanked) {
+    await handleRankedGameEnd(io, room, winnerIndex);
+  }
+}
+
 // 재연결 시 게임 상태 전송
 function emitRejoinState(socket: Socket, room: GameRoom, userId: number) {
   const playerIndex = room.players.findIndex(p => p.userId === userId);
@@ -1248,6 +1398,19 @@ function emitRejoinState(socket: Socket, room: GameRoom, userId: number) {
       roundState: game.getRoundState(),
       buzzingPlayer: game.getBuzzingPlayer(),
       validPaths: game.getValidPaths(),
+      playerIndex,
+    });
+  } else if (room.gameType === 'hunmin' && room.game instanceof HunminGame) {
+    const game = room.game;
+    socket.emit('rejoin_game_state', {
+      gameType: 'hunmin',
+      roomId: room.id,
+      round: game.getCurrentRound(),
+      chosung: game.getCurrentChosung(),
+      scores: game.getScores(),
+      roundState: game.getRoundState(),
+      usedWords: game.getUsedWords(),
+      currentTurnPlayer: game.getCurrentTurnPlayer(),
       playerIndex,
     });
   } else {
@@ -1559,6 +1722,8 @@ async function startRankedGame(io: Server, room: GameRoom) {
     room.game = new StroopGame(isHardcore);
   } else if (gameType === 'hexagon') {
     room.game = new HexagonGame(false);
+  } else if (gameType === 'hunmin') {
+    room.game = new HunminGame();
   }
 
   // 게임 시작 알림
@@ -1630,6 +1795,12 @@ async function startRankedGame(io: Server, room: GameRoom) {
       });
       console.log(`📤 [startRankedGame] game_start emitted for hexagon`);
       setTimeout(() => startHexagonRound(io, room), 1000);
+    } else if (gameType === 'hunmin') {
+      io.to(room.id).emit('game_start', {
+        gameType: 'hunmin',
+      });
+      console.log(`📤 [startRankedGame] game_start emitted for hunmin`);
+      setTimeout(() => startHunminRound(io, room), 1000);
     } else {
       // 턴제 게임
       startTurnTimer(io, room);
@@ -2245,6 +2416,8 @@ export function setupSocketHandlers(io: Server) {
           room.game = new HexagonGame(false);
         } else if (gameType === 'pyramid') {
           room.game = new PyramidGame();
+        } else if (gameType === 'hunmin') {
+          room.game = new HunminGame();
         }
 
         rooms.set(roomId, room);
@@ -2347,6 +2520,12 @@ export function setupSocketHandlers(io: Server) {
             gameType: 'pyramid',
           });
           setTimeout(() => startPyramidRound(io, room), 1000);
+        } else if (gameType === 'hunmin') {
+          // 훈민정음 게임
+          io.to(roomId).emit('game_start', {
+            gameType: 'hunmin',
+          });
+          setTimeout(() => startHunminRound(io, room), 1000);
         } else {
           // 턴제 게임
           startTurnTimer(io, room);
@@ -2969,6 +3148,73 @@ export function setupSocketHandlers(io: Server) {
           }
         }
       }
+
+      // 훈민정음 게임 로직
+      if (room.gameType === 'hunmin' && room.game instanceof HunminGame) {
+        const action = data.action;
+
+        if (action.type === 'submit_word') {
+          const word = (action.word as string || '').trim();
+          const game = room.game;
+
+          // 기본 검증 (턴/길이/초성/중복)
+          const basicResult = game.submitWord(playerIndex, word);
+
+          if (!basicResult.valid) {
+            // 기본 검증 실패 → 즉시 라운드 패배
+            const reason = basicResult.reason!;
+
+            if (reason === 'not_your_turn' || reason === 'round_not_playing') {
+              socket.emit('error', { message: reason });
+              return;
+            }
+
+            // 초성 불일치, 중복 단어, 길이 오류 등 → 패배
+            socket.emit('hunmin_word_rejected', {
+              word,
+              playerIndex,
+              reason,
+            });
+
+            clearHunminTimers(room);
+            const lossResult = game.handleRoundLoss(playerIndex, reason);
+            finishHunminRound(io, room, lossResult.winnerIndex, playerIndex, reason, lossResult.scores);
+            return;
+          }
+
+          // 사전 검증
+          const dictResult = await dictionaryService.isValidWord(word);
+
+          if (!dictResult.valid) {
+            // 사전에 없는 단어 → 패배
+            io.to(data.roomId).emit('hunmin_word_rejected', {
+              word,
+              playerIndex,
+              reason: 'not_in_dictionary',
+            });
+
+            clearHunminTimers(room);
+            const lossResult = game.handleRoundLoss(playerIndex, 'not_in_dictionary');
+            finishHunminRound(io, room, lossResult.winnerIndex, playerIndex, 'not_in_dictionary', lossResult.scores);
+            return;
+          }
+
+          // 단어 확정
+          const confirmResult = game.confirmWordValid(playerIndex, word);
+
+          io.to(data.roomId).emit('hunmin_word_accepted', {
+            word,
+            playerIndex,
+            usedWords: confirmResult.usedWords,
+            nextPlayer: confirmResult.nextPlayer,
+          });
+
+          console.log(`📝 ${currentPlayer?.nickname} submitted: ${word} (source: ${dictResult.source})`);
+
+          // 다음 턴 타이머 시작
+          startHunminTurnTimer(io, room);
+        }
+      }
     });
 
     // ====== 친구 시스템 ======
@@ -3415,6 +3661,8 @@ export function setupSocketHandlers(io: Server) {
           room.game = new HexagonGame(false);
         } else if (invitation.gameType === 'pyramid') {
           room.game = new PyramidGame();
+        } else if (invitation.gameType === 'hunmin') {
+          room.game = new HunminGame();
         }
 
         rooms.set(roomId, room);
@@ -3696,6 +3944,36 @@ export function setupSocketHandlers(io: Server) {
             });
 
             setTimeout(() => startPyramidRound(io, room), 1000);
+          }, 500);
+        } else if (invitation.gameType === 'hunmin') {
+          // 훈민정음 게임
+          socket.emit('accept_invitation_result', {
+            success: true,
+            roomId,
+            gameType: invitation.gameType,
+            gameState: { players, isInvitation: true }
+          });
+
+          inviterSocket!.emit('invitation_accepted', {
+            roomId,
+            gameType: invitation.gameType,
+            acceptedBy: currentPlayer.nickname,
+            gameState: { players, isInvitation: true }
+          });
+
+          setTimeout(() => {
+            io.to(roomId).emit('match_found', {
+              roomId,
+              gameType: invitation.gameType,
+              isInvitation: true,
+              players
+            });
+
+            io.to(roomId).emit('game_start', {
+              gameType: 'hunmin',
+            });
+
+            setTimeout(() => startHunminRound(io, room), 1000);
           }, 500);
         } else {
           // 턴제 게임
@@ -4136,6 +4414,8 @@ export function setupSocketHandlers(io: Server) {
             room.game = new StroopGame(room.isHardcore);
           } else if (room.gameType === 'hexagon') {
             room.game = new HexagonGame(false);
+          } else if (room.gameType === 'hunmin') {
+            room.game = new HunminGame();
           }
           room.status = 'playing';
           room.rematchRequests.clear();
@@ -4189,6 +4469,12 @@ export function setupSocketHandlers(io: Server) {
               isSolo: false,
             });
             setTimeout(() => startHexagonRound(io, room), 1000);
+          } else if (room.gameType === 'hunmin') {
+            // 훈민정음 게임 재대결
+            io.to(data.roomId).emit('game_start', {
+              gameType: 'hunmin',
+            });
+            setTimeout(() => startHunminRound(io, room), 1000);
           } else {
             // 턴제 게임
             startTurnTimer(io, room);
@@ -4437,6 +4723,8 @@ export function setupSocketHandlers(io: Server) {
         // 타이머 정리
         clearTurnTimer(room);
         clearHexagonTimers(room);
+        clearPyramidTimers(room);
+        clearHunminTimers(room);
         clearRoundTimer(room);
         let handledRankedForfeit = false;
 

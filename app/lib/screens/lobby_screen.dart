@@ -173,6 +173,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
             route = '/game/hexagon';
           } else if (gameType == 'pyramid') {
             route = '/game/pyramid';
+          } else if (gameType == 'hunmin') {
+            route = '/game/hunmin';
           }
           Navigator.pushNamed(context, route);
         }
@@ -464,6 +466,24 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             icon: Icons.change_history,
                             color: const Color(0xFFE67E22),
                             route: '/game/pyramid',
+                          ),
+                          const SizedBox(height: 20),
+
+                          // 단어 게임 섹션
+                          _buildSectionHeader(
+                            icon: Icons.translate,
+                            title: '단어 게임',
+                            subtitle: '3~5분',
+                            color: const Color(0xFF1E88E5),
+                          ),
+                          const SizedBox(height: 8),
+                          _buildLargeGameCard(
+                            context,
+                            title: '훈민정음',
+                            subtitle: '초성 단어 배틀! 3판 2선승',
+                            icon: Icons.translate,
+                            color: const Color(0xFF1E88E5),
+                            route: '/game/hunmin',
                           ),
                         ],
                       ),

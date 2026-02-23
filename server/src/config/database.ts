@@ -310,6 +310,18 @@ export async function setupDatabase() {
       );
       CREATE INDEX IF NOT EXISTS idx_dm_pyramid_rankings_score ON dm_pyramid_rankings(score DESC);
 
+      -- 한국어 단어 사전 (훈민정음 게임용)
+      CREATE TABLE IF NOT EXISTS dm_korean_words (
+        id SERIAL PRIMARY KEY,
+        word VARCHAR(50) NOT NULL UNIQUE,
+        chosung VARCHAR(50) NOT NULL,
+        pos VARCHAR(20),
+        source VARCHAR(20) NOT NULL DEFAULT 'api',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_korean_words_word ON dm_korean_words(word);
+      CREATE INDEX IF NOT EXISTS idx_korean_words_chosung ON dm_korean_words(chosung);
+
       -- 유저 제재 기록
       CREATE TABLE IF NOT EXISTS dm_user_bans (
         id SERIAL PRIMARY KEY,
