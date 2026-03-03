@@ -4484,6 +4484,7 @@ export function setupSocketHandlers(io: Server) {
               board: turnGame?.getBoard(),
               turnTimeLimit: getTurnTimeLimit(room),
               turnStartTime: room.turnStartTime,
+              players: room.players.map(p => ({ id: p.id, nickname: p.nickname })),
             });
           }
           console.log(`🎮 Rematch started: ${room.players[0].nickname} vs ${room.players[1].nickname}`);

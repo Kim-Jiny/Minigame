@@ -232,6 +232,11 @@ class GameProvider extends ChangeNotifier {
       if (data['board'] != null) {
         _board = List<int?>.from(data['board']);
       }
+      // 재경기 시 플레이어 순서가 바뀌므로 인덱스 갱신
+      if (data['players'] != null) {
+        final players = data['players'] as List;
+        _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
+      }
       _winnerId = null;
       _winnerNickname = null;
       _isDraw = false;

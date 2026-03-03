@@ -1,0 +1,15 @@
+services:
+  duo-arena:
+    build: ./server
+    container_name: duo-arena
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    env_file:
+      - ./server/.env
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    external: true

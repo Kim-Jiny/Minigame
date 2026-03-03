@@ -50,7 +50,8 @@
               "client_id": "78188753964-01gk9ujf39v2veunn4hltfr60jtk8vsq.apps.googleusercontent.com",
               "client_type": 2,
               "ios_info": {
-                "bundle_id": "com.minigame.minigameApp"
+                "bundle_id": "com.minigame.minigameApp",
+                "app_store_id": "6758510726"
               }
             }
           ]

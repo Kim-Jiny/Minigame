@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../providers/game_provider.dart';
 import '../../providers/auth_provider.dart';
@@ -30,6 +31,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
 
   bool _hasScheduledPop = false;  // 중복 pop 방지
   int? _previewPosition; // 미리보기 중인 셀 인덱스
+  bool _wasMyTurn = false; // 내 턴 변경 감지용
 
   @override
   void initState() {
@@ -65,6 +67,13 @@ class _GomokuScreenState extends State<GomokuScreen> {
     return Consumer2<GameProvider, ShopProvider>(
       builder: (context, game, shop, child) {
         final theme = GameTheme.fromProfileSettings(shop.profileSettings);
+
+        // 내 턴이 되었을 때 진동
+        if (game.status == GameStatus.playing && game.isMyTurn && !_wasMyTurn) {
+          HapticFeedback.mediumImpact();
+        }
+        _wasMyTurn = game.isMyTurn;
+
         return PopScope(
           canPop: false,
           onPopInvokedWithResult: (didPop, result) {
@@ -529,9 +538,11 @@ class _GomokuScreenState extends State<GomokuScreen> {
           // 프로필 & 턴 표시
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [Color(0xFFDFE6E9), Color(0xFFF0F0F0)],
+                colors: game.isMyTurn
+                    ? [const Color(0xFF2D3436).withValues(alpha: 0.12), const Color(0xFF2D3436).withValues(alpha: 0.04)]
+                    : [const Color(0xFFDFE6E9), const Color(0xFFF0F0F0)],
               ),
             ),
             child: Row(
@@ -554,12 +565,19 @@ class _GomokuScreenState extends State<GomokuScreen> {
                     children: [
                       _buildTimer(game),
                       const SizedBox(height: 4),
-                      Text(
-                        game.isMyTurn ? '내 차례' : '상대 차례',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: game.isMyTurn ? const Color(0xFF2D3436) : Colors.grey,
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: game.isMyTurn ? const Color(0xFF2D3436) : Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          game.isMyTurn ? '내 차례' : '상대 차례',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: game.isMyTurn ? Colors.white : Colors.grey.shade600,
+                          ),
                         ),
                       ),
                     ],
