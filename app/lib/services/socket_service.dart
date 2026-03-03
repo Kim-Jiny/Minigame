@@ -46,8 +46,14 @@ class SocketService {
     }
 
     _currentServerUrl = serverUrl;
+    // HTTPS URL에 포트가 없으면 :443 명시 (socket_io_client 포트 파싱 버그 방지)
+    var socketUrl = serverUrl;
+    if (socketUrl.startsWith('https://') && !RegExp(r':\d+').hasMatch(socketUrl.replaceFirst('https://', ''))) {
+      socketUrl = socketUrl.replaceFirst('https://', 'https://').replaceFirst(RegExp(r'/?$'), ':443');
+    }
+
     _socket = io.io(
-      serverUrl,
+      socketUrl,
       io.OptionBuilder()
           .setTransports(['websocket'])
           .enableAutoConnect()
@@ -123,8 +129,15 @@ class SocketService {
 
     // 새 URL로 연결
     _currentServerUrl = newUrl;
+
+    // HTTPS URL에 포트가 없으면 :443 명시 (socket_io_client 포트 파싱 버그 방지)
+    var socketUrl = newUrl;
+    if (socketUrl.startsWith('https://') && !RegExp(r':\d+').hasMatch(socketUrl.replaceFirst('https://', ''))) {
+      socketUrl = socketUrl.replaceFirst(RegExp(r'/?$'), ':443');
+    }
+
     _socket = io.io(
-      newUrl,
+      socketUrl,
       io.OptionBuilder()
           .setTransports(['websocket'])
           .enableAutoConnect()
