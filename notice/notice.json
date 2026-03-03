@@ -1,7 +1,7 @@
 {
-    "api_base_url": "https://minigame-server-jfep.onrender.com",
+    "api_base_url": "https://duo.jiny.shop",
     "debug_api_base_url": "http://172.30.1.80:3000",
-    "web_base_url": "https://minigame-server-jfep.onrender.com",
+    "web_base_url": "https://duo.jiny.shop",
     "maintenance": {
         "enabled": false,
         "end_time": "2025-01-30T18:00:00+09:00",
