@@ -19,10 +19,13 @@ router.post('/google', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Google idToken 검증
+    // Google idToken 검증 (웹 + iOS 클라이언트 ID 모두 허용)
     const ticket = await googleClient.verifyIdToken({
       idToken,
-      audience: process.env.GOOGLE_CLIENT_ID,
+      audience: [
+        process.env.GOOGLE_CLIENT_ID!,
+        process.env.GOOGLE_IOS_CLIENT_ID!,
+      ].filter(Boolean),
     });
 
     const payload = ticket.getPayload();
