@@ -20,6 +20,8 @@ services:
     restart: unless-stopped
     volumes:
       - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:55433:5432"
     environment:
       - POSTGRES_DB=duo
       - POSTGRES_USER=duo
