@@ -97,7 +97,9 @@
       "Bash(/opt/homebrew/Cellar/libpq/17.4_1/bin/psql -d minigame -c \"SELECT id, user_id, friend_id, status FROM dm_friendships WHERE status='accepted' LIMIT 5;\" 2>&1)",
       "Bash(/opt/homebrew/Cellar/libpq/17.4_1/bin/psql -d minigame -c \"SELECT * FROM dm_friendships LIMIT 5;\" 2>&1)",
       "Bash(cd /Users/jiny/Documents/Jiny/Minigame && git status -u)",
-      "Bash(java -jar /Users/jiny/Library/Android/sdk/build-tools/*/lib/apkanalyzer.jar manifest print /Users/jiny/Documents/Jiny/Minigame/app/build/app/outputs/bundle/release/app-release.aab 2>/dev/null | grep -i \"AD_ID\" || echo \"apkanalyzer not available, trying bundletool...\")"
+      "Bash(java -jar /Users/jiny/Library/Android/sdk/build-tools/*/lib/apkanalyzer.jar manifest print /Users/jiny/Documents/Jiny/Minigame/app/build/app/outputs/bundle/release/app-release.aab 2>/dev/null | grep -i \"AD_ID\" || echo \"apkanalyzer not available, trying bundletool...\")",
+      "Bash(nslookup duo.jiny.shop 2>&1)",
+      "Bash(cd /Users/jiny/Documents/Jiny/Minigame/app/ios && pod install)"
     ]
   }
 }
