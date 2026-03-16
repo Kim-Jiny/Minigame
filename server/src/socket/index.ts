@@ -4473,6 +4473,7 @@ export function setupSocketHandlers(io: Server) {
             // 훈민정음 게임 재대결
             io.to(data.roomId).emit('game_start', {
               gameType: 'hunmin',
+              players: room.players.map(p => ({ id: p.id, nickname: p.nickname })),
             });
             setTimeout(() => startHunminRound(io, room), 1000);
           } else {

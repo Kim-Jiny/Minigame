@@ -264,8 +264,24 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
 
     _socketListeners.on('game_start', (data) {
       if (data['gameType'] != 'hunmin') return;
+      // 재경기 시 플레이어 순서가 바뀌므로 인덱스 갱신
+      if (data['players'] != null) {
+        final players = data['players'] as List<dynamic>;
+        for (int i = 0; i < players.length; i++) {
+          if (players[i]['id'] == _myId || players[i]['id'] == _socketService.socket?.id) {
+            _myPlayerIndex = i;
+            break;
+          }
+        }
+      }
       setState(() {
         _status = HunminGameStatus.playing;
+        _isSubmitting = false;
+        _rematchWaiting = false;
+        _opponentWantsRematch = false;
+        _winnerId = null;
+        _isDraw = false;
+        _opponentLeft = false;
       });
     });
 
