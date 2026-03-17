@@ -31,16 +31,15 @@ export async function findOrCreateUser(
   );
 
   if (existingUser.rows.length > 0) {
-    // 기존 사용자가 있으면 정보 업데이트
+    // 기존 사용자가 있으면 이메일/아바타만 업데이트 (닉네임은 유저가 직접 설정하므로 덮어쓰지 않음)
     const updated = await pool.query(
       `UPDATE dm_users
        SET email = COALESCE($1, email),
-           nickname = COALESCE($2, nickname),
-           avatar_url = COALESCE($3, avatar_url),
+           avatar_url = COALESCE($2, avatar_url),
            updated_at = CURRENT_TIMESTAMP
-       WHERE provider = $4 AND provider_id = $5
+       WHERE provider = $3 AND provider_id = $4
        RETURNING *`,
-      [email, nickname, avatarUrl, provider, providerId]
+      [email, avatarUrl, provider, providerId]
     );
     return updated.rows[0];
   }
@@ -97,17 +96,27 @@ export async function deleteUser(userId: number): Promise<void> {
     throw new Error('Database not connected');
   }
 
-  // 관련 데이터 삭제 (CASCADE가 설정되어 있지 않은 경우를 대비)
-  await pool.query('DELETE FROM dm_user_sessions WHERE user_id = $1', [userId]);
-  await pool.query('DELETE FROM dm_user_stats WHERE user_id = $1', [userId]);
-  await pool.query('DELETE FROM dm_game_records WHERE user_id = $1', [userId]);
-  await pool.query('DELETE FROM dm_user_items WHERE user_id = $1', [userId]);
-  await pool.query('DELETE FROM dm_friendships WHERE user_id = $1 OR friend_id = $1', [userId]);
+  // 랜덤 5자리 생성
+  const randomStr = Math.random().toString(36).substring(2, 7);
 
-  // 사용자 삭제
-  const result = await pool.query('DELETE FROM dm_users WHERE id = $1', [userId]);
+  // provider_id를 withdraw_랜덤5자리_기존provider_id로 변경하여 소프트 삭제
+  const result = await pool.query(
+    `UPDATE dm_users
+     SET provider_id = 'withdraw_' || $2 || '_' || provider_id,
+         nickname = '탈퇴한 유저',
+         email = NULL,
+         avatar_url = NULL,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = $1`,
+    [userId, randomStr]
+  );
 
   if (result.rowCount === 0) {
     throw new Error('User not found');
   }
+
+  // 세션/친구/아이템 등 부가 데이터는 삭제
+  await pool.query('DELETE FROM dm_user_sessions WHERE user_id = $1', [userId]);
+  await pool.query('DELETE FROM dm_user_items WHERE user_id = $1', [userId]);
+  await pool.query('DELETE FROM dm_friendships WHERE user_id = $1 OR friend_id = $1', [userId]);
 }

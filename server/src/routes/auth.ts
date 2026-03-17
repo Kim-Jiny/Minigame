@@ -154,7 +154,7 @@ router.post('/kakao', async (req: Request, res: Response): Promise<void> => {
 
     const providerId = String(kakaoUser.id);
     const email = kakaoUser.kakao_account?.email || null;
-    const nickname = kakaoUser.kakao_account?.profile?.nickname || 'Kakao User';
+    const nickname = kakaoUser.kakao_account?.profile?.nickname || email?.split('@')[0] || `유저${providerId.slice(-6)}`;
     const avatarUrl = kakaoUser.kakao_account?.profile?.profile_image_url || null;
 
     // 사용자 생성 또는 조회
