@@ -1275,7 +1275,8 @@ function finishHunminRound(
   winnerIndex: number,
   loserIndex: number,
   reason: string,
-  scores: number[]
+  scores: number[],
+  failedWord?: string
 ) {
   clearHunminTimers(room);
 
@@ -1287,6 +1288,7 @@ function finishHunminRound(
     reason,
     scores,
     round: room.game.getCurrentRound(),
+    failedWord: failedWord || null,
   });
 
   console.log(`📝 Hunmin Round ${room.game.getCurrentRound()} ended: winner=${winnerIndex}, reason=${reason}`);
@@ -3178,7 +3180,7 @@ export function setupSocketHandlers(io: Server) {
 
             clearHunminTimers(room);
             const lossResult = game.handleRoundLoss(playerIndex, reason);
-            finishHunminRound(io, room, lossResult.winnerIndex, playerIndex, reason, lossResult.scores);
+            finishHunminRound(io, room, lossResult.winnerIndex, playerIndex, reason, lossResult.scores, word);
             return;
           }
 
@@ -3195,7 +3197,7 @@ export function setupSocketHandlers(io: Server) {
 
             clearHunminTimers(room);
             const lossResult = game.handleRoundLoss(playerIndex, 'not_in_dictionary');
-            finishHunminRound(io, room, lossResult.winnerIndex, playerIndex, 'not_in_dictionary', lossResult.scores);
+            finishHunminRound(io, room, lossResult.winnerIndex, playerIndex, 'not_in_dictionary', lossResult.scores, word);
             return;
           }
 

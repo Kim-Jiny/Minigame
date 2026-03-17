@@ -92,6 +92,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
   int _currentRound = 0;
   List<int> _scores = [0, 0];
   List<List<int>> _validPaths = [];
+  List<int> _myAnswerPath = []; // 내가 맞춘 정답 경로
 
   // 선택 상태
   List<int> _selectedSequence = []; // 버저 후 선택한 카드 인덱스 순서
@@ -402,6 +403,9 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
 
       _buzzTimer?.cancel();
       _buzzingPlayerIndex = null;
+      if (correct && playerIdx == _myPlayerIndex) {
+        _myAnswerPath = List.from(_selectedSequence);
+      }
       _selectedSequence = [];
 
       if (correct) {
@@ -456,6 +460,14 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
         _validPaths = validPathsData.map((p) =>
           (p as List<dynamic>).map((v) => (v as num).toInt()).toList()
         ).toList();
+        // 내가 맞춘 경로를 맨 앞으로 (보드에서 하이라이트됨)
+        if (_myAnswerPath.isNotEmpty) {
+          _validPaths.removeWhere((p) =>
+            p.length == _myAnswerPath.length &&
+            List.generate(p.length, (i) => p[i] == _myAnswerPath[i]).every((v) => v));
+          _validPaths.insert(0, _myAnswerPath);
+          _myAnswerPath = [];
+        }
       }
 
       final cardsData = data['cards'] as List<dynamic>?;
@@ -642,32 +654,6 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
     });
   }
 
-  /// 현재 선택 시퀀스의 계산 과정
-  List<String> _getCalculationSteps() {
-    if (_selectedSequence.isEmpty) return [];
-    final steps = <String>[];
-    final firstCard = _cards[_selectedSequence[0]];
-    num current = firstCard.value;
-    steps.add('${firstCard.value}');
-
-    for (int i = 1; i < _selectedSequence.length; i++) {
-      final card = _cards[_selectedSequence[i]];
-      final op = card.operator == '*' ? '\u00D7' : card.operator;
-      switch (card.operator) {
-        case '+':
-          current = current + card.value;
-          break;
-        case '-':
-          current = current - card.value;
-          break;
-        case '*':
-          current = current * card.value;
-          break;
-      }
-      steps.add('$op${card.value} = $current');
-    }
-    return steps;
-  }
 
   void _skipRound() {
     if (_roomId == null || _mySkipVoted) return;
@@ -971,55 +957,9 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
           ),
         // 피라미드 보드
         Expanded(child: _buildPyramidBoard(theme)),
-        // 계산 미리보기 + 액션바
-        _buildCalculationPreview(theme),
+        // 액션바
         _buildActionBar(theme, iAmBuzzing, otherBuzzing),
       ],
-    );
-  }
-
-  Widget _buildCalculationPreview(GameTheme theme) {
-    if (_selectedSequence.isEmpty) return const SizedBox.shrink();
-
-    final steps = _getCalculationSteps();
-    final calcText = steps.join(' \u2192 ');
-
-    // 현재 값 계산
-    num currentVal = 0;
-    if (_selectedSequence.isNotEmpty) {
-      currentVal = _cards[_selectedSequence[0]].value;
-      for (int i = 1; i < _selectedSequence.length; i++) {
-        final card = _cards[_selectedSequence[i]];
-        switch (card.operator) {
-          case '+': currentVal = currentVal + card.value; break;
-          case '-': currentVal = currentVal - card.value; break;
-          case '*': currentVal = currentVal * card.value; break;
-        }
-      }
-    }
-
-    final isCorrect = currentVal == _targetNumber && _selectedSequence.length == 3;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      color: Colors.white.withValues(alpha: 0.9),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              calcText,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: isCorrect ? Colors.green : Colors.black87,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          if (isCorrect)
-            const Text(' \u2713', style: TextStyle(fontSize: 18, color: Colors.green, fontWeight: FontWeight.bold)),
-        ],
-      ),
     );
   }
 
@@ -1360,11 +1300,14 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
 
         // 육각형 크기: 4열(맨 아래)이 들어가야 함
         final hexSize = min(availableWidth / 5.0, availableHeight / 5.0);
+        // 콘텐츠 실제 크기 (4열 기준)
+        final contentWidth = 3 * hexSize * 1.1 + hexSize;
+        final contentHeight = 3 * hexSize * 1.05 + hexSize;
 
         return Center(
           child: SizedBox(
-            width: hexSize * 5 + 16,
-            height: hexSize * 4.5 + 16,
+            width: contentWidth,
+            height: contentHeight,
             child: Stack(
               alignment: Alignment.center,
               children: [
@@ -1385,8 +1328,8 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
     final maxCols = 4; // Row 3 has 4 cards
     final rowSize = card.row + 1;
     final offset = (maxCols - rowSize) / 2.0;
-    final x = (offset + card.col) * hexSize * 1.1 + 8;
-    final y = card.row * hexSize * 1.05 + 8;
+    final x = (offset + card.col) * hexSize * 1.1;
+    final y = card.row * hexSize * 1.05;
 
     final isSelected = _selectedSequence.contains(card.position);
     final selectionOrder = _selectedSequence.indexOf(card.position);

@@ -74,6 +74,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
   bool _isDraw = false;
   bool _opponentLeft = false;
   String? _roundEndReason;
+  String? _roundEndWord;
   int? _roundWinnerIndex;
 
   // 재연결
@@ -296,6 +297,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
         _usedWords = [];
         _wordController.clear();
         _roundEndReason = null;
+        _roundEndWord = null;
         _roundWinnerIndex = null;
         _status = HunminGameStatus.playing;
       });
@@ -350,6 +352,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
       final scoreData = data['scores'] as List<dynamic>? ?? [0, 0];
       final winnerIndex = (data['winnerIndex'] as num?)?.toInt();
       final reason = data['reason'] as String? ?? '';
+      final failedWord = data['failedWord'] as String?;
 
       _turnTimer?.cancel();
 
@@ -357,6 +360,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
         _scores = scoreData.map((s) => (s as num).toInt()).toList();
         _roundWinnerIndex = winnerIndex;
         _roundEndReason = reason;
+        _roundEndWord = failedWord;
         _status = HunminGameStatus.roundEnd;
       });
     });
@@ -1190,6 +1194,13 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
             ),
           ),
           const SizedBox(height: 8),
+          if (_roundEndWord != null && _roundEndWord!.isNotEmpty) ...[
+            Text(
+              '"${_roundEndWord!}"',
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+            const SizedBox(height: 4),
+          ],
           Text(
             reasonText,
             style: TextStyle(fontSize: 16, color: Colors.grey.shade400),
