@@ -8,11 +8,11 @@ class DictionaryService {
   private ensureInit() {
     if (this.initialized) return;
     this.initialized = true;
-    this.apiKey = process.env.KRDICT_API_KEY || null;
+    this.apiKey = process.env.OPENDICT_API_KEY || null;
     if (this.apiKey) {
-      console.log('✅ Korean dictionary API key loaded');
+      console.log('✅ Korean dictionary API key loaded (우리말샘)');
     } else {
-      console.log('⚠️  KRDICT_API_KEY not set, using local DB only for dictionary');
+      console.log('⚠️  OPENDICT_API_KEY not set, using local DB only for dictionary');
     }
   }
 
@@ -29,7 +29,7 @@ class DictionaryService {
 
     // 2차: API 폴백 (키가 있을 때만)
     if (this.apiKey) {
-      const apiResult = await this.checkKrdictAPI(word);
+      const apiResult = await this.checkOpendictAPI(word);
       if (apiResult) {
         // API 결과를 로컬 DB에 캐싱
         await this.cacheWord(word);
@@ -60,9 +60,9 @@ class DictionaryService {
   }
 
   /**
-   * 한국어기초사전 API로 단어 검증
+   * 우리말샘 API로 단어 검증
    */
-  private async checkKrdictAPI(word: string): Promise<boolean> {
+  private async checkOpendictAPI(word: string): Promise<boolean> {
     if (!this.apiKey) return false;
 
     try {
@@ -72,31 +72,27 @@ class DictionaryService {
         part: 'word',
         sort: 'dict',
         num: '10',
+        method: 'exact',
         type1: 'word',
+        advanced: 'y',
+        type: 'json',
       });
 
-      const url = `https://krdict.korean.go.kr/api/search?${params.toString()}`;
+      const url = `https://opendict.korean.go.kr/api/search?${params.toString()}`;
       const response = await fetch(url, {
         signal: AbortSignal.timeout(5000),
         headers: { 'User-Agent': 'Mozilla/5.0 MinigameServer' },
       });
 
       if (!response.ok) {
-        console.error(`Krdict API error: ${response.status}`);
+        console.error(`Opendict API error: ${response.status}`);
         return false;
       }
 
-      const text = await response.text();
-
-      // XML 파싱: <word> 태그에서 정확한 단어 일치 확인
-      // 응답 형식: <item><word>단어</word>...</item>
-      const wordMatches = text.match(/<word>(.*?)<\/word>/g);
-      if (!wordMatches) return false;
-
-      for (const match of wordMatches) {
-        const extracted = match.replace(/<\/?word>/g, '').trim();
-        // 하이픈, 공백 제거 후 비교
-        const cleaned = extracted.replace(/[-\s]/g, '');
+      const data: any = await response.json();
+      const items = data?.channel?.item || [];
+      for (const item of items) {
+        const cleaned = (item.word || '').replace(/[-\s]/g, '');
         if (cleaned === word) {
           return true;
         }
@@ -104,7 +100,7 @@ class DictionaryService {
 
       return false;
     } catch (err) {
-      console.error('Krdict API check error:', err);
+      console.error('Opendict API check error:', err);
       return false;
     }
   }
