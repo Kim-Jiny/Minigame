@@ -1,18 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../navigation/game_routes.dart';
 import '../providers/ranked_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/game_provider.dart';
 import '../widgets/tier_badge.dart';
 import 'leaderboard_screen.dart';
-import '../games/tictactoe/tictactoe_screen.dart';
-import '../games/infinite_tictactoe/infinite_tictactoe_screen.dart';
-import '../games/gomoku/gomoku_screen.dart';
-import '../games/reaction/reaction_screen.dart';
-import '../games/rps/rps_screen.dart';
-import '../games/speedtap/speedtap_screen.dart';
-import '../games/sequence/sequence_screen.dart';
-import '../games/stroop/stroop_screen.dart';
 
 class RankedScreen extends StatefulWidget {
   const RankedScreen({super.key});
@@ -24,7 +17,7 @@ class RankedScreen extends StatefulWidget {
 class _RankedScreenState extends State<RankedScreen> {
   int? _lastNavigatedGameIndex;
   bool _isNavigating = false;
-  bool _listenerAdded = false;
+  RankedProvider? _rankedProvider;
 
   @override
   void initState() {
@@ -33,29 +26,25 @@ class _RankedScreenState extends State<RankedScreen> {
       // 위젯이 이미 dispose 되었으면 무시
       if (!mounted) return;
 
-      final ranked = context.read<RankedProvider>();
-      ranked.initialize();
-      ranked.getMyRank();
+      _rankedProvider = context.read<RankedProvider>();
+      _rankedProvider!.initialize();
+      _rankedProvider!.getMyRank();
 
       // Provider 변경 리스너 추가
-      ranked.addListener(_onRankedProviderChanged);
-      _listenerAdded = true;
+      _rankedProvider!.addListener(_onRankedProviderChanged);
     });
   }
 
   @override
   void dispose() {
     // 리스너가 추가되었을 때만 제거
-    if (_listenerAdded) {
-      try {
-        final ranked = context.read<RankedProvider>();
-        ranked.removeListener(_onRankedProviderChanged);
+    if (_rankedProvider != null) {
+      _rankedProvider!.removeListener(_onRankedProviderChanged);
 
-        // finished 상태에서 나갈 때 상태 리셋
-        if (ranked.matchStatus == RankedMatchStatus.finished) {
-          ranked.resetMatchState();
-        }
-      } catch (_) {}
+      // finished 상태에서 나갈 때 상태 리셋
+      if (_rankedProvider!.matchStatus == RankedMatchStatus.finished) {
+        _rankedProvider!.resetMatchState();
+      }
     }
     super.dispose();
   }
@@ -152,36 +141,11 @@ class _RankedScreenState extends State<RankedScreen> {
       debugPrint('🎮 [Navigate] ⚠️ auth.socketId is null!');
     }
 
-    Widget gameScreen;
-    switch (gameType) {
-      case 'tictactoe':
-        gameScreen = const TicTacToeScreen(isRanked: true);
-        break;
-      case 'infinite_tictactoe':
-        gameScreen = const InfiniteTicTacToeScreen(isRanked: true);
-        break;
-      case 'gomoku':
-        gameScreen = const GomokuScreen(isRanked: true);
-        break;
-      case 'reaction':
-        gameScreen = const ReactionScreen(isRanked: true);
-        break;
-      case 'rps':
-        gameScreen = const RpsScreen(isRanked: true);
-        break;
-      case 'speedtap':
-        gameScreen = const SpeedTapScreen(isRanked: true);
-        break;
-      case 'sequence':
-        gameScreen = const SequenceScreen(isRanked: true);
-        break;
-      case 'stroop':
-        gameScreen = const StroopScreen(isRanked: true);
-        break;
-      default:
-        debugPrint('🎮 [Navigate] ❌ Unknown game type: $gameType');
-        _isNavigating = false;
-        return;
+    final gameScreen = GameRoutes.buildGameScreen(gameType, isRanked: true);
+    if (gameScreen == null) {
+      debugPrint('🎮 [Navigate] ❌ Unknown game type: $gameType');
+      _isNavigating = false;
+      return;
     }
 
     debugPrint('🎮 [Navigate] Calling Navigator.push for $gameType...');

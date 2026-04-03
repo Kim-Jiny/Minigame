@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
+import 'navigation/game_routes.dart';
 import 'providers/auth_provider.dart';
 import 'providers/game_provider.dart';
 import 'providers/friend_provider.dart';
@@ -14,18 +15,10 @@ import 'screens/lobby_screen.dart';
 import 'screens/maintenance_screen.dart';
 import 'screens/server_loading_screen.dart';
 import 'services/socket_service.dart';
+import 'services/socket_listener_registry.dart';
 import 'services/ad_service.dart';
-import 'games/tictactoe/tictactoe_screen.dart';
-import 'games/infinite_tictactoe/infinite_tictactoe_screen.dart';
-import 'games/gomoku/gomoku_screen.dart';
-import 'games/reaction/reaction_screen.dart';
-import 'games/rps/rps_screen.dart';
-import 'games/speedtap/speedtap_screen.dart';
-import 'games/sequence/sequence_screen.dart';
-import 'games/stroop/stroop_screen.dart';
-import 'games/hexagon/hexagon_screen.dart';
-import 'games/pyramid/pyramid_screen.dart';
-import 'games/hunmin/hunmin_screen.dart';
+
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 // 앱 테마 색상 정의
 class AppColors {
@@ -39,27 +32,33 @@ class AppColors {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final remoteConfigService = RemoteConfigService();
 
   // Kakao SDK 초기화
   KakaoSdk.init(nativeAppKey: 'd690b18448f3f27fb7b2025b484b223a');
 
   // 원격 설정 초기화
-  await RemoteConfigService().initialize();
+  await remoteConfigService.initialize();
 
   // AdMob 초기화
   AdService().initialize();
 
-  runApp(const MinigameApp());
+  runApp(MinigameApp(remoteConfigService: remoteConfigService));
 }
 
 class MinigameApp extends StatelessWidget {
-  const MinigameApp({super.key});
+  final RemoteConfigService remoteConfigService;
+
+  const MinigameApp({
+    super.key,
+    required this.remoteConfigService,
+  });
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider.value(value: RemoteConfigService()),
+        ChangeNotifierProvider.value(value: remoteConfigService),
         ChangeNotifierProvider(create: (_) => AuthProvider()..init()),
         ChangeNotifierProvider(create: (_) => GameProvider()),
         ChangeNotifierProvider(create: (_) => FriendProvider()),
@@ -68,6 +67,7 @@ class MinigameApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => RankedProvider()),
       ],
       child: MaterialApp(
+        navigatorKey: appNavigatorKey,
         title: '우리만의 게임',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
@@ -143,17 +143,7 @@ class MinigameApp extends StatelessWidget {
         routes: {
           '/login': (context) => const LoginScreen(),
           '/lobby': (context) => const LobbyScreen(),
-          '/game/tictactoe': (context) => const TicTacToeScreen(),
-          '/game/infinite_tictactoe': (context) => const InfiniteTicTacToeScreen(),
-          '/game/gomoku': (context) => const GomokuScreen(),
-          '/game/reaction': (context) => const ReactionScreen(),
-          '/game/rps': (context) => const RpsScreen(),
-          '/game/speedtap': (context) => const SpeedTapScreen(),
-          '/game/sequence': (context) => const SequenceScreen(),
-          '/game/stroop': (context) => const StroopScreen(),
-          '/game/hexagon': (context) => const HexagonScreen(),
-          '/game/pyramid': (context) => const PyramidScreen(),
-          '/game/hunmin': (context) => const HunminScreen(),
+          ...GameRoutes.buildNamedRoutes(),
         },
       ),
     );
@@ -170,6 +160,7 @@ class AuthWrapper extends StatefulWidget {
 class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
   bool _serverConnected = false;
   final SocketService _socketService = SocketService();
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
   DateTime? _pausedAt;
   bool _providersInitialized = false;
 
@@ -177,35 +168,49 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _socketListeners.on('lobby_joined', (_) {
+      if (mounted) {
+        setState(() => _serverConnected = true);
+      }
+    });
+    _socketListeners.on('disconnect', (_) {
+      if (mounted) {
+        setState(() => _serverConnected = false);
+      }
+    });
+    _socketListeners.on('auth_error', (_) {
+      if (mounted) {
+        setState(() => _serverConnected = false);
+      }
+    });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _socketListeners.offAll();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    final auth = context.read<AuthProvider>();
     if (state == AppLifecycleState.paused) {
       _pausedAt = DateTime.now();
-    } else if (state == AppLifecycleState.resumed && _serverConnected) {
-      // 소켓 연결 확인 및 재연결 (SocketService가 알아서 처리)
+    } else if (state == AppLifecycleState.resumed && auth.isLoggedIn) {
+      // 로그인 상태면 항상 소켓 재확인
       _socketService.connect();
 
-      // 30초 이상 백그라운드에 있었으면 연결 상태 체크
       final pausedDuration = _pausedAt != null
           ? DateTime.now().difference(_pausedAt!).inSeconds
           : 0;
 
-      if (pausedDuration >= 30) {
-        // 3초 후 연결 상태 체크
-        Future.delayed(const Duration(seconds: 3), () {
-          if (mounted && !_socketService.isConnected) {
-            setState(() => _serverConnected = false);
-          }
-        });
-      }
+      final reconnectCheckDelay = pausedDuration >= 30 ? 3 : 1;
+      Future.delayed(Duration(seconds: reconnectCheckDelay), () {
+        if (mounted && auth.isLoggedIn && !_socketService.isReady) {
+          setState(() => _serverConnected = false);
+        }
+      });
       _pausedAt = null;
     }
   }
@@ -216,10 +221,27 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
     }
   }
 
+  void _collapseToRootIfNeeded() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final navigator = appNavigatorKey.currentState;
+      if (navigator == null || !navigator.mounted) return;
+      navigator.popUntil((route) => route.isFirst);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer2<RemoteConfigService, AuthProvider>(
       builder: (context, configService, auth, child) {
+        final shouldShowBlockingRoot =
+            configService.isUnderMaintenance ||
+            !auth.isLoggedIn ||
+            (auth.isLoggedIn && !_serverConnected);
+
+        if (shouldShowBlockingRoot) {
+          _collapseToRootIfNeeded();
+        }
+
         // 점검 모드 확인
         if (configService.isUnderMaintenance) {
           return MaintenanceScreen(

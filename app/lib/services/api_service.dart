@@ -8,9 +8,32 @@ class ApiService {
   factory ApiService() => _instance;
   ApiService._internal();
 
+  static const _timeout = Duration(seconds: 10);
+
   String? _jwtToken;
 
   String? get jwtToken => _jwtToken;
+
+  Uri _buildUri(String path) => Uri.parse('${AppConfig.serverUrl}$path');
+
+  Map<String, String> _headers({bool authenticated = false}) {
+    if (!authenticated) {
+      return {'Content-Type': 'application/json'};
+    }
+
+    if (_jwtToken == null) {
+      throw Exception('Not authenticated');
+    }
+
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $_jwtToken',
+    };
+  }
+
+  Map<String, dynamic> _decodeJsonResponse(http.Response response) {
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
@@ -31,16 +54,16 @@ class ApiService {
 
   Future<AuthResponse> loginWithGoogle(String idToken) async {
     final response = await http.post(
-      Uri.parse('${AppConfig.serverUrl}/api/auth/google'),
-      headers: {'Content-Type': 'application/json'},
+      _buildUri('/api/auth/google'),
+      headers: _headers(),
       body: jsonEncode({'idToken': idToken}),
-    );
+    ).timeout(_timeout);
 
     if (response.statusCode != 200) {
       throw Exception('Google login failed: ${response.body}');
     }
 
-    final data = jsonDecode(response.body);
+    final data = _decodeJsonResponse(response);
     await _saveToken(data['token']);
 
     return AuthResponse.fromJson(data);
@@ -51,19 +74,19 @@ class ApiService {
     Map<String, dynamic>? user,
   }) async {
     final response = await http.post(
-      Uri.parse('${AppConfig.serverUrl}/api/auth/apple'),
-      headers: {'Content-Type': 'application/json'},
+      _buildUri('/api/auth/apple'),
+      headers: _headers(),
       body: jsonEncode({
         'idToken': idToken,
         'user': user,
       }),
-    );
+    ).timeout(_timeout);
 
     if (response.statusCode != 200) {
       throw Exception('Apple login failed: ${response.body}');
     }
 
-    final data = jsonDecode(response.body);
+    final data = _decodeJsonResponse(response);
     await _saveToken(data['token']);
 
     return AuthResponse.fromJson(data);
@@ -71,16 +94,16 @@ class ApiService {
 
   Future<AuthResponse> loginWithKakao(String accessToken) async {
     final response = await http.post(
-      Uri.parse('${AppConfig.serverUrl}/api/auth/kakao'),
-      headers: {'Content-Type': 'application/json'},
+      _buildUri('/api/auth/kakao'),
+      headers: _headers(),
       body: jsonEncode({'accessToken': accessToken}),
-    );
+    ).timeout(_timeout);
 
     if (response.statusCode != 200) {
       throw Exception('Kakao login failed: ${response.body}');
     }
 
-    final data = jsonDecode(response.body);
+    final data = _decodeJsonResponse(response);
     await _saveToken(data['token']);
 
     return AuthResponse.fromJson(data);
@@ -88,59 +111,60 @@ class ApiService {
 
   Future<AuthResponse> loginWithTest(String nickname) async {
     final response = await http.post(
-      Uri.parse('${AppConfig.serverUrl}/api/auth/test'),
-      headers: {'Content-Type': 'application/json'},
+      _buildUri('/api/auth/test'),
+      headers: _headers(),
       body: jsonEncode({'nickname': nickname}),
-    );
+    ).timeout(_timeout);
 
     if (response.statusCode != 200) {
       throw Exception('Test login failed: ${response.body}');
     }
 
-    final data = jsonDecode(response.body);
+    final data = _decodeJsonResponse(response);
     await _saveToken(data['token']);
 
     return AuthResponse.fromJson(data);
   }
 
-  Future<UserInfo> updateNickname(String nickname) async {
-    if (_jwtToken == null) {
-      throw Exception('Not authenticated');
-    }
-
-    final response = await http.put(
-      Uri.parse('${AppConfig.serverUrl}/api/auth/nickname'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $_jwtToken',
-      },
-      body: jsonEncode({'nickname': nickname}),
-    );
+  Future<UserInfo> getCurrentUser() async {
+    final response = await http.get(
+      _buildUri('/api/auth/me'),
+      headers: _headers(authenticated: true),
+    ).timeout(_timeout);
 
     if (response.statusCode != 200) {
-      final data = jsonDecode(response.body);
+      final data = _decodeJsonResponse(response);
+      throw Exception(data['error'] ?? 'Failed to fetch current user');
+    }
+
+    final data = _decodeJsonResponse(response);
+    return UserInfo.fromJson(data['user']);
+  }
+
+  Future<UserInfo> updateNickname(String nickname) async {
+    final response = await http.put(
+      _buildUri('/api/auth/nickname'),
+      headers: _headers(authenticated: true),
+      body: jsonEncode({'nickname': nickname}),
+    ).timeout(_timeout);
+
+    if (response.statusCode != 200) {
+      final data = _decodeJsonResponse(response);
       throw Exception(data['error'] ?? 'Failed to update nickname');
     }
 
-    final data = jsonDecode(response.body);
+    final data = _decodeJsonResponse(response);
     return UserInfo.fromJson(data['user']);
   }
 
   Future<void> deleteAccount() async {
-    if (_jwtToken == null) {
-      throw Exception('Not authenticated');
-    }
-
     final response = await http.delete(
-      Uri.parse('${AppConfig.serverUrl}/api/auth/account'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $_jwtToken',
-      },
-    );
+      _buildUri('/api/auth/account'),
+      headers: _headers(authenticated: true),
+    ).timeout(_timeout);
 
     if (response.statusCode != 200) {
-      final data = jsonDecode(response.body);
+      final data = _decodeJsonResponse(response);
       throw Exception(data['error'] ?? 'Failed to delete account');
     }
 
@@ -153,50 +177,37 @@ class ApiService {
     required String title,
     required String content,
   }) async {
-    if (_jwtToken == null) {
-      throw Exception('Not authenticated');
-    }
-
     final response = await http.post(
-      Uri.parse('${AppConfig.serverUrl}/api/inquiry'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $_jwtToken',
-      },
+      _buildUri('/api/inquiry'),
+      headers: _headers(authenticated: true),
       body: jsonEncode({
         'category': category,
         'title': title,
         'content': content,
       }),
-    );
+    ).timeout(_timeout);
 
     if (response.statusCode != 200) {
-      final data = jsonDecode(response.body);
+      final data = _decodeJsonResponse(response);
       throw Exception(data['error'] ?? 'Failed to submit inquiry');
     }
 
-    return jsonDecode(response.body);
+    return _decodeJsonResponse(response);
   }
 
   // 내 문의 목록 조회
   Future<List<Map<String, dynamic>>> getMyInquiries() async {
-    if (_jwtToken == null) {
-      throw Exception('Not authenticated');
-    }
-
     final response = await http.get(
-      Uri.parse('${AppConfig.serverUrl}/api/inquiry'),
-      headers: {
-        'Authorization': 'Bearer $_jwtToken',
-      },
-    );
+      _buildUri('/api/inquiry'),
+      headers: _headers(authenticated: true),
+    ).timeout(_timeout);
 
     if (response.statusCode != 200) {
-      final data = jsonDecode(response.body);
+      final data = _decodeJsonResponse(response);
       throw Exception(data['error'] ?? 'Failed to get inquiries');
     }
 
-    final data = jsonDecode(response.body);
+    final data = _decodeJsonResponse(response);
     return List<Map<String, dynamic>>.from(data['inquiries']);
   }
 
@@ -208,14 +219,12 @@ class ApiService {
 
     try {
       final response = await http.get(
-        Uri.parse('${AppConfig.serverUrl}/api/inquiry/unread-count'),
-        headers: {
-          'Authorization': 'Bearer $_jwtToken',
-        },
-      );
+        _buildUri('/api/inquiry/unread-count'),
+        headers: _headers(authenticated: true),
+      ).timeout(_timeout);
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+        final data = _decodeJsonResponse(response);
         return data['count'] ?? 0;
       }
     } catch (_) {}
@@ -228,11 +237,9 @@ class ApiService {
 
     try {
       await http.put(
-        Uri.parse('${AppConfig.serverUrl}/api/inquiry/$inquiryId/read'),
-        headers: {
-          'Authorization': 'Bearer $_jwtToken',
-        },
-      );
+        _buildUri('/api/inquiry/$inquiryId/read'),
+        headers: _headers(authenticated: true),
+      ).timeout(_timeout);
     } catch (_) {}
   }
 }

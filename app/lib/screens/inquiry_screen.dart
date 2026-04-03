@@ -34,10 +34,12 @@ class _InquiryScreenState extends State<InquiryScreen> {
   }
 
   Future<void> _checkUnreadAndShowHistory() async {
-    final count = await _apiService.getUnreadInquiryCount();
-    if (count > 0 && mounted) {
-      setState(() => _showHistory = true);
-    }
+    try {
+      final count = await _apiService.getUnreadInquiryCount();
+      if (count > 0 && mounted) {
+        setState(() => _showHistory = true);
+      }
+    } catch (_) {}
   }
 
   @override
@@ -50,6 +52,7 @@ class _InquiryScreenState extends State<InquiryScreen> {
   Future<void> _loadMyInquiries() async {
     try {
       final inquiries = await _apiService.getMyInquiries();
+      if (!mounted) return;
       setState(() {
         _myInquiries = inquiries;
       });
@@ -324,7 +327,7 @@ class _InquiryScreenState extends State<InquiryScreen> {
       orElse: () => _categories.last,
     );
 
-    final status = inquiry['status'] as String;
+    final status = (inquiry['status'] as String?) ?? 'pending';
     final hasReply = inquiry['reply'] != null;
     final isUnread = hasReply && inquiry['is_read'] != true;
 

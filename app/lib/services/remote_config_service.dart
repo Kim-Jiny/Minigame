@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../utils/app_logger.dart';
 
 class MaintenanceInfo {
   final bool enabled;
@@ -135,15 +136,17 @@ class RemoteConfigService extends ChangeNotifier {
         _error = null;
 
         if (urlChanged) {
-          print('🔄 Server URL changed: api=${newConfig.apiBaseUrl}, debug=${newConfig.debugApiBaseUrl}');
+          AppLogger.debug(
+            '🔄 Server URL changed: api=${newConfig.apiBaseUrl}, debug=${newConfig.debugApiBaseUrl}',
+          );
         }
 
-        print('✅ Remote config fetched successfully');
+        AppLogger.debug('✅ Remote config fetched successfully');
       } else {
         throw Exception('Failed to fetch config: ${response.statusCode}');
       }
     } catch (e) {
-      print('❌ Failed to fetch remote config: $e');
+      AppLogger.debug('❌ Failed to fetch remote config: $e');
       _error = e.toString();
       _fetchFailed = true;
 

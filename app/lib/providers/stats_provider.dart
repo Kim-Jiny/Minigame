@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
+import 'mixins/provider_feedback.dart';
 import '../services/socket_service.dart';
 import '../services/socket_listener_registry.dart';
+import '../utils/game_catalog.dart';
 
 class GameRecord {
   final int id;
@@ -39,34 +41,7 @@ class GameRecord {
     );
   }
 
-  String get gameTypeName {
-    switch (gameType) {
-      case 'tictactoe':
-        return '틱택토';
-      case 'infinite_tictactoe':
-        return '무한 틱택토';
-      case 'gomoku':
-        return '오목';
-      case 'reaction':
-        return '반응속도';
-      case 'rps':
-        return '가위바위보';
-      case 'speedtap':
-        return '스피드탭';
-      case 'sequence':
-        return '순서 기억';
-      case 'stroop':
-        return '스트룹';
-      case 'hexagon':
-        return '헥사곤';
-      case 'pyramid':
-        return '수식피라미드';
-      case 'hunmin':
-        return '훈민정음';
-      default:
-        return gameType;
-    }
-  }
+  String get gameTypeName => GameCatalog.nameFor(gameType);
 
   String get resultText {
     switch (result) {
@@ -119,41 +94,14 @@ class GameStats {
     );
   }
 
-  String get gameTypeName {
-    switch (gameType) {
-      case 'tictactoe':
-        return '틱택토';
-      case 'infinite_tictactoe':
-        return '무한 틱택토';
-      case 'gomoku':
-        return '오목';
-      case 'reaction':
-        return '반응속도';
-      case 'rps':
-        return '가위바위보';
-      case 'speedtap':
-        return '스피드탭';
-      case 'sequence':
-        return '순서 기억';
-      case 'stroop':
-        return '스트룹';
-      case 'hexagon':
-        return '헥사곤';
-      case 'pyramid':
-        return '수식피라미드';
-      case 'hunmin':
-        return '훈민정음';
-      default:
-        return gameType;
-    }
-  }
+  String get gameTypeName => GameCatalog.nameFor(gameType);
 
   double get expProgress => expToNextLevel > 0 ? exp / expToNextLevel : 0;
 }
 
-class StatsProvider extends ChangeNotifier {
+class StatsProvider extends ChangeNotifier with ProviderFeedback {
   final SocketService _socketService = SocketService();
-  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
 
   List<GameStats> _allStats = [];
   List<GameRecord> _recentRecords = [];
@@ -161,9 +109,6 @@ class StatsProvider extends ChangeNotifier {
   int _currentStreak = 0;
   int _lastCoinsEarned = 0;
   bool _lastStreakBonus = false;
-  bool _isLoading = false;
-  String? _error;
-  String? _successMessage;
   bool _listenersInitialized = false;
 
   // 광고 상태
@@ -179,10 +124,6 @@ class StatsProvider extends ChangeNotifier {
   int get currentStreak => _currentStreak;
   int get lastCoinsEarned => _lastCoinsEarned;
   bool get lastStreakBonus => _lastStreakBonus;
-  bool get isLoading => _isLoading;
-  String? get error => _error;
-  String? get successMessage => _successMessage;
-
   int get adRemaining => _adRemaining;
   int get adDailyLimit => _adDailyLimit;
   int get adRewardCoins => _adRewardCoins;
@@ -213,7 +154,7 @@ class StatsProvider extends ChangeNotifier {
       _allStats = (data['stats'] as List)
           .map((s) => GameStats.fromJson(s))
           .toList();
-      _isLoading = false;
+      setLoading(false);
       notifyListeners();
     });
 
@@ -236,7 +177,7 @@ class StatsProvider extends ChangeNotifier {
           _allStats.add(stats);
         }
       }
-      _isLoading = false;
+      setLoading(false);
       notifyListeners();
     });
 
@@ -271,20 +212,18 @@ class StatsProvider extends ChangeNotifier {
 
     // 광고 보상 결과
     _socketListeners.on('ad_reward_result', (data) {
-      _isLoading = false;
+      setLoading(false);
       if (data['success'] == true) {
         _mileage = data['mileage'] ?? _mileage;
         if (data['remaining'] != null) {
           _adRemaining = data['remaining'];
         }
-        _successMessage = data['message'];
-        _error = null;
+        setSuccess(data['message']);
       } else {
         if (data['remaining'] != null) {
           _adRemaining = data['remaining'];
         }
-        _error = data['message'];
-        _successMessage = null;
+        setError(data['message']);
       }
       notifyListeners();
     });
@@ -300,7 +239,7 @@ class StatsProvider extends ChangeNotifier {
 
     // 승률 초기화 결과
     _socketListeners.on('reset_stats_result', (data) {
-      _isLoading = false;
+      setLoading(false);
       if (data['success'] == true) {
         if (data['stats'] != null) {
           final stats = GameStats.fromJson(data['stats']);
@@ -310,24 +249,22 @@ class StatsProvider extends ChangeNotifier {
           }
         }
         _mileage = data['mileage'] ?? _mileage;
-        _successMessage = data['message'];
-        _error = null;
+        setSuccess(data['message']);
       } else {
-        _error = data['message'];
-        _successMessage = null;
+        setError(data['message']);
       }
       notifyListeners();
     });
   }
 
   void getAllStats() {
-    _isLoading = true;
+    setLoading(true);
     notifyListeners();
     _socketService.emit('get_all_stats', {});
   }
 
   void getGameStats(String gameType) {
-    _isLoading = true;
+    setLoading(true);
     notifyListeners();
     _socketService.emit('get_game_stats', {'gameType': gameType});
   }
@@ -345,17 +282,13 @@ class StatsProvider extends ChangeNotifier {
   }
 
   void claimAdReward() {
-    _isLoading = true;
-    _error = null;
-    _successMessage = null;
+    startLoading();
     notifyListeners();
     _socketService.emit('claim_ad_reward', {});
   }
 
   void resetStats(String gameType) {
-    _isLoading = true;
-    _error = null;
-    _successMessage = null;
+    startLoading();
     notifyListeners();
     _socketService.emit('reset_stats', {'gameType': gameType});
   }
@@ -369,8 +302,7 @@ class StatsProvider extends ChangeNotifier {
   }
 
   void clearMessages() {
-    _error = null;
-    _successMessage = null;
+    clearFeedback();
     notifyListeners();
   }
 

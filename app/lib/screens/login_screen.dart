@@ -12,7 +12,6 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStateMixin {
   final _nicknameController = TextEditingController();
-  bool _isLoading = false;
   late AnimationController _animController;
   late Animation<double> _bounceAnimation;
 
@@ -44,51 +43,23 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       return;
     }
 
-    setState(() => _isLoading = true);
-
-    try {
-      await context.read<AuthProvider>().loginAsGuest(nickname);
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
+    await context.read<AuthProvider>().loginAsGuest(nickname);
+    _checkError();
   }
 
   Future<void> _loginWithGoogle() async {
-    setState(() => _isLoading = true);
-    try {
-      await context.read<AuthProvider>().loginWithGoogle();
-      _checkError();
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
+    await context.read<AuthProvider>().loginWithGoogle();
+    _checkError();
   }
 
   Future<void> _loginWithApple() async {
-    setState(() => _isLoading = true);
-    try {
-      await context.read<AuthProvider>().loginWithApple();
-      _checkError();
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
+    await context.read<AuthProvider>().loginWithApple();
+    _checkError();
   }
 
   Future<void> _loginWithKakao() async {
-    setState(() => _isLoading = true);
-    try {
-      await context.read<AuthProvider>().loginWithKakao();
-      _checkError();
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
+    await context.read<AuthProvider>().loginWithKakao();
+    _checkError();
   }
 
   void _checkError() {
@@ -102,6 +73,9 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final isLoading = auth.isLoading;
+
     return Scaffold(
       backgroundColor: const Color(0xFFFFF8E0),
       body: Container(
@@ -311,7 +285,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                         width: double.infinity,
                         height: 56,
                         child: ElevatedButton(
-                          onPressed: _isLoading ? null : _loginAsGuest,
+                          onPressed: isLoading ? null : _loginAsGuest,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF6C5CE7),
                             foregroundColor: Colors.white,
@@ -321,7 +295,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                             elevation: 4,
                             shadowColor: const Color(0xFF6C5CE7).withValues(alpha: 0.4),
                           ),
-                          child: _isLoading
+                          child: isLoading
                               ? const CircularProgressIndicator(color: Colors.white)
                               : const Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
@@ -368,7 +342,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                     _buildSocialButton(
                       icon: Icons.g_mobiledata,
                       color: Colors.red,
-                      onTap: _isLoading ? null : _loginWithGoogle,
+                      onTap: isLoading ? null : _loginWithGoogle,
                       label: 'Google',
                     ),
                     const SizedBox(width: 16),
@@ -377,7 +351,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                       _buildSocialButton(
                         icon: Icons.apple,
                         color: Colors.black,
-                        onTap: _isLoading ? null : _loginWithApple,
+                        onTap: isLoading ? null : _loginWithApple,
                         label: 'Apple',
                       ),
                       const SizedBox(width: 16),
@@ -386,7 +360,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                       icon: Icons.chat_bubble,
                       color: const Color(0xFFFEE500),
                       iconColor: Colors.black87,
-                      onTap: _isLoading ? null : _loginWithKakao,
+                      onTap: isLoading ? null : _loginWithKakao,
                       label: 'Kakao',
                     ),
                   ],

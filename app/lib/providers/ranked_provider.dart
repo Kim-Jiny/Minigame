@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
+import 'mixins/provider_feedback.dart';
 import '../services/socket_service.dart';
 import '../services/socket_listener_registry.dart';
+import '../utils/game_catalog.dart';
 
 // 티어 정보
 class TierInfo {
@@ -170,16 +172,14 @@ enum RankedMatchStatus {
   finished,
 }
 
-class RankedProvider extends ChangeNotifier {
+class RankedProvider extends ChangeNotifier with ProviderFeedback {
   final SocketService _socketService = SocketService();
-  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
 
   // 상태
   RankedStats? _stats = RankedStats.empty(); // 초기값으로 기본 stats 사용
   List<LeaderboardEntry> _leaderboard = [];
   int? _myRank;
-  bool _isLoading = false;
-  String? _error;
   bool _listenersInitialized = false;
 
   // 매칭 상태
@@ -205,8 +205,6 @@ class RankedProvider extends ChangeNotifier {
   RankedStats? get stats => _stats;
   List<LeaderboardEntry> get leaderboard => _leaderboard;
   int? get myRank => _myRank;
-  bool get isLoading => _isLoading;
-  String? get error => _error;
 
   RankedMatchStatus get matchStatus => _matchStatus;
   String? get roomId => _roomId;
@@ -265,7 +263,7 @@ class RankedProvider extends ChangeNotifier {
         // 서버에서 stats가 없는 경우 기본값 사용
         _stats = RankedStats.empty();
       }
-      _isLoading = false;
+      setLoading(false);
       notifyListeners();
     });
 
@@ -275,7 +273,7 @@ class RankedProvider extends ChangeNotifier {
               ?.map((e) => LeaderboardEntry.fromJson(e))
               .toList() ??
           [];
-      _isLoading = false;
+      setLoading(false);
       notifyListeners();
     });
 
@@ -378,15 +376,15 @@ class RankedProvider extends ChangeNotifier {
 
   // 랭크 통계 조회
   void getRankedStats() {
-    _isLoading = true;
+    setLoading(true);
     notifyListeners();
     _socketService.emit('get_ranked_stats', {});
 
     // 3초 후에도 응답이 없으면 기본값 사용
     Future.delayed(const Duration(seconds: 3), () {
-      if (_isLoading && _stats == null) {
+      if (isLoading && _stats == null) {
         _stats = RankedStats.empty();
-        _isLoading = false;
+        setLoading(false);
         notifyListeners();
       }
     });
@@ -394,7 +392,7 @@ class RankedProvider extends ChangeNotifier {
 
   // 리더보드 조회
   void getLeaderboard({int limit = 100, int offset = 0}) {
-    _isLoading = true;
+    setLoading(true);
     notifyListeners();
     _socketService.emit('get_leaderboard', {'limit': limit, 'offset': offset});
   }
@@ -407,7 +405,7 @@ class RankedProvider extends ChangeNotifier {
   // 랭크 매칭 시작
   void findRankedMatch() {
     _matchStatus = RankedMatchStatus.searching;
-    _error = null;
+    clearFeedback();
     notifyListeners();
     _socketService.emit('find_ranked_match', {});
   }
@@ -441,26 +439,7 @@ class RankedProvider extends ChangeNotifier {
 
   // 게임 타입 한글 이름
   String getGameTypeName(String gameType) {
-    switch (gameType) {
-      case 'tictactoe':
-        return '틱택토';
-      case 'infinite_tictactoe':
-        return '무한 틱택토';
-      case 'gomoku':
-        return '오목';
-      case 'reaction':
-        return '반응속도';
-      case 'rps':
-        return '가위바위보';
-      case 'speedtap':
-        return '스피드탭';
-      case 'sequence':
-        return '순서 기억';
-      case 'stroop':
-        return '스트룹';
-      default:
-        return gameType;
-    }
+    return GameCatalog.nameFor(gameType);
   }
 
   @override

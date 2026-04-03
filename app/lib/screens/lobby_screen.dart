@@ -3,14 +3,40 @@ import 'package:provider/provider.dart';
 import '../providers/friend_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/game_provider.dart';
-import '../providers/stats_provider.dart';
 import '../services/remote_config_service.dart';
 import '../services/socket_service.dart';
+import '../games/common/game_screen_transition.dart';
+import '../utils/game_catalog.dart';
 import '../widgets/invitation_dialog.dart';
 import 'friends_screen.dart';
 import 'profile_screen.dart';
 import 'maintenance_screen.dart';
 import 'ranked_screen.dart';
+
+class _LobbyGameEntry {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+  final String route;
+  final String? badge;
+
+  const _LobbyGameEntry({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+    required this.route,
+    this.badge,
+  });
+}
+
+class _LobbyNoticeStyle {
+  final Color color;
+  final IconData icon;
+
+  const _LobbyNoticeStyle(this.color, this.icon);
+}
 
 class LobbyScreen extends StatefulWidget {
   const LobbyScreen({super.key});
@@ -20,17 +46,95 @@ class LobbyScreen extends StatefulWidget {
 }
 
 class _LobbyScreenState extends State<LobbyScreen> {
+  static const List<_LobbyGameEntry> _quickGames = [
+    _LobbyGameEntry(
+      title: '틱택토',
+      subtitle: '3연속',
+      icon: Icons.grid_3x3,
+      color: Color(0xFF6C5CE7),
+      route: '/game/tictactoe',
+    ),
+    _LobbyGameEntry(
+      title: '반응속도',
+      subtitle: '터치!',
+      icon: Icons.flash_on,
+      color: Color(0xFFE17055),
+      route: '/game/reaction',
+    ),
+    _LobbyGameEntry(
+      title: '가위바위보',
+      subtitle: '3판2선',
+      icon: Icons.front_hand,
+      color: Color(0xFF9B59B6),
+      route: '/game/rps',
+    ),
+    _LobbyGameEntry(
+      title: '스피드탭',
+      subtitle: '빠르게!',
+      icon: Icons.touch_app,
+      color: Color(0xFF00CEC9),
+      route: '/game/speedtap',
+    ),
+    _LobbyGameEntry(
+      title: '순서 기억',
+      subtitle: '기억력!',
+      icon: Icons.psychology,
+      color: Color(0xFFE056FD),
+      route: '/game/sequence',
+    ),
+    _LobbyGameEntry(
+      title: '스트룹',
+      subtitle: '색깔!',
+      icon: Icons.palette,
+      color: Color(0xFF00CEC9),
+      route: '/game/stroop',
+    ),
+  ];
+
+  static const List<_LobbyGameEntry> _featuredGames = [
+    _LobbyGameEntry(
+      title: '오목',
+      subtitle: '5개를 연속으로 놓으면 승리',
+      icon: Icons.circle_outlined,
+      color: Color(0xFF636E72),
+      route: '/game/gomoku',
+    ),
+    _LobbyGameEntry(
+      title: '헥사곤',
+      subtitle: '숫자를 외우고 합을 맞춰라!',
+      icon: Icons.hexagon_outlined,
+      color: Color(0xFF2D3436),
+      route: '/game/hexagon',
+      badge: '1인 가능',
+    ),
+    _LobbyGameEntry(
+      title: '수식피라미드',
+      subtitle: '카드를 골라 목표 숫자를 맞춰라!',
+      icon: Icons.change_history,
+      color: Color(0xFFE67E22),
+      route: '/game/pyramid',
+      badge: '1인 가능',
+    ),
+    _LobbyGameEntry(
+      title: '훈민정음',
+      subtitle: '초성 단어 배틀! 3판 2선승',
+      icon: Icons.translate,
+      color: Color(0xFF1E88E5),
+      route: '/game/hunmin',
+    ),
+  ];
+
   int _currentIndex = 0;
   String? _lastProcessedInvitationRoomId; // 중복 초대 게임 처리 방지
+  RemoteConfigService? _configService;
+  FriendProvider? _friendProvider;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Provider 초기화
       final auth = context.read<AuthProvider>();
-      context.read<FriendProvider>().initialize();
-      context.read<StatsProvider>().initialize();
+
       // GameProvider도 미리 초기화 (초대 게임 이벤트를 놓치지 않도록)
       if (auth.socketId != null) {
         context.read<GameProvider>().initialize(auth.socketId!);
@@ -42,8 +146,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   void _setupConfigChangeListener() {
     // 원격 설정 변경 감지하여 소켓 재연결
-    final configService = context.read<RemoteConfigService>();
-    configService.addListener(_onConfigChanged);
+    _configService = context.read<RemoteConfigService>();
+    _configService!.addListener(_onConfigChanged);
   }
 
   void _onConfigChanged() {
@@ -54,12 +158,20 @@ class _LobbyScreenState extends State<LobbyScreen> {
   @override
   void dispose() {
     // 설정 변경 리스너 제거
-    context.read<RemoteConfigService>().removeListener(_onConfigChanged);
+    _configService?.removeListener(_onConfigChanged);
+    // 콜백 정리 (메모리 릭 방지)
+    if (_friendProvider != null) {
+      _friendProvider!.onInvitationReceived = null;
+      _friendProvider!.onInvitationExpired = null;
+      _friendProvider!.onInviteFailed = null;
+      _friendProvider!.onGameStart = null;
+    }
     super.dispose();
   }
 
   void _setupInvitationListener() {
-    final friendProvider = context.read<FriendProvider>();
+    _friendProvider = context.read<FriendProvider>();
+    final friendProvider = _friendProvider!;
 
     // 초대 받았을 때
     friendProvider.onInvitationReceived = (invitation) {
@@ -122,9 +234,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
         }
 
         // 턴제 게임인 경우만 initializeInvitationGame 호출 (currentTurn, board 필요)
-        final isBoardGame = gameType == 'tictactoe' ||
-                            gameType == 'infinite_tictactoe' ||
-                            gameType == 'gomoku';
+        final isBoardGame = GameCatalog.isBoardGame(gameType);
 
         if (gameState != null && isBoardGame) {
           final currentTurn = gameState['currentTurn'] as String?;
@@ -152,31 +262,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
         // 초대자는 이미 게임 화면에 있으므로 네비게이션 스킵
         if (shouldNavigate) {
-          String route = '/game/$gameType';
-          if (gameType == 'infinite_tictactoe') {
-            route = '/game/infinite_tictactoe';
-          } else if (gameType == 'tictactoe') {
-            route = '/game/tictactoe';
-          } else if (gameType == 'gomoku') {
-            route = '/game/gomoku';
-          } else if (gameType == 'reaction') {
-            route = '/game/reaction';
-          } else if (gameType == 'rps') {
-            route = '/game/rps';
-          } else if (gameType == 'speedtap') {
-            route = '/game/speedtap';
-          } else if (gameType == 'sequence') {
-            route = '/game/sequence';
-          } else if (gameType == 'stroop') {
-            route = '/game/stroop';
-          } else if (gameType == 'hexagon') {
-            route = '/game/hexagon';
-          } else if (gameType == 'pyramid') {
-            route = '/game/pyramid';
-          } else if (gameType == 'hunmin') {
-            route = '/game/hunmin';
-          }
-          Navigator.pushNamed(context, route);
+          Navigator.pushNamed(context, GameCatalog.routeFor(gameType));
         }
       }
     };
@@ -204,7 +290,33 @@ class _LobbyScreenState extends State<LobbyScreen> {
             foregroundColor: Colors.white,
             elevation: 0,
           ),
-          body: _buildBody(),
+          body: Consumer<GameProvider>(
+            builder: (context, gameProvider, child) {
+              final showFullNotice = gameProvider.hasLobbyNotice && _currentIndex == 0;
+              final showCompactNotice = gameProvider.hasLobbyNotice && _currentIndex != 0;
+              return Column(
+                children: [
+                  if (showFullNotice)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                      child: _buildLobbyNoticeCard(gameProvider),
+                    ),
+                  if (showCompactNotice)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                      child: _buildCompactLobbyNoticeBar(gameProvider),
+                    ),
+                  Expanded(
+                    child: GameScreenTransition(
+                      transitionKey: _currentIndex,
+                      beginOffset: const Offset(0.02, 0),
+                      child: _buildBody(),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
           bottomNavigationBar: BottomNavigationBar(
             currentIndex: _currentIndex,
             onTap: (index) {
@@ -264,6 +376,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
   }
 
   Widget _buildGamesTab() {
+    final auth = context.watch<AuthProvider>();
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -281,214 +394,109 @@ class _LobbyScreenState extends State<LobbyScreen> {
           final horizontalPadding = width >= 900 ? 24.0 : 16.0;
           final contentMaxWidth = width >= 1300 ? 1180.0 : double.infinity;
           final quickColumns = _getQuickGameColumns(width);
+          final quickGameAspectRatio = _getQuickGameAspectRatio(width);
 
           return Align(
             alignment: Alignment.topCenter,
             child: ConstrainedBox(
               constraints: BoxConstraints(maxWidth: contentMaxWidth),
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(horizontalPadding, 16, horizontalPadding, 16),
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  horizontalPadding,
+                  16,
+                  horizontalPadding,
+                  24 + MediaQuery.of(context).padding.bottom,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // 환영 메시지
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              Icons.sports_esports,
-                              color: Theme.of(context).primaryColor,
-                              size: 28,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '함께 즐겨요!',
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: Theme.of(context).primaryColor,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '친구와 함께 재미있는 게임을 해보세요',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
+                    _buildHeroCard(context, auth.nickname ?? '플레이어'),
+                    const SizedBox(height: 18),
+                    _buildQuickAccessStrip(context, width),
+                    const SizedBox(height: 20),
+                    _buildSectionHeader(
+                      icon: Icons.bolt,
+                      title: '빠른 게임',
+                      subtitle: '1~3분',
+                      color: Colors.orange,
                     ),
-                    const SizedBox(height: 16),
-
-                    // 랭크전 버튼
-                    _buildRankedCard(context),
-                    const SizedBox(height: 16),
-
-                    // 게임 목록
-                    Expanded(
-                      child: ListView(
-                        children: [
-                          // 빠른 게임 섹션
-                          _buildSectionHeader(
-                            icon: Icons.bolt,
-                            title: '빠른 게임',
-                            subtitle: '1~3분',
-                            color: Colors.orange,
-                          ),
-                          const SizedBox(height: 8),
-                          GridView.count(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            crossAxisCount: quickColumns,
-                            crossAxisSpacing: 10,
-                            mainAxisSpacing: 10,
-                            childAspectRatio: width >= 900 ? 0.95 : 0.85,
-                            children: [
-                              _buildGameCard(
+                    const SizedBox(height: 8),
+                    GridView.count(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      crossAxisCount: quickColumns,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                      childAspectRatio: quickGameAspectRatio,
+                      children: _quickGames
+                          .map((game) => _buildGameCard(
                                 context,
-                                title: '틱택토',
-                                subtitle: '3연속',
-                                icon: Icons.grid_3x3,
-                                color: const Color(0xFF6C5CE7),
-                                route: '/game/tictactoe',
-                              ),
-                              _buildGameCard(
-                                context,
-                                title: '반응속도',
-                                subtitle: '터치!',
-                                icon: Icons.flash_on,
-                                color: const Color(0xFFE17055),
-                                route: '/game/reaction',
-                              ),
-                              _buildGameCard(
-                                context,
-                                title: '가위바위보',
-                                subtitle: '3판2선',
-                                icon: Icons.front_hand,
-                                color: const Color(0xFF9B59B6),
-                                route: '/game/rps',
-                              ),
-                              _buildGameCard(
-                                context,
-                                title: '스피드탭',
-                                subtitle: '빠르게!',
-                                icon: Icons.touch_app,
-                                color: const Color(0xFF00CEC9),
-                                route: '/game/speedtap',
-                              ),
-                              _buildGameCard(
-                                context,
-                                title: '순서 기억',
-                                subtitle: '기억력!',
-                                icon: Icons.psychology,
-                                color: const Color(0xFFE056FD),
-                                route: '/game/sequence',
-                              ),
-                              _buildGameCard(
-                                context,
-                                title: '스트룹',
-                                subtitle: '색깔!',
-                                icon: Icons.palette,
-                                color: const Color(0xFF00CEC9),
-                                route: '/game/stroop',
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 20),
-
-                          // 전략 게임 섹션
-                          _buildSectionHeader(
-                            icon: Icons.psychology_alt,
-                            title: '전략 게임',
-                            subtitle: '10~20분',
-                            color: const Color(0xFF636E72),
-                          ),
-                          const SizedBox(height: 8),
-                          _buildLargeGameCard(
-                            context,
-                            title: '오목',
-                            subtitle: '5개를 연속으로 놓으면 승리',
-                            icon: Icons.circle_outlined,
-                            color: const Color(0xFF636E72),
-                            route: '/game/gomoku',
-                          ),
-                          const SizedBox(height: 20),
-
-                          // 두뇌 게임 섹션
-                          _buildSectionHeader(
-                            icon: Icons.extension,
-                            title: '두뇌 게임',
-                            subtitle: '5~15분',
-                            color: const Color(0xFF2D3436),
-                          ),
-                          const SizedBox(height: 8),
-                          _buildLargeGameCard(
-                            context,
-                            title: '헥사곤',
-                            subtitle: '숫자를 외우고 합을 맞춰라!',
-                            icon: Icons.hexagon_outlined,
-                            color: const Color(0xFF2D3436),
-                            route: '/game/hexagon',
-                            badge: '1인 가능',
-                          ),
-                          const SizedBox(height: 8),
-                          _buildLargeGameCard(
-                            context,
-                            title: '수식피라미드',
-                            subtitle: '카드를 골라 목표 숫자를 맞춰라!',
-                            icon: Icons.change_history,
-                            color: const Color(0xFFE67E22),
-                            route: '/game/pyramid',
-                            badge: '1인 가능',
-                          ),
-                          const SizedBox(height: 20),
-
-                          // 단어 게임 섹션
-                          _buildSectionHeader(
-                            icon: Icons.translate,
-                            title: '단어 게임',
-                            subtitle: '3~5분',
-                            color: const Color(0xFF1E88E5),
-                          ),
-                          const SizedBox(height: 8),
-                          _buildLargeGameCard(
-                            context,
-                            title: '훈민정음',
-                            subtitle: '초성 단어 배틀! 3판 2선승',
-                            icon: Icons.translate,
-                            color: const Color(0xFF1E88E5),
-                            route: '/game/hunmin',
-                          ),
-                        ],
-                      ),
+                                title: game.title,
+                                subtitle: game.subtitle,
+                                icon: game.icon,
+                                color: game.color,
+                                route: game.route,
+                              ))
+                          .toList(),
+                    ),
+                    const SizedBox(height: 20),
+                    _buildSectionHeader(
+                      icon: Icons.psychology_alt,
+                      title: '전략 게임',
+                      subtitle: '10~20분',
+                      color: const Color(0xFF636E72),
+                    ),
+                    const SizedBox(height: 8),
+                    _buildLargeGameCard(
+                      context,
+                      title: _featuredGames[0].title,
+                      subtitle: _featuredGames[0].subtitle,
+                      icon: _featuredGames[0].icon,
+                      color: _featuredGames[0].color,
+                      route: _featuredGames[0].route,
+                    ),
+                    const SizedBox(height: 20),
+                    _buildSectionHeader(
+                      icon: Icons.extension,
+                      title: '두뇌 게임',
+                      subtitle: '5~15분',
+                      color: const Color(0xFF2D3436),
+                    ),
+                    const SizedBox(height: 8),
+                    _buildLargeGameCard(
+                      context,
+                      title: _featuredGames[1].title,
+                      subtitle: _featuredGames[1].subtitle,
+                      icon: _featuredGames[1].icon,
+                      color: _featuredGames[1].color,
+                      route: _featuredGames[1].route,
+                      badge: _featuredGames[1].badge,
+                    ),
+                    const SizedBox(height: 8),
+                    _buildLargeGameCard(
+                      context,
+                      title: _featuredGames[2].title,
+                      subtitle: _featuredGames[2].subtitle,
+                      icon: _featuredGames[2].icon,
+                      color: _featuredGames[2].color,
+                      route: _featuredGames[2].route,
+                      badge: _featuredGames[2].badge,
+                    ),
+                    const SizedBox(height: 20),
+                    _buildSectionHeader(
+                      icon: Icons.translate,
+                      title: '단어 게임',
+                      subtitle: '3~5분',
+                      color: const Color(0xFF1E88E5),
+                    ),
+                    const SizedBox(height: 8),
+                    _buildLargeGameCard(
+                      context,
+                      title: _featuredGames[3].title,
+                      subtitle: _featuredGames[3].subtitle,
+                      icon: _featuredGames[3].icon,
+                      color: _featuredGames[3].color,
+                      route: _featuredGames[3].route,
                     ),
                   ],
                 ),
@@ -500,80 +508,350 @@ class _LobbyScreenState extends State<LobbyScreen> {
     );
   }
 
+  Widget _buildLobbyNoticeCard(GameProvider gameProvider) {
+    final style = switch (gameProvider.lobbyNoticeTone) {
+      LobbyNoticeTone.success => const _LobbyNoticeStyle(Color(0xFF16A34A), Icons.check_circle_rounded),
+      LobbyNoticeTone.warning => const _LobbyNoticeStyle(Color(0xFFEA580C), Icons.info_rounded),
+      LobbyNoticeTone.info => const _LobbyNoticeStyle(Color(0xFF2563EB), Icons.notifications_active_rounded),
+    };
+
+    return Dismissible(
+      key: const ValueKey('lobby_notice'),
+      direction: DismissDirection.up,
+      onDismissed: (_) => context.read<GameProvider>().clearLobbyNotice(),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: style.color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: style.color.withValues(alpha: 0.18)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: style.color.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(style.icon, color: style.color),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    gameProvider.lobbyNoticeTitle ?? '안내',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: style.color,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    gameProvider.lobbyNoticeMessage ?? '',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      height: 1.5,
+                      color: Color(0xFF374151),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              onPressed: () => context.read<GameProvider>().clearLobbyNotice(),
+              icon: const Icon(Icons.close_rounded),
+              color: Colors.grey.shade600,
+              visualDensity: VisualDensity.compact,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompactLobbyNoticeBar(GameProvider gameProvider) {
+    final style = switch (gameProvider.lobbyNoticeTone) {
+      LobbyNoticeTone.success => const _LobbyNoticeStyle(Color(0xFF16A34A), Icons.check_circle_rounded),
+      LobbyNoticeTone.warning => const _LobbyNoticeStyle(Color(0xFFEA580C), Icons.info_rounded),
+      LobbyNoticeTone.info => const _LobbyNoticeStyle(Color(0xFF2563EB), Icons.notifications_active_rounded),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: style.color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: style.color.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        children: [
+          Icon(style.icon, color: style.color, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              gameProvider.lobbyNoticeTitle ?? '안내',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: style.color,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => setState(() => _currentIndex = 0),
+            child: const Text('게임 탭에서 보기'),
+          ),
+        ],
+      ),
+    );
+  }
+
   int _getQuickGameColumns(double width) {
     if (width >= 1200) return 5;
     if (width >= 900) return 4;
-    return 3;
+    if (width >= 700) return 3;
+    return 2;
   }
 
-  Widget _buildRankedCard(BuildContext context) {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: InkWell(
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const RankedScreen()),
-          );
-        },
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Color(0xFFFF4500),
-                Color(0xFFFF6347),
-              ],
-            ),
+  double _getQuickGameAspectRatio(double width) {
+    if (width >= 1200) return 1.08;
+    if (width >= 900) return 1.0;
+    if (width >= 700) return 0.92;
+    return 1.02;
+  }
+
+  Widget _buildHeroCard(BuildContext context, String nickname) {
+    final primary = Theme.of(context).primaryColor;
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            primary,
+            primary.withValues(alpha: 0.84),
+            const Color(0xFF111827),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: primary.withValues(alpha: 0.22),
+            blurRadius: 28,
+            offset: const Offset(0, 12),
           ),
-          child: Row(
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(999),
                 ),
-                child: const Icon(
-                  Icons.emoji_events,
-                  color: Colors.white,
-                  size: 28,
-                ),
-              ),
-              const SizedBox(width: 16),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
+                    Icon(Icons.bolt_rounded, color: Colors.white, size: 16),
+                    SizedBox(width: 6),
                     Text(
-                      '랭크전',
+                      '실시간 듀얼 아레나',
                       style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
                         color: Colors.white,
-                      ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      'Bo3 | ELO 기반 매칭',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.white70,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
                 ),
               ),
-              const Icon(
-                Icons.chevron_right,
-                color: Colors.white,
-                size: 28,
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                ),
+                child: Text(
+                  '빠른 게임 ${_quickGames.length}개',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Text(
+            '$nickname님, 바로 한 판 어때요?',
+            style: const TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+              height: 1.15,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            '짧고 강한 실시간 대결부터 천천히 생각하는 전략 게임까지, 지금 분위기에 맞는 모드를 골라 시작할 수 있어요.',
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.6,
+              color: Colors.white.withValues(alpha: 0.82),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: const [
+              _HeroMetric(label: '빠른 게임', value: '1~3분'),
+              _HeroMetric(label: '전략 게임', value: '10~20분'),
+              _HeroMetric(label: '1인 플레이', value: '2개 지원'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickAccessStrip(BuildContext context, double width) {
+    final rankedCard = _buildRankedCard(context);
+    final inviteCard = _buildPromoCard(
+      title: '친구 초대',
+      subtitle: '같이 하면 더 재밌어요',
+      icon: Icons.group_add_rounded,
+      color: const Color(0xFF0EA5E9),
+      onTap: () => setState(() => _currentIndex = 1),
+    );
+
+    if (width < 560) {
+      return Column(
+        children: [
+          SizedBox(width: double.infinity, child: rankedCard),
+          const SizedBox(height: 12),
+          SizedBox(width: double.infinity, child: inviteCard),
+        ],
+      );
+    }
+
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: rankedCard),
+          const SizedBox(width: 12),
+          Expanded(child: inviteCard),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRankedCard(BuildContext context) {
+    return _buildPromoCard(
+      title: '랭크전',
+      subtitle: 'Bo3 | ELO 기반 매칭',
+      icon: Icons.emoji_events_rounded,
+      color: const Color(0xFFEA580C),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const RankedScreen()),
+        );
+      },
+    );
+  }
+
+  Widget _buildPromoCard({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(24),
+        child: Ink(
+          height: 110,
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                color,
+                color.withValues(alpha: 0.86),
+              ],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: 0.22),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(icon, color: Colors.white),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.white.withValues(alpha: 0.78),
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.arrow_forward_rounded, color: Colors.white),
             ],
           ),
         ),
@@ -590,63 +868,76 @@ class _LobbyScreenState extends State<LobbyScreen> {
     String? route,
     bool enabled = true,
   }) {
-    return Card(
-      elevation: enabled ? 4 : 1,
-      shadowColor: enabled ? color.withValues(alpha: 0.3) : Colors.transparent,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
+    return Material(
+      color: Colors.transparent,
       child: InkWell(
-        onTap: enabled && route != null
-            ? () {
-                Navigator.pushNamed(context, route);
-              }
-            : null,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
+        onTap: enabled && route != null ? () => _openRoute(route) : null,
+        borderRadius: BorderRadius.circular(22),
+        child: Ink(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(22),
             gradient: enabled
                 ? LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      color.withValues(alpha: 0.85),
                       color,
+                      color.withValues(alpha: 0.86),
                     ],
                   )
                 : null,
-            color: enabled ? null : Colors.grey.shade100,
+            color: enabled ? null : const Color(0xFFF3F4F6),
+            boxShadow: enabled
+                ? [
+                    BoxShadow(
+                      color: color.withValues(alpha: 0.2),
+                      blurRadius: 18,
+                      offset: const Offset(0, 8),
+                    ),
+                  ]
+                : null,
           ),
           child: Stack(
             children: [
-              // 배경 장식
-              if (enabled)
+              if (enabled) ...[
                 Positioned(
-                  right: -10,
-                  top: -10,
+                  right: -12,
+                  top: -12,
                   child: Container(
-                    width: 40,
-                    height: 40,
+                    width: 68,
+                    height: 68,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.1),
+                      color: Colors.white.withValues(alpha: 0.08),
                     ),
                   ),
                 ),
-              // 내용
+                Positioned(
+                  left: 14,
+                  bottom: 14,
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      color: Colors.white.withValues(alpha: 0.08),
+                    ),
+                  ),
+                ),
+              ],
               Padding(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(14),
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(10),
+                      width: 48,
+                      height: 48,
                       decoration: BoxDecoration(
                         color: enabled
-                            ? Colors.white.withValues(alpha: 0.25)
+                            ? Colors.white.withValues(alpha: 0.18)
                             : Colors.grey.shade200,
-                        shape: BoxShape.circle,
+                        borderRadius: BorderRadius.circular(16),
                       ),
                       child: Icon(
                         icon,
@@ -654,28 +945,52 @@ class _LobbyScreenState extends State<LobbyScreen> {
                         color: enabled ? Colors.white : Colors.grey,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const Spacer(),
                     Text(
                       title,
                       style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: enabled ? Colors.white : Colors.grey,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: enabled ? Colors.white : Colors.grey.shade700,
                       ),
-                      textAlign: TextAlign.center,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 4),
                     Text(
                       subtitle,
                       style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w500,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
                         color: enabled
                             ? Colors.white.withValues(alpha: 0.8)
-                            : Colors.grey,
+                            : Colors.grey.shade500,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Text(
+                          enabled ? '바로 시작' : '준비 중',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: enabled
+                                ? Colors.white.withValues(alpha: 0.9)
+                                : Colors.grey.shade500,
+                          ),
+                        ),
+                        const Spacer(),
+                        Icon(
+                          Icons.arrow_outward_rounded,
+                          size: 16,
+                          color: enabled
+                              ? Colors.white.withValues(alpha: 0.9)
+                              : Colors.grey.shade500,
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -687,6 +1002,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
     );
   }
 
+  void _openRoute(String route) {
+    Navigator.pushNamed(context, route);
+  }
+
   Widget _buildSectionHeader({
     required IconData icon,
     required String title,
@@ -696,34 +1015,50 @@ class _LobbyScreenState extends State<LobbyScreen> {
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.all(6),
+          padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
             color: color.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(icon, color: color, size: 18),
         ),
-        const SizedBox(width: 8),
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Colors.grey.shade800,
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.grey.shade900,
+                ),
+              ),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade500,
+                ),
+              ),
+            ],
           ),
         ),
-        const SizedBox(width: 8),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: Colors.grey.shade200,
-            borderRadius: BorderRadius.circular(12),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: Colors.grey.shade200),
           ),
           child: Text(
-            subtitle,
+            '추천',
             style: TextStyle(
               fontSize: 11,
-              color: Colors.grey.shade600,
+              fontWeight: FontWeight.w700,
+              color: color,
             ),
           ),
         ),
@@ -740,43 +1075,43 @@ class _LobbyScreenState extends State<LobbyScreen> {
     String? route,
     String? badge,
   }) {
-    return Card(
-      elevation: 4,
-      shadowColor: color.withValues(alpha: 0.3),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Ink(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              color.withValues(alpha: 0.85),
-              color,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: route != null ? () => _openRoute(route) : null,
+        borderRadius: BorderRadius.circular(24),
+        child: Ink(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                color,
+                color.withValues(alpha: 0.88),
+              ],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: 0.2),
+                blurRadius: 22,
+                offset: const Offset(0, 10),
+              ),
             ],
           ),
-        ),
-        child: InkWell(
-          onTap: route != null
-              ? () {
-                  Navigator.pushNamed(context, route);
-                }
-              : null,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
+          child: Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                width: 58,
+                height: 58,
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.25),
-                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(18),
                 ),
                 child: Icon(
                   icon,
-                  size: 28,
+                  size: 30,
                   color: Colors.white,
                 ),
               ),
@@ -785,57 +1120,112 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Text(
                           title,
                           style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
+                            fontSize: 19,
+                            fontWeight: FontWeight.w800,
                             color: Colors.white,
                           ),
                         ),
-                        if (badge != null) ...[
-                          const SizedBox(width: 8),
+                        if (badge != null)
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                             decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.25),
-                              borderRadius: BorderRadius.circular(10),
+                              color: Colors.white.withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
                             ),
                             child: Text(
                               badge,
                               style: const TextStyle(
                                 fontSize: 11,
-                                fontWeight: FontWeight.w600,
+                                fontWeight: FontWeight.w700,
                                 color: Colors.white,
                               ),
                             ),
                           ),
-                        ],
                       ],
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 6),
                     Text(
                       subtitle,
                       style: TextStyle(
                         fontSize: 14,
-                        color: Colors.white.withValues(alpha: 0.8),
+                        height: 1.45,
+                        color: Colors.white.withValues(alpha: 0.82),
                       ),
                     ),
                   ],
                 ),
               ),
-              Icon(
-                Icons.chevron_right,
-                color: Colors.white.withValues(alpha: 0.8),
-                size: 28,
+              const SizedBox(width: 12),
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.arrow_forward_rounded,
+                  color: Colors.white,
+                ),
               ),
             ],
           ),
         ),
       ),
-    ),
+    );
+  }
+}
+
+class _HeroMetric extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _HeroMetric({
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Colors.white.withValues(alpha: 0.72),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

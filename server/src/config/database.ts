@@ -3,11 +3,16 @@ import { Pool } from 'pg';
 let pool: Pool;
 
 export async function setupDatabase() {
-  const databaseUrl = process.env.DATABASE_URL;
+  let databaseUrl = process.env.DATABASE_URL;
 
   if (!databaseUrl) {
     console.log('⚠️  DATABASE_URL not set, running without database');
     return;
+  }
+
+  // 개발 환경에서는 DB 호스트를 localhost로 변경
+  if (process.env.NODE_ENV === 'development') {
+    databaseUrl = databaseUrl.replace('duo-db', 'localhost');
   }
 
   pool = new Pool({

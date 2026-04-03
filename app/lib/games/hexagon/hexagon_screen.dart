@@ -12,6 +12,8 @@ import '../../services/socket_listener_registry.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
 import '../../widgets/game_player_profile.dart';
+import '../common/game_end_action_panel.dart';
+import '../common/game_reconnect_helper.dart';
 
 enum HexagonGameStatus {
   idle,
@@ -93,7 +95,7 @@ class HexagonScreen extends StatefulWidget {
 
 class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateMixin {
   final SocketService _socketService = SocketService();
-  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
 
   // 게임 상태
   HexagonGameStatus _status = HexagonGameStatus.idle;
@@ -231,23 +233,21 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
           _status != HexagonGameStatus.searching;
       if (isInGame && _roomId != null) {
         if (!_isSolo) {
-          // 2인 대전: 재연결 대기 모드 (서버 유예 15초보다 짧게 5초 타임아웃)
-          setState(() => _isReconnecting = true);
           _reconnectTimer?.cancel();
-          _reconnectTimer = Timer(const Duration(seconds: 5), () {
-            if (!mounted) return;
-            _memorizeTimer?.cancel();
-            _idleTimer?.cancel();
-            _buzzTimer?.cancel();
-            setState(() {
-              _isReconnecting = false;
-              _status = HexagonGameStatus.finished;
-              _opponentLeft = true;
-            });
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('재연결에 실패했습니다'), backgroundColor: Colors.orange),
-            );
-          });
+          _reconnectTimer = GameReconnectHelper.startReconnectTimeout(
+            context: context,
+            onEnterWaiting: () => setState(() => _isReconnecting = true),
+            onTimeout: () {
+              _memorizeTimer?.cancel();
+              _idleTimer?.cancel();
+              _buzzTimer?.cancel();
+              setState(() {
+                _isReconnecting = false;
+                _status = HexagonGameStatus.finished;
+                _opponentLeft = true;
+              });
+            },
+          );
         } else {
           // 솔로 모드: 즉시 종료
           _memorizeTimer?.cancel();
@@ -332,30 +332,15 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
           _status = HexagonGameStatus.playing;
       }
 
-      setState(() => _isReconnecting = false);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('게임에 재연결되었습니다'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
+      GameReconnectHelper.completeReconnect(
+        context: context,
+        onRecovered: () => setState(() => _isReconnecting = false),
+      );
     });
 
     // 상대방 재연결 알림
     _socketListeners.on('opponent_reconnected', (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('상대방이 재연결되었습니다'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
+      GameReconnectHelper.showOpponentReconnected(context);
     });
 
     _socketListeners.on('waiting_for_match', (_) {
@@ -551,7 +536,9 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     _socketListeners.on('game_end', (data) {
       if (_status == HexagonGameStatus.finished ||
           _status == HexagonGameStatus.idle ||
-          _status == HexagonGameStatus.searching) return;
+          _status == HexagonGameStatus.searching) {
+        return;
+      }
       _memorizeTimer?.cancel();
       _idleTimer?.cancel();
       _buzzTimer?.cancel();
@@ -571,7 +558,9 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     _socketListeners.on('opponent_left', (_) {
       if (_status == HexagonGameStatus.idle ||
           _status == HexagonGameStatus.searching ||
-          _status == HexagonGameStatus.finished) return;
+          _status == HexagonGameStatus.finished) {
+        return;
+      }
       _memorizeTimer?.cancel();
       _idleTimer?.cancel();
       _buzzTimer?.cancel();
@@ -621,6 +610,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     _memorizeTimer?.cancel();
     _memorizeRemaining = 30;
     _memorizeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) { timer.cancel(); return; }
       if (_memorizeRemaining > 0) {
         setState(() => _memorizeRemaining--);
       } else {
@@ -633,6 +623,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     _idleTimer?.cancel();
     _idleRemaining = 60;
     _idleTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) { timer.cancel(); return; }
       if (_idleRemaining > 0) {
         setState(() => _idleRemaining--);
       } else {
@@ -645,6 +636,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     _buzzTimer?.cancel();
     _buzzRemaining = 10;
     _buzzTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) { timer.cancel(); return; }
       if (_buzzRemaining > 0) {
         setState(() => _buzzRemaining--);
       } else {
@@ -1285,58 +1277,21 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
                   ],
                 ),
               ),
-            // 버튼들
-            if (!_isSolo && !_opponentLeft) ...[
-              if (_opponentWantsRematch && !_rematchWaiting)
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _requestRematch,
-                    icon: const Icon(Icons.replay),
-                    label: const Text('재대결 수락'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                )
-              else if (_rematchWaiting)
-                Column(
-                  children: [
-                    const Text('상대방 응답 대기 중...', style: TextStyle(color: Colors.grey)),
-                    TextButton(onPressed: _cancelRematch, child: const Text('취소')),
-                  ],
-                )
-              else
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _requestRematch,
-                    icon: const Icon(Icons.replay),
-                    label: const Text('재대결'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: theme.primary,
-                      foregroundColor: theme.textOnPrimary,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 8),
-            ],
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.home),
-                label: const Text('로비로'),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
+            GameEndActionPanel(
+              showRematchActions: !_isSolo && !_opponentLeft,
+              opponentWantsRematch: _opponentWantsRematch,
+              rematchWaiting: _rematchWaiting,
+              primaryColor: theme.primary,
+              primaryForegroundColor: theme.textOnPrimary,
+              onRequestRematch: _requestRematch,
+              onCancelRematch: _cancelRematch,
+              onLeave: () => Navigator.pop(context),
+              rematchLabel: '재대결',
+              acceptRematchLabel: '재대결 수락',
+              waitingText: '상대방 응답 대기 중...',
+              cancelLabel: '취소',
+              leaveLabel: '로비로',
+              leaveIcon: Icons.home,
             ),
           ],
         ),

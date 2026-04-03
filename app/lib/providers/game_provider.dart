@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import '../services/socket_service.dart';
 import '../services/socket_listener_registry.dart';
@@ -12,9 +13,15 @@ enum GameStatus {
   finished,
 }
 
+enum LobbyNoticeTone {
+  info,
+  success,
+  warning,
+}
+
 class GameProvider extends ChangeNotifier {
   final SocketService _socketService = SocketService();
-  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
 
   GameStatus _status = GameStatus.idle;
   String? _roomId;
@@ -31,7 +38,6 @@ class GameProvider extends ChangeNotifier {
 
   // 무한 틱택토용
   List<Map<String, dynamic>> _moveHistory = [];
-  int? _removedPosition;
 
   // 마지막 수 위치
   int? _lastMovePosition;
@@ -64,6 +70,9 @@ class GameProvider extends ChangeNotifier {
   // 프로필 설정
   UserProfileSettings? _myProfileSettings;
   UserProfileSettings? _opponentProfileSettings;
+  String? _lobbyNoticeTitle;
+  String? _lobbyNoticeMessage;
+  LobbyNoticeTone _lobbyNoticeTone = LobbyNoticeTone.info;
 
   // 생성자에서 리스너 설정
   GameProvider() {
@@ -101,6 +110,29 @@ class GameProvider extends ChangeNotifier {
   int get opponentStreak => _opponentStreak;
   UserProfileSettings? get myProfileSettings => _myProfileSettings;
   UserProfileSettings? get opponentProfileSettings => _opponentProfileSettings;
+  String? get lobbyNoticeTitle => _lobbyNoticeTitle;
+  String? get lobbyNoticeMessage => _lobbyNoticeMessage;
+  LobbyNoticeTone get lobbyNoticeTone => _lobbyNoticeTone;
+  bool get hasLobbyNotice => _lobbyNoticeMessage != null;
+
+  void setLobbyNotice({
+    required String title,
+    required String message,
+    LobbyNoticeTone tone = LobbyNoticeTone.info,
+  }) {
+    _lobbyNoticeTitle = title;
+    _lobbyNoticeMessage = message;
+    _lobbyNoticeTone = tone;
+    notifyListeners();
+  }
+
+  void clearLobbyNotice() {
+    if (_lobbyNoticeMessage == null && _lobbyNoticeTitle == null) return;
+    _lobbyNoticeTitle = null;
+    _lobbyNoticeMessage = null;
+    _lobbyNoticeTone = LobbyNoticeTone.info;
+    notifyListeners();
+  }
 
   // 하드코어 모드 설정
   void setHardcoreMode(bool value) {
@@ -179,7 +211,8 @@ class GameProvider extends ChangeNotifier {
       _status = GameStatus.matched;
       _roomId = data['roomId'];
       final players = data['players'] as List;
-      final opponent = players.firstWhere((p) => p['id'] != _myId);
+      final opponent = players.cast<Map<String, dynamic>?>().firstWhere((p) => p!['id'] != _myId, orElse: () => null);
+      if (opponent == null) return;
       final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
       _opponentNickname = opponent['nickname'];
       _opponentAvatarUrl = opponent['avatarUrl'];
@@ -241,7 +274,6 @@ class GameProvider extends ChangeNotifier {
       _winnerNickname = null;
       _isDraw = false;
       _moveHistory = [];
-      _removedPosition = null;
       _timeoutPlayerNickname = null;
       // 재경기 상태 초기화
       _rematchWaiting = false;
@@ -272,9 +304,6 @@ class GameProvider extends ChangeNotifier {
         _moveHistory = List<Map<String, dynamic>>.from(
           (data['moveHistory'] as List).map((m) => Map<String, dynamic>.from(m))
         );
-      }
-      if (data['removedPosition'] != null) {
-        _removedPosition = data['removedPosition'];
       }
 
       // 턴 타이머 재시작
@@ -401,7 +430,8 @@ class GameProvider extends ChangeNotifier {
     _roomId = roomId;
     _myId = _socketService.socket?.id;
 
-    final opponent = players.firstWhere((p) => p['id'] != _myId);
+    final opponent = players.cast<Map<String, dynamic>?>().firstWhere((p) => p!['id'] != _myId, orElse: () => null);
+    if (opponent == null) return;
     final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
     _opponentNickname = opponent['nickname'];
     _opponentAvatarUrl = opponent['avatarUrl'];
@@ -424,7 +454,6 @@ class GameProvider extends ChangeNotifier {
     _winnerNickname = null;
     _isDraw = false;
     _moveHistory = [];
-    _removedPosition = null;
     _rematchWaiting = false;
     _opponentWantsRematch = false;
     _opponentLeft = false;
@@ -457,7 +486,8 @@ class GameProvider extends ChangeNotifier {
     _roomId = roomId;
     _myId = _socketService.socket?.id;
 
-    final opponent = players.firstWhere((p) => p['id'] != _myId);
+    final opponent = players.cast<Map<String, dynamic>?>().firstWhere((p) => p!['id'] != _myId, orElse: () => null);
+    if (opponent == null) return;
     final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
     _opponentNickname = opponent['nickname'];
     _opponentAvatarUrl = opponent['avatarUrl'];
@@ -549,7 +579,6 @@ class GameProvider extends ChangeNotifier {
     _isDraw = false;
     _myPlayerIndex = null;
     _moveHistory = [];
-    _removedPosition = null;
     _lastMovePosition = null;
     _rematchWaiting = false;
     _opponentWantsRematch = false;

@@ -19,6 +19,8 @@ import { coinService } from '../services/coinService';
 import { shopService } from '../services/shopService';
 import { rankedService, RANKED_GAMES, HARDCORE_GAMES } from '../services/rankedService';
 import { getPool } from '../config/database';
+import { verifyToken } from '../utils/jwt';
+import { findUserById } from '../services/userService';
 
 // 유저 접속 기록 저장
 async function saveUserSession(
@@ -70,6 +72,7 @@ interface GameRoom {
   isHardcore?: boolean;  // 하드코어 모드 여부
   isInfinite?: boolean;  // 무한 모드 여부 (틱택토)
   roundTimer?: NodeJS.Timeout;  // 반응속도/스피드탭 게임용 라운드 타이머
+  phaseTimer?: NodeJS.Timeout;  // 라운드 사이 대기/카운트다운용 타이머
   idleTimer?: NodeJS.Timeout;  // 헥사곤 60초 무도전 타이머
   buzzTimer?: NodeJS.Timeout;  // 헥사곤 10초 버저 답변 타이머
   skipTimer?: NodeJS.Timeout;  // 헥사곤 20초 스킵 활성화 타이머
@@ -79,6 +82,14 @@ interface GameRoom {
   rankedGames?: string[];  // 랭크전 게임 목록 (3개)
   rankedResults?: { gameType: string; winnerId: number | null }[];  // 랭크전 각 게임 결과
   rankedCurrentIndex?: number;  // 랭크전 현재 게임 인덱스
+  reconnectPaused?: boolean;
+  pendingRoundStart?: boolean;
+  speedtapPhase?: 'countdown' | 'tapping';
+  sequencePhase?: 'showing' | 'playing' | 'waiting';
+  roundDeadlineAt?: number;
+  phaseDeadlineAt?: number;
+  pausedRoundRemainingMs?: number;
+  pausedPhaseRemainingMs?: number;
 }
 
 // 랭크 매칭 대기열
@@ -109,10 +120,11 @@ const userRooms = new Map<number, string>();
 const invitationTimeouts = new Map<number, NodeJS.Timeout>();
 const INVITATION_TIMEOUT_MS = 30000; // 30초
 
-// 재연결 유예 타이머 (게임 중 끊겼을 때 15초 대기)
+// 재연결 유예 타이머 (게임 중 끊겼을 때 20초 대기)
 const disconnectGraceTimers = new Map<number, NodeJS.Timeout>();
 const disconnectContexts = new Map<number, { socket: Socket; roomId: string }>();
-const RECONNECT_GRACE_MS = 15000; // 15초
+const expiredReconnectUsers = new Set<number>();
+const RECONNECT_GRACE_MS = 20000; // 20초
 
 function getQueueKey(gameType: string, isHardcore: boolean, isInfinite: boolean = false): string {
   let key = gameType;
@@ -151,6 +163,174 @@ function clearRoundTimer(room: GameRoom) {
     clearTimeout(room.roundTimer);
     room.roundTimer = undefined;
   }
+  room.roundDeadlineAt = undefined;
+}
+
+function clearPhaseTimer(room: GameRoom) {
+  if (room.phaseTimer) {
+    clearTimeout(room.phaseTimer);
+    room.phaseTimer = undefined;
+  }
+  room.phaseDeadlineAt = undefined;
+}
+
+function scheduleRoundTimer(room: GameRoom, delay: number, callback: () => void) {
+  clearRoundTimer(room);
+  room.roundDeadlineAt = Date.now() + delay;
+  room.roundTimer = setTimeout(() => {
+    room.roundDeadlineAt = undefined;
+    callback();
+  }, delay);
+}
+
+function getRemainingMs(deadlineAt?: number, fallbackMs: number = 0): number {
+  if (!deadlineAt) return fallbackMs;
+  return Math.max(0, deadlineAt - Date.now());
+}
+
+function schedulePhaseTimer(room: GameRoom, delay: number, callback: () => void) {
+  clearPhaseTimer(room);
+  room.phaseDeadlineAt = Date.now() + delay;
+  room.phaseTimer = setTimeout(() => {
+    room.phaseDeadlineAt = undefined;
+    callback();
+  }, delay);
+}
+
+function scheduleRoundStart(room: GameRoom, delay: number, callback: () => void) {
+  room.pendingRoundStart = true;
+  schedulePhaseTimer(room, delay, () => {
+    room.pendingRoundStart = false;
+    callback();
+  });
+}
+
+function pauseRoomForReconnect(room: GameRoom) {
+  room.reconnectPaused = true;
+  room.pausedRoundRemainingMs = getRemainingMs(room.roundDeadlineAt);
+  room.pausedPhaseRemainingMs = getRemainingMs(room.phaseDeadlineAt);
+  clearTurnTimer(room);
+  clearRoundTimer(room);
+  clearPhaseTimer(room);
+  clearHexagonTimers(room);
+  clearPyramidTimers(room);
+  clearHunminTimers(room);
+}
+
+function emitSpeedTapCountdown(io: Server, room: GameRoom, countdown: number = 3) {
+  if (!(room.game instanceof SpeedTapGame)) return;
+  io.to(room.id).emit('speedtap_countdown', {
+    round: room.game.getCurrentRound(),
+    roundScores: room.game.getRoundScores(),
+    countdown,
+  });
+}
+
+function scheduleSpeedTapCountdown(io: Server, room: GameRoom, countdown: number = 3) {
+  if (!(room.game instanceof SpeedTapGame)) return;
+  room.speedtapPhase = 'countdown';
+  emitSpeedTapCountdown(io, room, countdown);
+
+  schedulePhaseTimer(room, countdown * 1000, () => {
+    if (room.reconnectPaused || room.status !== 'playing') return;
+    if (!(room.game instanceof SpeedTapGame)) return;
+
+    room.speedtapPhase = 'tapping';
+    io.to(room.id).emit('speedtap_round_start', {
+      round: room.game.getCurrentRound(),
+      roundScores: room.game.getRoundScores(),
+      duration: SpeedTapGame.ROUND_TIME,
+    });
+
+    scheduleRoundTimer(room, SpeedTapGame.ROUND_TIME, () => {
+      endSpeedTapRound(io, room);
+    });
+  });
+}
+
+function emitSequenceResume(io: Server, room: GameRoom, timeLimit: number) {
+  if (!(room.game instanceof SequenceGame)) return;
+  io.to(room.id).emit('sequence_round_resumed', {
+    sequence: room.game.getSequence(),
+    level: room.game.getCurrentLevel(),
+    timeLimit,
+    remainingTimeMs: room.reconnectPaused
+      ? (room.pausedRoundRemainingMs && room.pausedRoundRemainingMs > 0
+          ? room.pausedRoundRemainingMs
+          : timeLimit)
+      : getRemainingMs(room.roundDeadlineAt, timeLimit),
+    phase: room.sequencePhase ?? 'playing',
+    playerInputs: room.game.getPlayerInputs(),
+    playerFailed: room.game.getPlayerFailed(),
+    playerMaxLevels: room.game.getPlayerMaxLevel(),
+  });
+}
+
+function scheduleExistingSequencePhase(io: Server, room: GameRoom) {
+  if (!(room.game instanceof SequenceGame)) return;
+  const game = room.game;
+  const showDelay = game.getShowDelay();
+  const gapDuration = game.getIsHardcore() ? 100 : 180;
+  const showDuration = game.getSequence().length * (showDelay + gapDuration) + 500;
+  const timeLimit = game.getTimeLimit();
+
+  room.sequencePhase = 'showing';
+  schedulePhaseTimer(room, showDuration, () => {
+    if (room.reconnectPaused || room.status !== 'playing') return;
+    room.sequencePhase = 'playing';
+    scheduleSequenceInputTimeout(io, room, timeLimit, game.getCurrentLevel());
+  });
+}
+
+function scheduleSequenceInputTimeout(io: Server, room: GameRoom, timeLimit: number, level: number) {
+  scheduleRoundTimer(room, timeLimit, async () => {
+    if (room.reconnectPaused || room.status !== 'playing') return;
+    if (!(room.game instanceof SequenceGame)) return;
+
+    for (let i = 0; i < 2; i++) {
+      const inputs = room.game.getPlayerInputs()[i];
+      const failed = room.game.getPlayerFailed()[i];
+      if (!failed && inputs.length < room.game.getSequence().length) {
+        room.game.handleTimeout(i);
+        io.to(room.id).emit('sequence_timeout', {
+          playerIndex: i,
+        });
+        console.log(`⏰ Player ${i} timed out on level ${level}`);
+      }
+    }
+
+    if (room.game.bothPlayersCompleted()) {
+      room.sequencePhase = 'waiting';
+      const roundResult = room.game.checkRoundResult();
+      if (roundResult.gameOver) {
+        await finishSequenceGame(io, room);
+      } else if (roundResult.bothPassed) {
+        io.to(room.id).emit('sequence_round_complete', {
+          success: true,
+          nextLevel: room.game.getCurrentLevel() + 1,
+        });
+        schedulePhaseTimer(room, 2000, () => startSequenceRound(io, room));
+      }
+    }
+  });
+}
+
+function scheduleReactionTimeout(io: Server, room: GameRoom) {
+  scheduleRoundTimer(room, 5000, () => {
+    if (!(room.game instanceof ReactionGame)) return;
+    if (room.reconnectPaused || room.status !== 'playing') return;
+    if (room.game.getRoundState() === 'go') {
+      io.to(room.id).emit('reaction_round_timeout', {
+        round: room.game.getCurrentRound(),
+      });
+
+      if (room.game.isGameOver()) {
+        finishReactionGame(io, room);
+      } else {
+        scheduleRoundStart(room, 1000, () => startReactionRound(io, room));
+      }
+    }
+  });
 }
 
 // 같은 방에서 종료 처리를 한 번만 수행하도록 보호
@@ -166,6 +346,8 @@ function markRoomFinishedOnce(room: GameRoom, reason: string): boolean {
 // 반응속도 게임 라운드 시작
 function startReactionRound(io: Server, room: GameRoom) {
   if (room.gameType !== 'reaction' || !(room.game instanceof ReactionGame)) return;
+  if (room.reconnectPaused || room.status !== 'playing') return;
+  room.pendingRoundStart = false;
 
   const game = room.game;
   const { delay } = game.startRound();
@@ -179,30 +361,16 @@ function startReactionRound(io: Server, room: GameRoom) {
   console.log(`🚦 Round ${game.getCurrentRound()} ready, go in ${delay}ms`);
 
   // 랜덤 시간 후 GO!
-  room.roundTimer = setTimeout(() => {
+  schedulePhaseTimer(room, delay, () => {
+    if (room.reconnectPaused || room.status !== 'playing') return;
+    if (!(room.game instanceof ReactionGame)) return;
     game.setGo();
     io.to(room.id).emit('reaction_round_go', {
       round: game.getCurrentRound(),
     });
     console.log(`🟢 Round ${game.getCurrentRound()} GO!`);
-
-    // 5초 내에 아무도 안 누르면 무승부 처리
-    room.roundTimer = setTimeout(() => {
-      if (game.getRoundState() === 'go') {
-        io.to(room.id).emit('reaction_round_timeout', {
-          round: game.getCurrentRound(),
-        });
-
-        // 게임 종료 체크
-        if (game.isGameOver()) {
-          finishReactionGame(io, room);
-        } else {
-          // 다음 라운드 시작 (1초 후)
-          setTimeout(() => startReactionRound(io, room), 1000);
-        }
-      }
-    }, 5000);
-  }, delay);
+    scheduleReactionTimeout(io, room);
+  });
 }
 
 // 반응속도 게임 종료 처리
@@ -284,6 +452,8 @@ async function finishReactionGame(io: Server, room: GameRoom) {
 // 가위바위보 라운드 시작
 function startRpsRound(io: Server, room: GameRoom) {
   if (room.gameType !== 'rps' || !(room.game instanceof RpsGame)) return;
+  if (room.reconnectPaused || room.status !== 'playing') return;
+  room.pendingRoundStart = false;
 
   const game = room.game;
   game.startRound();
@@ -300,7 +470,8 @@ function startRpsRound(io: Server, room: GameRoom) {
   console.log(`✊ RPS Round ${game.getCurrentRound()} started`);
 
   // 10초 타임아웃 (선택 안 한 사람은 랜덤 선택)
-  room.roundTimer = setTimeout(() => {
+  scheduleRoundTimer(room, RPS_TIME_LIMIT, () => {
+    if (room.reconnectPaused || room.status !== 'playing') return;
     if (!game.isGameOver() && (!game.hasChosen(0) || !game.hasChosen(1))) {
       // 선택 안 한 플레이어는 랜덤으로 선택
       if (!game.hasChosen(0)) {
@@ -333,10 +504,10 @@ function startRpsRound(io: Server, room: GameRoom) {
         finishRpsGame(io, room);
       } else {
         // 다음 라운드 시작
-        setTimeout(() => startRpsRound(io, room), 2000);
+        scheduleRoundStart(room, 2000, () => startRpsRound(io, room));
       }
     }
-  }, RPS_TIME_LIMIT);
+  });
 }
 
 // 가위바위보 게임 종료 처리
@@ -418,40 +589,13 @@ async function finishRpsGame(io: Server, room: GameRoom) {
 // 스피드탭 라운드 시작 (3초 카운트다운 후)
 function startSpeedTapRound(io: Server, room: GameRoom) {
   if (room.gameType !== 'speedtap' || !(room.game instanceof SpeedTapGame)) return;
+  if (room.reconnectPaused || room.status !== 'playing') return;
+  room.pendingRoundStart = false;
 
   const game = room.game;
   game.startRound();
-
-  const roundNum = game.getCurrentRound();
-  const roundScores = game.getRoundScores();
-
-  // 카운트다운 시작 알림
-  io.to(room.id).emit('speedtap_countdown', {
-    round: roundNum,
-    roundScores: roundScores,
-    countdown: 3,
-  });
-
-  console.log(`👆 SpeedTap Round ${roundNum} countdown started`);
-
-  // 3초 후 실제 라운드 시작
-  setTimeout(() => {
-    // 방이 아직 유효한지 확인
-    if (room.status !== 'playing') return;
-
-    io.to(room.id).emit('speedtap_round_start', {
-      round: roundNum,
-      roundScores: roundScores,
-      duration: SpeedTapGame.ROUND_TIME,
-    });
-
-    console.log(`👆 SpeedTap Round ${roundNum} started`);
-
-    // 라운드 종료 타이머
-    room.roundTimer = setTimeout(() => {
-      endSpeedTapRound(io, room);
-    }, SpeedTapGame.ROUND_TIME);
-  }, 3000);
+  console.log(`👆 SpeedTap Round ${game.getCurrentRound()} countdown started`);
+  scheduleSpeedTapCountdown(io, room);
 }
 
 // 스피드탭 라운드 종료
@@ -459,6 +603,7 @@ async function endSpeedTapRound(io: Server, room: GameRoom) {
   if (!(room.game instanceof SpeedTapGame)) return;
 
   clearRoundTimer(room);
+  room.speedtapPhase = undefined;
   const game = room.game;
   const result = game.endRound();
 
@@ -481,7 +626,8 @@ async function endSpeedTapRound(io: Server, room: GameRoom) {
     await finishSpeedTapGame(io, room);
   } else {
     // 2초 후 다음 라운드 시작
-    setTimeout(() => startSpeedTapRound(io, room), 2000);
+    clearPhaseTimer(room);
+    room.phaseTimer = setTimeout(() => startSpeedTapRound(io, room), 2000);
   }
 }
 
@@ -564,6 +710,8 @@ async function finishSpeedTapGame(io: Server, room: GameRoom) {
 // 순서 기억하기 라운드 시작
 function startSequenceRound(io: Server, room: GameRoom) {
   if (room.gameType !== 'sequence' || !(room.game instanceof SequenceGame)) return;
+  if (room.reconnectPaused || room.status !== 'playing') return;
+  room.pendingRoundStart = false;
 
   const game = room.game;
   const { sequence, level } = game.startNewRound();
@@ -573,6 +721,7 @@ function startSequenceRound(io: Server, room: GameRoom) {
 
   // 시퀀스 보여주는 데 걸리는 시간 계산
   const showDuration = sequence.length * (showDelay + gapDuration) + 500; // 시작 딜레이 포함
+  room.sequencePhase = 'showing';
 
   // 시퀀스 보여주기 이벤트
   io.to(room.id).emit('sequence_show', {
@@ -584,36 +733,12 @@ function startSequenceRound(io: Server, room: GameRoom) {
 
   console.log(`🧠 Sequence Level ${level} started (length: ${sequence.length}, timeLimit: ${timeLimit}ms)`);
 
-  // 시퀀스 표시 후 + 제한시간 후 타임아웃 체크
-  clearRoundTimer(room);
-  room.roundTimer = setTimeout(async () => {
-    // 완료하지 못한 플레이어들 타임아웃 처리
-    for (let i = 0; i < 2; i++) {
-      const inputs = game.getPlayerInputs()[i];
-      const failed = game.getPlayerFailed()[i];
-      if (!failed && inputs.length < sequence.length) {
-        game.handleTimeout(i);
-        io.to(room.id).emit('sequence_timeout', {
-          playerIndex: i,
-        });
-        console.log(`⏰ Player ${i} timed out on level ${level}`);
-      }
-    }
-
-    // 라운드 결과 확인
-    if (game.bothPlayersCompleted()) {
-      const roundResult = game.checkRoundResult();
-      if (roundResult.gameOver) {
-        await finishSequenceGame(io, room);
-      } else if (roundResult.bothPassed) {
-        io.to(room.id).emit('sequence_round_complete', {
-          success: true,
-          nextLevel: game.getCurrentLevel() + 1,
-        });
-        setTimeout(() => startSequenceRound(io, room), 2000);
-      }
-    }
-  }, showDuration + timeLimit);
+  schedulePhaseTimer(room, showDuration, () => {
+    if (room.reconnectPaused || room.status !== 'playing') return;
+    room.sequencePhase = 'playing';
+    emitSequenceResume(io, room, timeLimit);
+    scheduleSequenceInputTimeout(io, room, timeLimit, level);
+  });
 }
 
 // 순서 기억하기 게임 종료 처리
@@ -621,6 +746,8 @@ async function finishSequenceGame(io: Server, room: GameRoom) {
   if (!(room.game instanceof SequenceGame)) return;
   if (!markRoomFinishedOnce(room, 'sequence_game_end')) return;
   clearRoundTimer(room);
+  clearPhaseTimer(room);
+  room.sequencePhase = undefined;
 
   const game = room.game;
   const winnerIndex = game.getWinner();
@@ -696,6 +823,8 @@ async function finishSequenceGame(io: Server, room: GameRoom) {
 // 스트룹 게임 라운드 시작
 function startStroopRound(io: Server, room: GameRoom) {
   if (room.gameType !== 'stroop' || !(room.game instanceof StroopGame)) return;
+  if (room.reconnectPaused || room.status !== 'playing') return;
+  room.pendingRoundStart = false;
 
   const game = room.game;
   const { word, color, round } = game.startRound();
@@ -714,7 +843,8 @@ function startStroopRound(io: Server, room: GameRoom) {
 
   // 하드코어 모드: 시간 제한
   if (game.getIsHardcore()) {
-    room.roundTimer = setTimeout(() => {
+    scheduleRoundTimer(room, StroopGame.TIME_LIMIT_HARDCORE, () => {
+      if (room.reconnectPaused || room.status !== 'playing') return;
       if (game.getRoundState() === 'showing') {
         const timeoutResult = game.handleTimeout();
 
@@ -735,10 +865,10 @@ function startStroopRound(io: Server, room: GameRoom) {
           finishStroopGame(io, room);
         } else {
           // 다음 라운드 시작 (2초 후)
-          setTimeout(() => startStroopRound(io, room), 2000);
+          scheduleRoundStart(room, 2000, () => startStroopRound(io, room));
         }
       }
-    }, StroopGame.TIME_LIMIT_HARDCORE);
+    });
   }
 }
 
@@ -1370,7 +1500,87 @@ async function finishHunminGame(io: Server, room: GameRoom) {
 function emitRejoinState(socket: Socket, room: GameRoom, userId: number) {
   const playerIndex = room.players.findIndex(p => p.userId === userId);
 
-  if (room.gameType === 'hexagon' && room.game instanceof HexagonGame) {
+  if (room.gameType === 'reaction' && room.game instanceof ReactionGame) {
+    const game = room.game;
+    socket.emit('rejoin_game_state', {
+      gameType: 'reaction',
+      roomId: room.id,
+      round: game.getCurrentRound(),
+      scores: game.getScores(),
+      roundState: game.getRoundState(),
+      playerIndex,
+    });
+  } else if (room.gameType === 'rps' && room.game instanceof RpsGame) {
+    const game = room.game;
+    const choices = game.getChoices();
+    socket.emit('rejoin_game_state', {
+      gameType: 'rps',
+      roomId: room.id,
+      round: game.getCurrentRound(),
+      scores: game.getScores(),
+      playerIndex,
+      myChoice: choices[playerIndex] ?? null,
+      opponentChosen: choices[playerIndex === 0 ? 1 : 0] !== null,
+    });
+  } else if (room.gameType === 'speedtap' && room.game instanceof SpeedTapGame) {
+    const game = room.game;
+    socket.emit('rejoin_game_state', {
+      gameType: 'speedtap',
+      roomId: room.id,
+      round: game.getCurrentRound(),
+      roundScores: game.getRoundScores(),
+      taps: game.getTaps(),
+      roundInProgress: game.isRoundInProgress(),
+      speedtapPhase: room.speedtapPhase ?? 'countdown',
+      playerIndex,
+    });
+  } else if (room.gameType === 'sequence' && room.game instanceof SequenceGame) {
+    const game = room.game;
+    const playerInputs = game.getPlayerInputs();
+    const playerFailed = game.getPlayerFailed();
+    const maxLevels = game.getPlayerMaxLevel();
+    socket.emit('rejoin_game_state', {
+      gameType: 'sequence',
+      roomId: room.id,
+      sequence: game.getSequence(),
+      level: game.getCurrentLevel(),
+      gridSize: game.getGridSize(),
+      timeLimit: game.getTimeLimit(),
+      remainingTimeMs: room.sequencePhase === 'playing'
+        ? (room.pausedRoundRemainingMs && room.pausedRoundRemainingMs > 0
+            ? room.pausedRoundRemainingMs
+            : game.getTimeLimit())
+        : game.getTimeLimit(),
+      showDelay: game.getShowDelay(),
+      isHardcore: game.getIsHardcore(),
+      phase: room.sequencePhase ?? 'playing',
+      myInputs: playerInputs[playerIndex],
+      myFailed: playerFailed[playerIndex],
+      opponentFailed: playerFailed[playerIndex === 0 ? 1 : 0],
+      myMaxLevel: maxLevels[playerIndex],
+      opponentMaxLevel: maxLevels[playerIndex === 0 ? 1 : 0],
+      playerIndex,
+    });
+  } else if (room.gameType === 'stroop' && room.game instanceof StroopGame) {
+    const game = room.game;
+    socket.emit('rejoin_game_state', {
+      gameType: 'stroop',
+      roomId: room.id,
+      round: game.getCurrentRound(),
+      scores: game.getScores(),
+      roundState: game.getRoundState(),
+      word: game.getCurrentWord(),
+      color: game.getCurrentColor(),
+      isHardcore: game.getIsHardcore(),
+      colors: game.getColors(),
+      remainingTimeMs: game.getRoundState() === 'showing' && game.getIsHardcore()
+        ? (room.pausedRoundRemainingMs && room.pausedRoundRemainingMs > 0
+            ? room.pausedRoundRemainingMs
+            : StroopGame.TIME_LIMIT_HARDCORE)
+        : undefined,
+      playerIndex,
+    });
+  } else if (room.gameType === 'hexagon' && room.game instanceof HexagonGame) {
     const game = room.game;
     socket.emit('rejoin_game_state', {
       gameType: 'hexagon',
@@ -1422,6 +1632,263 @@ function emitRejoinState(socket: Socket, room: GameRoom, userId: number) {
       roomId: room.id,
       playerIndex,
     });
+  }
+}
+
+function resumePausedGame(io: Server, room: GameRoom) {
+  if (!room.reconnectPaused || room.status !== 'playing') return;
+
+  const pausedRoundRemainingMs = room.pausedRoundRemainingMs;
+  const pausedPhaseRemainingMs = room.pausedPhaseRemainingMs;
+  room.reconnectPaused = false;
+  room.pausedRoundRemainingMs = undefined;
+  room.pausedPhaseRemainingMs = undefined;
+
+  if (room.pendingRoundStart) {
+    const startDelay = Math.max(0, pausedPhaseRemainingMs ?? 1000);
+    if (room.gameType === 'reaction') {
+      scheduleRoundStart(room, startDelay, () => startReactionRound(io, room));
+      return;
+    }
+    if (room.gameType === 'rps') {
+      scheduleRoundStart(room, startDelay, () => startRpsRound(io, room));
+      return;
+    }
+    if (room.gameType === 'speedtap') {
+      scheduleRoundStart(room, startDelay, () => startSpeedTapRound(io, room));
+      return;
+    }
+    if (room.gameType === 'stroop') {
+      scheduleRoundStart(room, startDelay, () => startStroopRound(io, room));
+      return;
+    }
+  }
+
+  if (room.gameType === 'reaction' && room.game instanceof ReactionGame) {
+    const game = room.game;
+    if (game.getRoundState() === 'ready') {
+      io.to(room.id).emit('reaction_round_ready', {
+        round: game.getCurrentRound(),
+        scores: game.getScores(),
+      });
+      schedulePhaseTimer(room, Math.max(0, pausedPhaseRemainingMs ?? 1000), () => {
+        if (room.reconnectPaused || room.status !== 'playing') return;
+        if (!(room.game instanceof ReactionGame)) return;
+        room.game.setGo();
+        io.to(room.id).emit('reaction_round_go', {
+          round: room.game.getCurrentRound(),
+        });
+        scheduleReactionTimeout(io, room);
+      });
+      return;
+    }
+
+    if (game.getRoundState() === 'go') {
+      io.to(room.id).emit('reaction_round_go', {
+        round: game.getCurrentRound(),
+      });
+      scheduleRoundTimer(room, Math.max(0, pausedRoundRemainingMs ?? 5000), () => {
+        if (!(room.game instanceof ReactionGame)) return;
+        if (room.reconnectPaused || room.status !== 'playing') return;
+        if (room.game.getRoundState() === 'go') {
+          io.to(room.id).emit('reaction_round_timeout', {
+            round: room.game.getCurrentRound(),
+          });
+
+          if (room.game.isGameOver()) {
+            finishReactionGame(io, room);
+          } else {
+            scheduleRoundStart(room, 1000, () => startReactionRound(io, room));
+          }
+        }
+      });
+      return;
+    }
+
+    if (game.getRoundState() === 'finished' && !game.isGameOver()) {
+      scheduleRoundStart(room, Math.max(0, pausedPhaseRemainingMs ?? 1000), () => startReactionRound(io, room));
+    }
+    return;
+  }
+
+  if (room.gameType === 'rps' && room.game instanceof RpsGame) {
+    const game = room.game;
+    const choices = game.getChoices();
+    io.to(room.id).emit('rps_round_start', {
+      round: game.getCurrentRound(),
+      scores: game.getScores(),
+      timeLimit: Math.max(0, pausedRoundRemainingMs ?? 10000),
+    });
+
+    if (choices[0] !== null) {
+      io.to(room.id).emit('rps_player_chosen', {
+        playerId: room.players[0]?.id,
+      });
+    }
+    if (choices[1] !== null) {
+      io.to(room.id).emit('rps_player_chosen', {
+        playerId: room.players[1]?.id,
+      });
+    }
+
+    scheduleRoundTimer(room, Math.max(0, pausedRoundRemainingMs ?? 10000), () => {
+      if (room.reconnectPaused || room.status !== 'playing') return;
+      if (!(room.game instanceof RpsGame)) return;
+      if (!room.game.isGameOver() && (!room.game.hasChosen(0) || !room.game.hasChosen(1))) {
+        if (!room.game.hasChosen(0)) {
+          room.game.setRandomChoice(0);
+        }
+        if (!room.game.hasChosen(1)) {
+          room.game.setRandomChoice(1);
+        }
+
+        const roundResult = room.game.calculateRoundResult();
+        const winner = roundResult.roundWinner !== null ? room.players[roundResult.roundWinner] : null;
+        io.to(room.id).emit('rps_round_result', {
+          round: room.game.getCurrentRound(),
+          player0Choice: roundResult.player0Choice,
+          player1Choice: roundResult.player1Choice,
+          winnerIndex: roundResult.roundWinner,
+          winnerId: winner?.id ?? null,
+          winnerNickname: winner?.nickname ?? null,
+          isDraw: roundResult.isDraw,
+          isTimeout: true,
+          scores: room.game.getScores(),
+        });
+
+        if (roundResult.gameOver) {
+          finishRpsGame(io, room);
+        } else {
+          scheduleRoundStart(room, 2000, () => startRpsRound(io, room));
+        }
+      }
+    });
+    return;
+  }
+
+  if (room.gameType === 'speedtap' && room.game instanceof SpeedTapGame) {
+    const game = room.game;
+    if (room.speedtapPhase === 'tapping' && game.isRoundInProgress()) {
+      const remainingMs = Math.max(0, pausedRoundRemainingMs ?? SpeedTapGame.ROUND_TIME);
+      io.to(room.id).emit('speedtap_round_resumed', {
+        round: game.getCurrentRound(),
+        roundScores: game.getRoundScores(),
+        taps: game.getTaps(),
+        duration: remainingMs,
+      });
+      scheduleRoundTimer(room, remainingMs, () => endSpeedTapRound(io, room));
+      return;
+    }
+
+    if (room.speedtapPhase === 'countdown') {
+      scheduleSpeedTapCountdown(
+        io,
+        room,
+        Math.max(1, Math.ceil((pausedPhaseRemainingMs ?? 3000) / 1000)),
+      );
+      return;
+    }
+
+    startSpeedTapRound(io, room);
+    return;
+  }
+
+  if (room.gameType === 'sequence' && room.game instanceof SequenceGame) {
+    const game = room.game;
+    const timeLimit = game.getTimeLimit();
+    const resumedSequenceTimeLimit =
+      pausedRoundRemainingMs && pausedRoundRemainingMs > 0
+        ? pausedRoundRemainingMs
+        : timeLimit;
+    if (room.sequencePhase === 'waiting') {
+      emitSequenceResume(io, room, timeLimit);
+      schedulePhaseTimer(room, Math.max(0, pausedPhaseRemainingMs ?? 2000), () => startSequenceRound(io, room));
+      return;
+    }
+
+    if (room.sequencePhase === 'showing') {
+      const sequence = game.getSequence();
+      const showDelay = game.getShowDelay();
+      const gapDuration = game.getIsHardcore() ? 100 : 180;
+      const showDuration = sequence.length * (showDelay + gapDuration) + 500;
+      const remainingShowMs = Math.max(0, pausedPhaseRemainingMs ?? showDuration);
+
+      io.to(room.id).emit('sequence_show', {
+        sequence,
+        level: game.getCurrentLevel(),
+        showDelay,
+        timeLimit,
+        remainingShowMs,
+        isReconnectResume: true,
+      });
+
+      schedulePhaseTimer(room, remainingShowMs, () => {
+        if (room.reconnectPaused || room.status !== 'playing') return;
+        room.sequencePhase = 'playing';
+        emitSequenceResume(io, room, timeLimit);
+        scheduleSequenceInputTimeout(
+          io,
+          room,
+          resumedSequenceTimeLimit,
+          game.getCurrentLevel(),
+        );
+      });
+      return;
+    }
+
+    emitSequenceResume(io, room, timeLimit);
+    scheduleSequenceInputTimeout(
+      io,
+      room,
+      resumedSequenceTimeLimit,
+      game.getCurrentLevel(),
+    );
+    return;
+  }
+
+  if (room.gameType === 'stroop' && room.game instanceof StroopGame) {
+    const game = room.game;
+    if (game.getRoundState() === 'showing') {
+      io.to(room.id).emit('stroop_show', {
+        word: game.getCurrentWord(),
+        color: game.getCurrentColor(),
+        round: game.getCurrentRound(),
+        scores: game.getScores(),
+        isHardcore: game.getIsHardcore(),
+        colors: game.getColors(),
+        remainingTimeMs: Math.max(0, pausedRoundRemainingMs ?? StroopGame.TIME_LIMIT_HARDCORE),
+      });
+
+      if (game.getIsHardcore()) {
+        scheduleRoundTimer(room, Math.max(0, pausedRoundRemainingMs ?? StroopGame.TIME_LIMIT_HARDCORE), () => {
+          if (room.reconnectPaused || room.status !== 'playing') return;
+          if (!(room.game instanceof StroopGame)) return;
+          if (room.game.getRoundState() === 'showing') {
+            const timeoutResult = room.game.handleTimeout();
+            const roundWinner = timeoutResult.roundWinner !== null ? room.players[timeoutResult.roundWinner] : null;
+            io.to(room.id).emit('stroop_result', {
+              round: room.game.getCurrentRound(),
+              winnerId: roundWinner?.id ?? null,
+              winnerNickname: roundWinner?.nickname ?? null,
+              scores: room.game.getScores(),
+              correctAnswer: room.game.getCurrentColor(),
+              isTimeout: true,
+            });
+
+            if (timeoutResult.gameOver) {
+              finishStroopGame(io, room);
+            } else {
+              scheduleRoundStart(room, 2000, () => startStroopRound(io, room));
+            }
+          }
+        });
+      }
+      return;
+    }
+
+    if (game.getRoundState() === 'finished' && !game.isGameOver()) {
+      scheduleRoundStart(room, Math.max(0, pausedPhaseRemainingMs ?? 1000), () => startStroopRound(io, room));
+    }
   }
 }
 
@@ -1760,15 +2227,15 @@ async function startRankedGame(io: Server, room: GameRoom) {
     if (gameType === 'reaction') {
       io.to(room.id).emit('game_start', { gameType: 'reaction' });
       console.log(`📤 [startRankedGame] game_start emitted for reaction`);
-      setTimeout(() => startReactionRound(io, room), 1000);
+      scheduleRoundStart(room, 1000, () => startReactionRound(io, room));
     } else if (gameType === 'rps') {
       io.to(room.id).emit('game_start', { gameType: 'rps' });
       console.log(`📤 [startRankedGame] game_start emitted for rps`);
-      setTimeout(() => startRpsRound(io, room), 1000);
+      scheduleRoundStart(room, 1000, () => startRpsRound(io, room));
     } else if (gameType === 'speedtap') {
       io.to(room.id).emit('game_start', { gameType: 'speedtap' });
       console.log(`📤 [startRankedGame] game_start emitted for speedtap`);
-      setTimeout(() => startSpeedTapRound(io, room), 1000);
+      scheduleRoundStart(room, 1000, () => startSpeedTapRound(io, room));
     } else if (gameType === 'sequence') {
       const seqGame = room.game as SequenceGame;
       io.to(room.id).emit('game_start', {
@@ -1781,6 +2248,7 @@ async function startRankedGame(io: Server, room: GameRoom) {
         timeLimit: seqGame.getTimeLimit(),
       });
       console.log(`📤 [startRankedGame] game_start emitted for sequence`);
+      scheduleExistingSequencePhase(io, room);
     } else if (gameType === 'stroop') {
       const stroopGame = room.game as StroopGame;
       io.to(room.id).emit('game_start', {
@@ -1789,7 +2257,7 @@ async function startRankedGame(io: Server, room: GameRoom) {
         colors: stroopGame.getColors(),
       });
       console.log(`📤 [startRankedGame] game_start emitted for stroop`);
-      setTimeout(() => startStroopRound(io, room), 1000);
+      scheduleRoundStart(room, 1000, () => startStroopRound(io, room));
     } else if (gameType === 'hexagon') {
       io.to(room.id).emit('game_start', {
         gameType: 'hexagon',
@@ -2016,6 +2484,7 @@ export function setupSocketHandlers(io: Server) {
       nickname: string;
       userId?: number;
       avatarUrl?: string;
+      token?: string;
       deviceInfo?: {
         platform?: string;
         osVersion?: string;
@@ -2026,23 +2495,48 @@ export function setupSocketHandlers(io: Server) {
     }) => {
       console.log(`📥 join_lobby received:`, { nickname: data.nickname, userId: data.userId });
 
+      let verifiedUserId: number | undefined;
+      let verifiedNickname = data.nickname;
+      let verifiedAvatarUrl = data.avatarUrl;
+
+      if (data.token) {
+        const payload = verifyToken(data.token);
+        if (!payload) {
+          socket.emit('auth_error', { message: 'Invalid or expired token' });
+          return;
+        }
+
+        const user = await findUserById(payload.userId);
+        if (!user) {
+          socket.emit('auth_error', { message: 'User not found' });
+          return;
+        }
+
+        verifiedUserId = user.id;
+        verifiedNickname = user.nickname;
+        verifiedAvatarUrl = user.avatar_url ?? undefined;
+      } else if (data.userId != null) {
+        socket.emit('auth_error', { message: 'Authentication required' });
+        return;
+      }
+
       currentPlayer = {
         id: socket.id,
         socket,
-        nickname: data.nickname,
-        userId: data.userId,
-        avatarUrl: data.avatarUrl,
+        nickname: verifiedNickname,
+        userId: verifiedUserId,
+        avatarUrl: verifiedAvatarUrl,
       };
 
       // 유저 ID가 있으면 소켓 매핑
-      if (data.userId) {
-        userSockets.set(data.userId, socket);
-        console.log(`👤 User ${data.userId} mapped to socket ${socket.id}`);
+      if (verifiedUserId) {
+        userSockets.set(verifiedUserId, socket);
+        console.log(`👤 User ${verifiedUserId} mapped to socket ${socket.id}`);
 
         // 친구 코드 자동 생성 (없으면)
         try {
-          const code = await friendService.generateFriendCode(data.userId);
-          console.log(`🔑 Friend code for user ${data.userId}: ${code}`);
+          const code = await friendService.generateFriendCode(verifiedUserId);
+          console.log(`🔑 Friend code for user ${verifiedUserId}: ${code}`);
         } catch (error) {
           console.error('Failed to generate friend code:', error);
         }
@@ -2053,34 +2547,35 @@ export function setupSocketHandlers(io: Server) {
             const ipAddress = socket.handshake.headers['x-forwarded-for'] as string ||
                               socket.handshake.address ||
                               'unknown';
-            await saveUserSession(data.userId, ipAddress, data.deviceInfo);
-            console.log(`📱 Session saved for user ${data.userId}: ${data.deviceInfo.platform} ${data.deviceInfo.osVersion}`);
+            await saveUserSession(verifiedUserId, ipAddress, data.deviceInfo);
+            console.log(`📱 Session saved for user ${verifiedUserId}: ${data.deviceInfo.platform} ${data.deviceInfo.osVersion}`);
           } catch (error) {
             console.error('Failed to save user session:', error);
           }
         }
       } else {
-        console.log(`⚠️ No userId provided for ${data.nickname}`);
+        console.log(`⚠️ No authenticated userId provided for ${data.nickname}`);
       }
 
       // 재연결 유예 중인 유저 체크 → 게임 복귀
-      if (data.userId && disconnectGraceTimers.has(data.userId)) {
-        clearTimeout(disconnectGraceTimers.get(data.userId)!);
-        disconnectGraceTimers.delete(data.userId);
-        disconnectContexts.delete(data.userId);
-        console.log(`🔄 User ${data.userId} reconnected within grace period`);
+      if (verifiedUserId && disconnectGraceTimers.has(verifiedUserId)) {
+        clearTimeout(disconnectGraceTimers.get(verifiedUserId)!);
+        disconnectGraceTimers.delete(verifiedUserId);
+        disconnectContexts.delete(verifiedUserId);
+        expiredReconnectUsers.delete(verifiedUserId);
+        console.log(`🔄 User ${verifiedUserId} reconnected within grace period`);
 
-        const existingRoomId = userRooms.get(data.userId);
+        const existingRoomId = userRooms.get(verifiedUserId);
         if (existingRoomId) {
           const room = rooms.get(existingRoomId);
           if (room && (room.status === 'playing' || room.status === 'waiting')) {
-            const playerInRoom = room.players.find(p => p.userId === data.userId);
+            const playerInRoom = room.players.find(p => p.userId === verifiedUserId);
             if (playerInRoom) {
               // 소켓 교체
               playerInRoom.socket = socket;
               playerInRoom.id = socket.id;
-              playerInRoom.nickname = data.nickname;
-              playerInRoom.avatarUrl = data.avatarUrl;
+              playerInRoom.nickname = verifiedNickname;
+              playerInRoom.avatarUrl = verifiedAvatarUrl;
               socket.join(existingRoomId);
               currentRoomId = existingRoomId;
               currentPlayer = playerInRoom;
@@ -2089,16 +2584,24 @@ export function setupSocketHandlers(io: Server) {
               socket.to(existingRoomId).emit('opponent_reconnected');
 
               // 게임 상태 전송
-              emitRejoinState(socket, room, data.userId);
+              emitRejoinState(socket, room, verifiedUserId);
+              resumePausedGame(io, room);
 
-              console.log(`✅ User ${data.userId} rejoined room ${existingRoomId}`);
+              console.log(`✅ User ${verifiedUserId} rejoined room ${existingRoomId}`);
             }
           }
         }
       }
 
+      if (verifiedUserId && expiredReconnectUsers.has(verifiedUserId)) {
+        expiredReconnectUsers.delete(verifiedUserId);
+        socket.emit('reconnect_failed', {
+          reason: 'grace_expired',
+        });
+      }
+
       socket.emit('lobby_joined', { success: true });
-      console.log(`🎮 ${data.nickname} joined lobby`);
+      console.log(`🎮 ${verifiedNickname} joined lobby`);
     });
 
     // 방 ID 설정 (초대 게임에서 초대자용)
@@ -2472,21 +2975,21 @@ export function setupSocketHandlers(io: Server) {
             gameType: 'reaction',
           });
           // 1초 후 첫 라운드 시작
-          setTimeout(() => startReactionRound(io, room), 1000);
+          scheduleRoundStart(room, 1000, () => startReactionRound(io, room));
         } else if (gameType === 'rps') {
           // 가위바위보 게임
           io.to(roomId).emit('game_start', {
             gameType: 'rps',
           });
           // 1초 후 첫 라운드 시작
-          setTimeout(() => startRpsRound(io, room), 1000);
+          scheduleRoundStart(room, 1000, () => startRpsRound(io, room));
         } else if (gameType === 'speedtap') {
           // 스피드탭 게임
           io.to(roomId).emit('game_start', {
             gameType: 'speedtap',
           });
           // 1초 후 첫 라운드 시작
-          setTimeout(() => startSpeedTapRound(io, room), 1000);
+          scheduleRoundStart(room, 1000, () => startSpeedTapRound(io, room));
         } else if (gameType === 'sequence') {
           // 순서 기억하기 게임
           const seqGame = room.game as SequenceGame;
@@ -2499,6 +3002,7 @@ export function setupSocketHandlers(io: Server) {
             isHardcore: seqGame.getIsHardcore(),
             timeLimit: seqGame.getTimeLimit(),
           });
+          scheduleExistingSequencePhase(io, room);
         } else if (gameType === 'stroop') {
           // 스트룹 게임
           const stroopGame = room.game as StroopGame;
@@ -2508,7 +3012,7 @@ export function setupSocketHandlers(io: Server) {
             colors: stroopGame.getColors(),
           });
           // 1초 후 첫 라운드 시작
-          setTimeout(() => startStroopRound(io, room), 1000);
+          scheduleRoundStart(room, 1000, () => startStroopRound(io, room));
         } else if (gameType === 'hexagon') {
           // 헥사곤 게임
           io.to(roomId).emit('game_start', {
@@ -2892,7 +3396,7 @@ export function setupSocketHandlers(io: Server) {
           await finishReactionGame(io, room);
         } else {
           // 다음 라운드 시작 (2초 후)
-          setTimeout(() => startReactionRound(io, room), 2000);
+          scheduleRoundStart(room, 2000, () => startReactionRound(io, room));
         }
       }
 
@@ -2943,7 +3447,7 @@ export function setupSocketHandlers(io: Server) {
             await finishRpsGame(io, room);
           } else {
             // 다음 라운드 시작 (2초 후)
-            setTimeout(() => startRpsRound(io, room), 2000);
+            scheduleRoundStart(room, 2000, () => startRpsRound(io, room));
           }
         }
       }
@@ -2989,11 +3493,12 @@ export function setupSocketHandlers(io: Server) {
               await finishSequenceGame(io, room);
             } else if (roundResult.bothPassed) {
               // 둘 다 성공 - 다음 라운드 (2초 후)
+              room.sequencePhase = 'waiting';
               io.to(data.roomId).emit('sequence_round_complete', {
                 success: true,
                 nextLevel: room.game.getCurrentLevel() + 1,
               });
-              setTimeout(() => startSequenceRound(io, room), 2000);
+              scheduleRoundStart(room, 2000, () => startSequenceRound(io, room));
             }
           }
         }
@@ -3040,7 +3545,7 @@ export function setupSocketHandlers(io: Server) {
             await finishStroopGame(io, room);
           } else {
             // 다음 라운드 시작 (2초 후)
-            setTimeout(() => startStroopRound(io, room), 2000);
+            scheduleRoundStart(room, 2000, () => startStroopRound(io, room));
           }
         }
       }
@@ -3727,7 +4232,7 @@ export function setupSocketHandlers(io: Server) {
               gameType: 'reaction',
             });
 
-            setTimeout(() => startReactionRound(io, room), 1000);
+            scheduleRoundStart(room, 1000, () => startReactionRound(io, room));
           }, 500);
         } else if (invitation.gameType === 'rps') {
           // 가위바위보 게임
@@ -3764,7 +4269,7 @@ export function setupSocketHandlers(io: Server) {
               gameType: 'rps',
             });
 
-            setTimeout(() => startRpsRound(io, room), 1000);
+            scheduleRoundStart(room, 1000, () => startRpsRound(io, room));
           }, 500);
         } else if (invitation.gameType === 'speedtap') {
           // 스피드탭 게임
@@ -3801,7 +4306,7 @@ export function setupSocketHandlers(io: Server) {
               gameType: 'speedtap',
             });
 
-            setTimeout(() => startSpeedTapRound(io, room), 1000);
+            scheduleRoundStart(room, 1000, () => startSpeedTapRound(io, room));
           }, 500);
         } else if (invitation.gameType === 'sequence') {
           // 순서 기억하기 게임
@@ -3844,6 +4349,7 @@ export function setupSocketHandlers(io: Server) {
               isHardcore: seqGame.getIsHardcore(),
               timeLimit: seqGame.getTimeLimit(),
             });
+            scheduleExistingSequencePhase(io, room);
           }, 500);
         } else if (invitation.gameType === 'stroop') {
           // 스트룹 게임
@@ -3884,7 +4390,7 @@ export function setupSocketHandlers(io: Server) {
               colors: stroopGame.getColors(),
             });
 
-            setTimeout(() => startStroopRound(io, room), 1000);
+            scheduleRoundStart(room, 1000, () => startStroopRound(io, room));
           }, 500);
         } else if (invitation.gameType === 'hexagon') {
           // 헥사곤 게임
@@ -4374,7 +4880,20 @@ export function setupSocketHandlers(io: Server) {
     // 재대결 요청 (양쪽 모두 눌러야 시작)
     socket.on('rematch_request', (data: { roomId: string }) => {
       const room = rooms.get(data.roomId);
-      if (room && room.status === 'finished') {
+      const isRoomParticipant = room?.players.some(p => p.id === socket.id) ?? false;
+      const canStartRematch = room && room.status === 'finished' && room.players.length === 2 && isRoomParticipant;
+
+      if (!canStartRematch) {
+        socket.emit('rematch_waiting', {
+          waiting: false,
+        });
+        socket.emit('opponent_left', {
+          message: 'Opponent is no longer in the room',
+        });
+        return;
+      }
+
+      if (room.status === 'finished') {
         // 재경기 요청 목록 초기화
         if (!room.rematchRequests) {
           room.rematchRequests = new Set();
@@ -4430,19 +4949,19 @@ export function setupSocketHandlers(io: Server) {
             io.to(data.roomId).emit('game_start', {
               gameType: 'reaction',
             });
-            setTimeout(() => startReactionRound(io, room), 1000);
+            scheduleRoundStart(room, 1000, () => startReactionRound(io, room));
           } else if (room.gameType === 'rps') {
             // 가위바위보 게임 재대결
             io.to(data.roomId).emit('game_start', {
               gameType: 'rps',
             });
-            setTimeout(() => startRpsRound(io, room), 1000);
+            scheduleRoundStart(room, 1000, () => startRpsRound(io, room));
           } else if (room.gameType === 'speedtap') {
             // 스피드탭 게임 재대결
             io.to(data.roomId).emit('game_start', {
               gameType: 'speedtap',
             });
-            setTimeout(() => startSpeedTapRound(io, room), 1000);
+            scheduleRoundStart(room, 1000, () => startSpeedTapRound(io, room));
           } else if (room.gameType === 'sequence') {
             // 순서 기억하기 게임 재대결
             const seqGame = room.game as SequenceGame;
@@ -4455,6 +4974,7 @@ export function setupSocketHandlers(io: Server) {
               isHardcore: seqGame.getIsHardcore(),
               timeLimit: seqGame.getTimeLimit(),
             });
+            scheduleExistingSequencePhase(io, room);
           } else if (room.gameType === 'stroop') {
             // 스트룹 게임 재대결
             const stroopGame = room.game as StroopGame;
@@ -4463,7 +4983,7 @@ export function setupSocketHandlers(io: Server) {
               isHardcore: stroopGame.getIsHardcore(),
               colors: stroopGame.getColors(),
             });
-            setTimeout(() => startStroopRound(io, room), 1000);
+            scheduleRoundStart(room, 1000, () => startStroopRound(io, room));
           } else if (room.gameType === 'hexagon') {
             // 헥사곤 게임 재대결
             io.to(data.roomId).emit('game_start', {
@@ -4704,15 +5224,21 @@ export function setupSocketHandlers(io: Server) {
 
       if (roomId) {
         const room = rooms.get(roomId);
-        // 게임 중 + userId 있음 + 솔로 아님 → 재연결 유예 (15초)
+        // 게임 중 + userId 있음 + 솔로 아님 → 재연결 유예 (20초)
         if (userId && room && room.status === 'playing' && !room.isSolo) {
+          pauseRoomForReconnect(room);
+          socket.to(roomId).emit('opponent_disconnected', {
+            graceMs: RECONNECT_GRACE_MS,
+          });
           console.log(`⏳ Grace period started for user ${userId} in room ${roomId} (${RECONNECT_GRACE_MS / 1000}s)`);
           disconnectGraceTimers.set(userId, setTimeout(() => {
-            console.log(`⏰ Grace period expired for user ${userId}, leaving room ${roomId}`);
-            disconnectGraceTimers.delete(userId);
-            disconnectContexts.delete(userId);
-            leaveRoom(socket, roomId);
-          }, RECONNECT_GRACE_MS));
+          console.log(`⏰ Grace period expired for user ${userId}, leaving room ${roomId}`);
+          disconnectGraceTimers.delete(userId);
+          disconnectContexts.delete(userId);
+          expiredReconnectUsers.add(userId);
+          setTimeout(() => expiredReconnectUsers.delete(userId), 60000);
+          leaveRoom(socket, roomId);
+        }, RECONNECT_GRACE_MS));
           disconnectContexts.set(userId, { socket, roomId });
           return; // 즉시 leaveRoom 호출 안 함
         }
@@ -4724,12 +5250,21 @@ export function setupSocketHandlers(io: Server) {
     async function leaveRoom(socket: Socket, roomId: string) {
       const room = rooms.get(roomId);
       if (room) {
+        const hadPendingRematch = !!room.rematchRequests?.size;
+
         // 타이머 정리
         clearTurnTimer(room);
         clearHexagonTimers(room);
         clearPyramidTimers(room);
         clearHunminTimers(room);
         clearRoundTimer(room);
+        clearPhaseTimer(room);
+        room.reconnectPaused = false;
+        room.pendingRoundStart = false;
+        room.speedtapPhase = undefined;
+        room.sequencePhase = undefined;
+        room.pausedRoundRemainingMs = undefined;
+        room.pausedPhaseRemainingMs = undefined;
         let handledRankedForfeit = false;
 
         // 랭크전 매칭 직후 (게임 시작 전) 퇴장 처리
@@ -4920,6 +5455,16 @@ export function setupSocketHandlers(io: Server) {
           console.log(`🎮 [leaveRoom] Ranked game waiting for next game, keeping player in room`);
           // 소켓은 나가지만 플레이어 목록은 유지
         } else {
+          if (hadPendingRematch) {
+            room.rematchRequests?.clear();
+            socket.to(roomId).emit('rematch_waiting', {
+              waiting: false,
+            });
+            socket.to(roomId).emit('rematch_cancelled', {
+              from: currentPlayer?.nickname,
+            });
+          }
+
           if (!handledRankedForfeit) {
             // 상대방에게 알림
             socket.to(roomId).emit('opponent_left', {

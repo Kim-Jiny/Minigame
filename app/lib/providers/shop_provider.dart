@@ -1,27 +1,22 @@
 import 'package:flutter/foundation.dart';
+import 'mixins/provider_feedback.dart';
 import '../services/socket_service.dart';
 import '../services/socket_listener_registry.dart';
 import '../models/shop_item.dart';
 
-class ShopProvider extends ChangeNotifier {
+class ShopProvider extends ChangeNotifier with ProviderFeedback {
   final SocketService _socketService = SocketService();
-  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
 
   List<ShopItem> _shopItems = [];
   List<UserItem> _userItems = [];
   UserProfileSettings? _profileSettings;
-  bool _isLoading = false;
-  String? _error;
-  String? _successMessage;
   bool _listenersInitialized = false;
   String? _lastChangedNickname;
 
   List<ShopItem> get shopItems => _shopItems;
   List<UserItem> get userItems => _userItems;
   UserProfileSettings? get profileSettings => _profileSettings;
-  bool get isLoading => _isLoading;
-  String? get error => _error;
-  String? get successMessage => _successMessage;
   String? get lastChangedNickname => _lastChangedNickname;
 
   // 카테고리별 필터링
@@ -36,6 +31,7 @@ class ShopProvider extends ChangeNotifier {
 
   // 아이템 보유 여부 확인
   bool hasItem(int itemId) {
+    if (_shopItems.isEmpty) return false;
     // 기본 아이템은 모두 보유
     final shopItem = _shopItems.firstWhere(
       (item) => item.id == itemId,
@@ -78,7 +74,7 @@ class ShopProvider extends ChangeNotifier {
       _shopItems = (data['items'] as List)
           .map((item) => ShopItem.fromJson(item))
           .toList();
-      _isLoading = false;
+      setLoading(false);
       notifyListeners();
     });
 
@@ -100,74 +96,64 @@ class ShopProvider extends ChangeNotifier {
 
     // 구매 결과
     _socketListeners.on('purchase_result', (data) {
-      _isLoading = false;
+      setLoading(false);
       if (data['success'] == true) {
-        _successMessage = data['message'];
-        _error = null;
+        setSuccess(data['message']);
         // 보유 아이템 새로고침
         getUserItems();
       } else {
-        _error = data['message'];
-        _successMessage = null;
+        setError(data['message']);
       }
       notifyListeners();
     });
 
     // 장착 결과
     _socketListeners.on('equip_result', (data) {
-      _isLoading = false;
+      setLoading(false);
       if (data['success'] == true) {
-        _successMessage = data['message'];
-        _error = null;
+        setSuccess(data['message']);
         if (data['settings'] != null) {
           _profileSettings = UserProfileSettings.fromJson(data['settings']);
         }
       } else {
-        _error = data['message'];
-        _successMessage = null;
+        setError(data['message']);
       }
       notifyListeners();
     });
 
     // 장착 해제 결과
     _socketListeners.on('unequip_result', (data) {
-      _isLoading = false;
+      setLoading(false);
       if (data['success'] == true) {
-        _successMessage = data['message'];
-        _error = null;
+        setSuccess(data['message']);
         if (data['settings'] != null) {
           _profileSettings = UserProfileSettings.fromJson(data['settings']);
         }
       } else {
-        _error = data['message'];
-        _successMessage = null;
+        setError(data['message']);
       }
       notifyListeners();
     });
 
     // 1패 삭제 결과
     _socketListeners.on('delete_loss_result', (data) {
-      _isLoading = false;
+      setLoading(false);
       if (data['success'] == true) {
-        _successMessage = data['message'];
-        _error = null;
+        setSuccess(data['message']);
       } else {
-        _error = data['message'];
-        _successMessage = null;
+        setError(data['message']);
       }
       notifyListeners();
     });
 
     // 닉네임 변경 결과
     _socketListeners.on('change_nickname_result', (data) {
-      _isLoading = false;
+      setLoading(false);
       if (data['success'] == true) {
-        _successMessage = data['message'];
-        _error = null;
+        setSuccess(data['message']);
         _lastChangedNickname = data['nickname'];
       } else {
-        _error = data['message'];
-        _successMessage = null;
+        setError(data['message']);
         _lastChangedNickname = null;
       }
       notifyListeners();
@@ -176,7 +162,7 @@ class ShopProvider extends ChangeNotifier {
 
   // 상점 아이템 조회
   void getShopItems({String? category}) {
-    _isLoading = true;
+    setLoading(true);
     notifyListeners();
     _socketService.emit('get_shop_items', category != null ? {'category': category} : {});
   }
@@ -193,53 +179,42 @@ class ShopProvider extends ChangeNotifier {
 
   // 아이템 구매
   void purchaseItem(int itemId) {
-    _isLoading = true;
-    _error = null;
-    _successMessage = null;
+    startLoading();
     notifyListeners();
     _socketService.emit('purchase_item', {'itemId': itemId});
   }
 
   // 아이템 장착
   void equipItem(int itemId) {
-    _isLoading = true;
-    _error = null;
-    _successMessage = null;
+    startLoading();
     notifyListeners();
     _socketService.emit('equip_item', {'itemId': itemId});
   }
 
   // 아이템 장착 해제
   void unequipItem(String category) {
-    _isLoading = true;
-    _error = null;
-    _successMessage = null;
+    startLoading();
     notifyListeners();
     _socketService.emit('unequip_item', {'category': category});
   }
 
   // 패배 삭제권 사용
   void deleteLoss(String gameType, {int count = 1, int price = 50}) {
-    _isLoading = true;
-    _error = null;
-    _successMessage = null;
+    startLoading();
     notifyListeners();
     _socketService.emit('delete_loss', {'gameType': gameType, 'count': count, 'price': price});
   }
 
   // 닉네임 변경권 사용
   void changeNickname(String nickname) {
-    _isLoading = true;
-    _error = null;
-    _successMessage = null;
+    startLoading();
     _lastChangedNickname = null;
     notifyListeners();
     _socketService.emit('change_nickname', {'nickname': nickname});
   }
 
   void clearMessages() {
-    _error = null;
-    _successMessage = null;
+    clearFeedback();
     _lastChangedNickname = null;
     notifyListeners();
   }

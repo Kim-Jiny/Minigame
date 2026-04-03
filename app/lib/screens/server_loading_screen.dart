@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../services/socket_service.dart';
 import '../services/socket_listener_registry.dart';
@@ -17,12 +16,13 @@ class ServerLoadingScreen extends StatefulWidget {
 class _ServerLoadingScreenState extends State<ServerLoadingScreen>
     with SingleTickerProviderStateMixin {
   final SocketService _socketService = SocketService();
-  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
   Timer? _checkTimer;
   int _dots = 0;
   Timer? _dotsTimer;
   int _waitSeconds = 0;
   bool _showSlowMessage = false;
+  bool _hasConnected = false;
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -54,14 +54,9 @@ class _ServerLoadingScreenState extends State<ServerLoadingScreen>
   void _startConnectionCheck() {
     _waitSeconds = 0;
     _showSlowMessage = false;
+    _socketService.connect();
 
-    debugPrint('🔌 ServerLoadingScreen: 연결 확인 시작, isConnected=${_socketService.isConnected}');
-
-    // connect 이벤트 리스닝
-    _socketListeners.on('connect', (_) {
-      debugPrint('🔌 ServerLoadingScreen: connect 이벤트 수신');
-      _onConnected();
-    });
+    debugPrint('🔌 ServerLoadingScreen: 연결 확인 시작, isReady=${_socketService.isReady}');
 
     // lobby_joined 이벤트도 리스닝 (서버 연결 확인용)
     _socketListeners.on('lobby_joined', (_) {
@@ -78,20 +73,22 @@ class _ServerLoadingScreenState extends State<ServerLoadingScreen>
         setState(() => _showSlowMessage = true);
       }
 
-      if (_socketService.isConnected) {
-        debugPrint('🔌 ServerLoadingScreen: isConnected=true 감지');
+      if (_socketService.isReady) {
+        debugPrint('🔌 ServerLoadingScreen: isReady=true 감지');
         _onConnected();
       }
     });
 
     // 즉시 한 번 확인
-    if (_socketService.isConnected) {
+    if (_socketService.isReady) {
       debugPrint('🔌 ServerLoadingScreen: 즉시 연결됨');
       _onConnected();
     }
   }
 
   void _onConnected() {
+    if (_hasConnected) return;
+    _hasConnected = true;
     debugPrint('🔌 ServerLoadingScreen: _onConnected 호출, mounted=$mounted');
     _checkTimer?.cancel();
     _socketListeners.offAll();

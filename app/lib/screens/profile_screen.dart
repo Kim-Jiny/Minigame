@@ -27,9 +27,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _loadUnreadCount() async {
-    final count = await ApiService().getUnreadInquiryCount();
-    if (mounted) {
-      setState(() => _unreadInquiryCount = count);
+    try {
+      final count = await ApiService().getUnreadInquiryCount();
+      if (mounted) {
+        setState(() => _unreadInquiryCount = count);
+      }
+    } catch (_) {
+      // API 실패 시 무시 (뱃지가 표시되지 않을 뿐)
     }
   }
 

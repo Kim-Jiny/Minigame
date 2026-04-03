@@ -1,16 +1,24 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
 import '../../providers/game_provider.dart';
 import '../../providers/shop_provider.dart';
-import '../../providers/ranked_provider.dart';
 import '../../services/socket_service.dart';
 import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
-import '../../widgets/game_player_profile.dart';
 import '../../utils/game_theme.dart';
+import '../common/game_duel_header.dart';
+import '../common/game_event_helper.dart';
+import '../common/game_exit_helper.dart';
+import '../common/game_reconnect_helper.dart';
+import '../common/game_result_action_buttons.dart';
+import '../common/game_result_summary.dart';
+import '../common/game_screen_transition.dart';
+import '../common/game_session_helper.dart';
+import '../common/game_waiting_view.dart';
 
 enum ReactionGameStatus {
   idle,
@@ -38,7 +46,7 @@ class ReactionScreen extends StatefulWidget {
 
 class _ReactionScreenState extends State<ReactionScreen> {
   final SocketService _socketService = SocketService();
-  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
   bool _hasScheduledPop = false;  // 중복 pop 방지
   bool _isExitDialogOpen = false;  // 나가기 다이얼로그 열림 상태
 
@@ -73,6 +81,11 @@ class _ReactionScreenState extends State<ReactionScreen> {
   bool _opponentLeft = false;
   bool _rematchWaiting = false;
   bool _opponentWantsRematch = false;
+  bool _isReconnecting = false;
+  bool _isWaitingForReconnect = false;
+  Timer? _reconnectTimer;
+  Timer? _waitingReconnectTimer;
+  int _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
 
   @override
   void initState() {
@@ -117,12 +130,77 @@ class _ReactionScreenState extends State<ReactionScreen> {
 
   @override
   void dispose() {
+    _reconnectTimer?.cancel();
+    _waitingReconnectTimer?.cancel();
     _socketListeners.offAll();
     super.dispose();
   }
 
+  bool get _isGameActive =>
+      _status != ReactionGameStatus.idle &&
+      _status != ReactionGameStatus.searching &&
+      _status != ReactionGameStatus.finished;
+
+  void _startReconnectFlow() {
+    if (!_isGameActive || _roomId == null) return;
+    _reconnectTimer?.cancel();
+      _waitingReconnectTimer?.cancel();
+      _reconnectTimer = GameReconnectHelper.startReconnectTimeout(
+        context: context,
+        showFailureSnackBar: false,
+        onEnterWaiting: () {
+          if (!mounted) return;
+          setState(() {
+            _isReconnecting = true;
+            _isWaitingForReconnect = false;
+            _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+          });
+        },
+        onTick: (seconds) {
+          if (!mounted) return;
+          setState(() => _reconnectSecondsRemaining = seconds);
+        },
+        onTimeout: () {
+        GameSessionHelper.handleReconnectTimeout(
+          context: context,
+          mounted: mounted,
+          hasScheduledPop: _hasScheduledPop,
+          markScheduledPop: () => _hasScheduledPop = true,
+          beforeNavigate: _reset,
+        );
+      },
+    );
+  }
+
+  void _showReconnectOverlay({required bool reconnecting}) {
+    if (reconnecting) {
+      _waitingReconnectTimer?.cancel();
+    }
+    if (!mounted) return;
+    setState(() {
+      _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+      _isReconnecting = reconnecting;
+      _isWaitingForReconnect = !reconnecting;
+    });
+  }
+
+  void _startWaitingReconnectCountdown() {
+    _waitingReconnectTimer?.cancel();
+    _waitingReconnectTimer = GameReconnectHelper.startVisualCountdown(
+      onTick: (seconds) {
+        if (!mounted || !_isWaitingForReconnect) return;
+        setState(() => _reconnectSecondsRemaining = seconds);
+      },
+    );
+  }
+
   void _setupSocketListeners() {
     debugPrint('🎮 [ReactionScreen] Setting up socket listeners, myId=$_myId');
+
+    _socketListeners.on('connect', (_) {
+      _myId = _socketService.socket?.id;
+      _startReconnectFlow();
+    });
 
     _socketListeners.on('waiting_for_match', (_) {
       debugPrint('🎮 [ReactionScreen] waiting_for_match received');
@@ -133,7 +211,8 @@ class _ReactionScreenState extends State<ReactionScreen> {
       debugPrint('🎮 [ReactionScreen] match_found received: $data');
       debugPrint('🎮 [ReactionScreen] Current _myId=$_myId');
       final players = data['players'] as List;
-      final opponent = players.firstWhere((p) => p['id'] != _myId);
+      final opponent = players.cast<Map<String, dynamic>?>().firstWhere((p) => p!['id'] != _myId, orElse: () => null);
+      if (opponent == null) return;
       final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
       _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
       debugPrint('🎮 [ReactionScreen] myPlayerIndex=$_myPlayerIndex, me=$me');
@@ -228,7 +307,63 @@ class _ReactionScreenState extends State<ReactionScreen> {
         _lastRoundFalseStart = false;
         _lastRoundWinnerNickname = null; // 무승부
         _lastReactionTime = null;
+        _isWaitingForReconnect = false;
       });
+    });
+
+    _socketListeners.on('rejoin_game_state', (data) {
+      if (data['gameType'] != 'reaction') return;
+      _reconnectTimer?.cancel();
+      _myId = _socketService.socket?.id;
+      setState(() {
+        _roomId = data['roomId'] as String?;
+        _myPlayerIndex = (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
+        _currentRound = (data['round'] as num?)?.toInt() ?? _currentRound;
+        if (data['scores'] != null) {
+          _scores = List<int>.from(data['scores']);
+        }
+        final roundState = data['roundState'] as String?;
+        _roundState = switch (roundState) {
+          'ready' => RoundState.ready,
+          'go' => RoundState.go,
+          'finished' => RoundState.result,
+          _ => RoundState.waiting,
+        };
+        _status = ReactionGameStatus.playing;
+      });
+      GameReconnectHelper.completeReconnect(
+        context: context,
+        onRecovered: () => setState(() {
+          _isReconnecting = false;
+          _isWaitingForReconnect = false;
+          _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+        }),
+      );
+    });
+
+    _socketListeners.on('reconnect_failed', (_) {
+      _reconnectTimer?.cancel();
+      GameSessionHelper.handleReconnectTimeout(
+        context: context,
+        mounted: mounted,
+        hasScheduledPop: _hasScheduledPop,
+        markScheduledPop: () => _hasScheduledPop = true,
+        beforeNavigate: _reset,
+        message: '20초 안에 연결을 복구하지 못해 게임에서 제외되었습니다.',
+      );
+    });
+
+    _socketListeners.on('opponent_disconnected', (data) {
+      if (!_isGameActive) return;
+      _showReconnectOverlay(reconnecting: false);
+      _startWaitingReconnectCountdown();
+    });
+
+    _socketListeners.on('opponent_reconnected', (_) {
+      if (!_isGameActive) return;
+      _waitingReconnectTimer?.cancel();
+      setState(() => _isWaitingForReconnect = false);
+      GameReconnectHelper.showOpponentReconnected(context);
     });
 
     _socketListeners.on('game_end', (data) {
@@ -237,16 +372,21 @@ class _ReactionScreenState extends State<ReactionScreen> {
         _status = ReactionGameStatus.finished;
         _winnerId = data['winner'];
         _isDraw = data['isDraw'] ?? false;
+        _isReconnecting = false;
+        _isWaitingForReconnect = false;
         if (data['scores'] != null) {
           _scores = List<int>.from(data['scores']);
         }
       });
+      _waitingReconnectTimer?.cancel();
     });
 
     _socketListeners.on('opponent_left', (data) {
       if (_status == ReactionGameStatus.idle ||
           _status == ReactionGameStatus.searching ||
-          _status == ReactionGameStatus.finished) return;
+          _status == ReactionGameStatus.finished) {
+        return;
+      }
       // 나가기 다이얼로그가 열려있으면 먼저 닫기
       if (_isExitDialogOpen && mounted) {
         Navigator.of(context).pop();
@@ -254,11 +394,14 @@ class _ReactionScreenState extends State<ReactionScreen> {
       }
       setState(() {
         _status = ReactionGameStatus.finished;
-        _winnerId = _myId;
+      _winnerId = _myId;
         _opponentLeft = true;
         _rematchWaiting = false;
         _opponentWantsRematch = false;
+        _isReconnecting = false;
+        _isWaitingForReconnect = false;
       });
+      _waitingReconnectTimer?.cancel();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -271,46 +414,29 @@ class _ReactionScreenState extends State<ReactionScreen> {
       }
     });
 
-    _socketListeners.on('rematch_waiting', (data) {
-      setState(() => _rematchWaiting = data['waiting'] ?? false);
-    });
+    GameEventHelper.registerRematchHandlers(
+      registry: _socketListeners,
+      onRematchWaiting: (waiting) {
+        setState(() => _rematchWaiting = waiting);
+      },
+      onOpponentRematchChanged: (wantsRematch) {
+        setState(() => _opponentWantsRematch = wantsRematch);
+      },
+    );
 
-    _socketListeners.on('rematch_requested', (_) {
-      setState(() => _opponentWantsRematch = true);
-    });
-
-    _socketListeners.on('rematch_cancelled', (_) {
-      setState(() => _opponentWantsRematch = false);
-    });
-
-    // 에러 처리 (방이 없어진 경우 등)
-    _socketListeners.on('error', (data) {
-      final message = data['message'] ?? '';
-      if (message.toString().contains('Invalid room') ||
-          message.toString().contains('not in progress')) {
-        _handleRoomInvalid();
-      }
-    });
+    GameEventHelper.registerInvalidRoomHandler(
+      registry: _socketListeners,
+      onInvalidRoom: _handleRoomInvalid,
+    );
   }
 
   void _handleRoomInvalid() {
-    if (!mounted || _hasScheduledPop) return;
-    _hasScheduledPop = true;
-
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('연결이 끊어져 게임이 종료되었습니다.'),
-        backgroundColor: Colors.orange,
-      ),
+    GameSessionHelper.handleInvalidRoom(
+      context: context,
+      mounted: mounted,
+      hasScheduledPop: _hasScheduledPop,
+      markScheduledPop: () => _hasScheduledPop = true,
     );
-
-    // GameProvider 초기화 후 로비로 이동
-    try {
-      context.read<GameProvider>().reset();
-    } catch (_) {}
-
-    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   void _findMatch() {
@@ -347,23 +473,17 @@ class _ReactionScreenState extends State<ReactionScreen> {
   }
 
   void _leaveGame() {
-    String? roomId = _roomId;
-    if (widget.isRanked && roomId == null) {
-      try {
-        roomId = context.read<RankedProvider>().roomId;
-      } catch (_) {}
-    }
-    if (roomId != null) {
-      _socketService.emit('leave_room', {'roomId': roomId});
-    }
-    // GameProvider 상태도 초기화
-    try {
-      context.read<GameProvider>().reset();
-    } catch (_) {}
-    _reset();
+    GameSessionHelper.leaveGame(
+      context: context,
+      socketService: _socketService,
+      roomId: _roomId,
+      isRanked: widget.isRanked,
+      resetState: _reset,
+    );
   }
 
   void _reset() {
+    _waitingReconnectTimer?.cancel();
     setState(() {
       _status = ReactionGameStatus.idle;
       _roundState = RoundState.waiting;
@@ -379,6 +499,8 @@ class _ReactionScreenState extends State<ReactionScreen> {
       _rematchWaiting = false;
       _opponentWantsRematch = false;
       _isInvitationGame = false;
+      _isReconnecting = false;
+      _isWaitingForReconnect = false;
     });
   }
 
@@ -403,24 +525,48 @@ class _ReactionScreenState extends State<ReactionScreen> {
             onPressed: _showExitDialog,
           ),
         ),
-        body: _buildBody(theme),
+        body: Stack(
+          children: [
+            GameScreenTransition(
+              transitionKey: '${_status.name}-${_roundState.name}-$_currentRound-${_lastReactionTime ?? -1}-${_lastRoundFalseStart ?? false}',
+              child: _buildBody(theme),
+            ),
+            if (_isReconnecting)
+              GameReconnectHelper.buildReconnectOverlay(
+                title: '재연결 중...',
+                message: '네트워크 연결을 다시 붙이는 중입니다.',
+                resultMessage: '20초 안에 돌아오지 못하면 이 게임은 패배로 종료됩니다.',
+                secondsRemaining: _reconnectSecondsRemaining,
+                countdownLabel: '패배 처리까지',
+                accentColor: theme.primary,
+              ),
+            if (_isWaitingForReconnect)
+              GameReconnectHelper.buildReconnectOverlay(
+                title: '상대 재연결 대기 중',
+                message: '상대 연결이 끊겨 게임을 잠시 멈췄습니다.',
+                resultMessage: '20초 안에 돌아오지 않으면 자동 승리로 처리됩니다.',
+                secondsRemaining: _reconnectSecondsRemaining,
+                countdownLabel: '자동 승리까지',
+                accentColor: theme.primary,
+              ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildRankedWaitingView(GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(gradient: theme.backgroundGradient),
-      child: const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('게임 준비 중...', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          ],
-        ),
-      ),
+    return GameWaitingView(
+      backgroundGradient: theme.backgroundGradient,
+      accentColor: theme.primary,
+      icon: Icons.flash_on,
+      title: '반응속도 준비 중',
+      subtitle: '상대와 게임 상태를 맞추고 있습니다.',
+      statusMessages: const [
+        '매칭 정보를 확인하고 있습니다.',
+        '라운드 순서를 동기화하고 있습니다.',
+        '시작 신호를 준비하고 있습니다.',
+      ],
     );
   }
 
@@ -753,73 +899,21 @@ class _ReactionScreenState extends State<ReactionScreen> {
     return Column(
       children: [
         // 프로필 & 점수판
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFFFADADA), Color(0xFFFFF0F0)],
-            ),
-          ),
-          child: Row(
-            children: [
-              // 내 프로필
-              Expanded(
-                child: GamePlayerProfile(
-                  name: _myNickname ?? '나',
-                  avatarUrl: _myAvatarUrl,
-                  isActive: true,
-                  isMe: true,
-                  profileSettings: _myProfileSettings ?? context.read<ShopProvider>().profileSettings,
-                  activeColor: const Color(0xFFE74C3C),
-                  extraWidget: _buildScoreWidget(_scores[_myPlayerIndex]),
-                ),
-              ),
-              // 라운드 표시
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Column(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE74C3C),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        'R$_currentRound/5',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'VS',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFFE74C3C),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // 상대 프로필
-              Expanded(
-                child: GamePlayerProfile(
-                  name: _opponentNickname ?? '상대',
-                  avatarUrl: _opponentAvatarUrl,
-                  isActive: true,
-                  isMe: false,
-                  profileSettings: _opponentProfileSettings,
-                  activeColor: const Color(0xFFE74C3C),
-                  extraWidget: _buildScoreWidget(_scores[1 - _myPlayerIndex]),
-                ),
-              ),
-            ],
-          ),
+        GameDuelHeader(
+          backgroundColors: const [Color(0xFFFADADA), Color(0xFFFFF0F0)],
+          accentColor: const Color(0xFFE74C3C),
+          centerLabel: 'R$_currentRound/5',
+          centerSubtitle: '반응속도',
+          myName: _myNickname ?? '나',
+          opponentName: _opponentNickname ?? '상대',
+          myAvatarUrl: _myAvatarUrl,
+          opponentAvatarUrl: _opponentAvatarUrl,
+          myActive: true,
+          opponentActive: true,
+          myProfileSettings: _myProfileSettings ?? context.read<ShopProvider>().profileSettings,
+          opponentProfileSettings: _opponentProfileSettings,
+          myExtraWidget: _buildScoreWidget(_scores[_myPlayerIndex]),
+          opponentExtraWidget: _buildScoreWidget(_scores[1 - _myPlayerIndex]),
         ),
 
         // 게임 영역
@@ -831,11 +925,15 @@ class _ReactionScreenState extends State<ReactionScreen> {
               decoration: BoxDecoration(
                 color: _getBackgroundColor(),
               ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildRoundContent(),
-                ],
+              child: GameScreenTransition(
+                transitionKey: '${_roundState.name}-${_lastReactionTime ?? -1}-${_lastRoundFalseStart ?? false}-${_lastRoundWinnerNickname ?? 'none'}',
+                beginOffset: const Offset(0, 0.02),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildRoundContent(),
+                  ],
+                ),
               ),
             ),
           ),
@@ -845,23 +943,10 @@ class _ReactionScreenState extends State<ReactionScreen> {
   }
 
   Widget _buildScoreWidget(int score) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        decoration: BoxDecoration(
-          color: const Color(0xFFE74C3C),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Text(
-          '$score',
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-      ),
+    return GameHeaderScorePill(
+      score: score,
+      color: const Color(0xFFE74C3C),
+      margin: const EdgeInsets.only(top: 4),
     );
   }
 
@@ -1013,37 +1098,6 @@ class _ReactionScreenState extends State<ReactionScreen> {
     );
   }
 
-  Widget _buildScoreCard(String name, int score, bool isMe) {
-    return Column(
-      children: [
-        Text(
-          name,
-          style: TextStyle(
-            fontSize: 14,
-            color: isMe ? const Color(0xFFE74C3C) : Colors.grey.shade600,
-            fontWeight: isMe ? FontWeight.bold : FontWeight.normal,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          decoration: BoxDecoration(
-            color: isMe ? const Color(0xFFE74C3C) : Colors.grey,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(
-            '$score',
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildFinishedView(GameTheme theme) {
     final isWinner = _winnerId == _myId;
 
@@ -1115,126 +1169,61 @@ class _ReactionScreenState extends State<ReactionScreen> {
         ),
       ),
       child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: resultColor.withValues(alpha: 0.3),
-                    blurRadius: 20,
-                  ),
-                ],
-              ),
-              child: Icon(resultIcon, size: 64, color: resultColor),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              resultText,
-              style: TextStyle(
-                fontSize: 36,
-                fontWeight: FontWeight.bold,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              GameResultHero(
+                icon: resultIcon,
                 color: resultColor,
+                title: resultText,
+                subtitle: _isDraw
+                    ? '끝까지 팽팽한 승부였어요.'
+                    : (isWinner ? '좋은 흐름으로 라운드를 가져갔어요.' : '다음 판에서 바로 뒤집을 수 있어요.'),
               ),
-            ),
-            const SizedBox(height: 16),
-            // 최종 점수
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _buildScoreCard('나', _scores[_myPlayerIndex], true),
-                const SizedBox(width: 32),
-                const Text(
-                  ':',
-                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(width: 32),
-                _buildScoreCard(_opponentNickname ?? '상대', _scores[1 - _myPlayerIndex], false),
-              ],
-            ),
-            const SizedBox(height: 24),
+              const SizedBox(height: 22),
+              GameResultMatchupRow(
+                leftLabel: '나',
+                leftValue: '${_scores[_myPlayerIndex]}',
+                rightLabel: _opponentNickname ?? '상대',
+                rightValue: '${_scores[1 - _myPlayerIndex]}',
+                accentColor: resultColor,
+              ),
+              const SizedBox(height: 24),
             if (_opponentLeft)
-              Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.exit_to_app, size: 16, color: Colors.grey.shade600),
-                    const SizedBox(width: 8),
-                    Text(
-                      '상대방이 나갔습니다',
-                      style: TextStyle(color: Colors.grey.shade600),
-                    ),
-                  ],
-                ),
+              const GameResultStatusPill(
+                icon: Icons.exit_to_app_rounded,
+                text: '상대방이 나가서 경기 종료',
+                color: Color(0xFF6B7280),
               ),
             if (_opponentWantsRematch && !_opponentLeft)
-              Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.green.shade200),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.hourglass_top, size: 16, color: Colors.green.shade700),
-                    const SizedBox(width: 8),
-                    Text(
-                      '$_opponentNickname님이 대기 중...',
-                      style: TextStyle(color: Colors.green.shade700, fontWeight: FontWeight.w500),
-                    ),
-                  ],
-                ),
+              GameResultStatusPill(
+                icon: Icons.hourglass_top_rounded,
+                text: '$_opponentNickname님이 재경기 대기 중',
+                color: const Color(0xFF15803D),
               ),
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (!_opponentLeft)
-                  ElevatedButton.icon(
-                    onPressed: _rematchWaiting ? _cancelRematch : _requestRematch,
-                    icon: Icon(_rematchWaiting ? Icons.hourglass_top : Icons.replay),
-                    label: Text(_rematchWaiting ? '대기 중...' : '재경기'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _rematchWaiting ? Colors.orange : const Color(0xFFE74C3C),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                    ),
-                  ),
-                if (!_isInvitationGame)
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      _leaveGame();
-                      _findMatch();
-                    },
-                    icon: const Icon(Icons.search),
-                    label: const Text('다시 찾기'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFFE74C3C),
-                      side: const BorderSide(color: Color(0xFFE74C3C)),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                    ),
-                  ),
-                if (!_isInvitationGame && !_opponentLeft && _opponentUserId != null && !context.read<FriendProvider>().isFriend(_opponentUserId!))
-                  OutlinedButton.icon(
-                    onPressed: () {
+            GameResultActionButtons(
+              accentColor: const Color(0xFFE74C3C),
+              opponentLeft: _opponentLeft,
+              rematchWaiting: _rematchWaiting,
+              isInvitationGame: _isInvitationGame,
+              canSendFriendRequest: !_isInvitationGame &&
+                  !_opponentLeft &&
+                  _opponentUserId != null &&
+                  !context.read<FriendProvider>().isFriend(_opponentUserId!),
+              onRematchPressed: _rematchWaiting ? _cancelRematch : _requestRematch,
+              onSearchAgainPressed: () {
+                _leaveGame();
+                _findMatch();
+              },
+              onLobbyPressed: () {
+                _leaveGame();
+                Navigator.pop(context);
+              },
+              onFriendRequestPressed: _opponentUserId == null
+                  ? null
+                  : () {
                       context.read<FriendProvider>().sendFriendRequestByUserId(_opponentUserId!);
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -1243,35 +1232,10 @@ class _ReactionScreenState extends State<ReactionScreen> {
                         ),
                       );
                     },
-                    icon: const Icon(Icons.person_add),
-                    label: const Text('친구 요청'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.green,
-                      side: const BorderSide(color: Colors.green),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                    ),
-                  ),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    _leaveGame();
-                    Navigator.pop(context);
-                  },
-                  icon: const Icon(Icons.home),
-                  label: const Text('로비'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.grey,
-                    side: BorderSide(color: Colors.grey.shade400),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
-              ],
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -1304,41 +1268,13 @@ class _ReactionScreenState extends State<ReactionScreen> {
     }
 
     _isExitDialogOpen = true;
-    showDialog(
+    showGameExitDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
-          children: [
-            Icon(Icons.exit_to_app, color: Color(0xFFE74C3C)),
-            SizedBox(width: 8),
-            Text('게임 나가기'),
-          ],
-        ),
-        content: Text(
-          isRankedWaiting
-              ? '랭크전 진행 중입니다.\n나가시겠습니까?'
-              : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              _leaveGame();
-              Navigator.pop(context);
-              Navigator.pop(context);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFE74C3C),
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('나가기'),
-          ),
-        ],
-      ),
+      accentColor: const Color(0xFFE74C3C),
+      message: isRankedWaiting
+          ? '랭크전 진행 중입니다.\n나가시겠습니까?'
+          : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
+      onExit: _leaveGame,
     ).then((_) => _isExitDialogOpen = false);
   }
 }

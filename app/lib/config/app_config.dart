@@ -3,19 +3,16 @@ import '../services/remote_config_service.dart';
 
 class AppConfig {
   // 서버 URL 설정
-  static const String _localServerUrl = 'http://172.30.1.80:3000';  // 로컬 개발용
+  static const String _localServerUrl = 'http://172.30.1.99:3000';  // 로컬 개발용
   static const String _productionServerUrl = 'https://duo.jiny.shop';  // 프로덕션
-
-  // 기본 서버 URL (Debug면 로컬, Release면 프로덕션)
-  static String get _defaultServerUrl => kDebugMode ? _localServerUrl : _productionServerUrl;
 
   // 원격 설정에서 서버 URL 가져오기
   static String get serverUrl {
-    final remoteConfig = RemoteConfigService();
     if (kDebugMode) {
-      // 디버그 모드: debug_api_base_url 사용, 없으면 로컬 서버
-      return remoteConfig.config?.debugApiBaseUrl ?? _localServerUrl;
+      // 디버그 모드: 항상 로컬 서버 사용
+      return _localServerUrl;
     }
+    final remoteConfig = RemoteConfigService();
     return remoteConfig.config?.apiBaseUrl ?? _productionServerUrl;
   }
 

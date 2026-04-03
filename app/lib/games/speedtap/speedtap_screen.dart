@@ -5,13 +5,22 @@ import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
 import '../../providers/game_provider.dart';
 import '../../providers/shop_provider.dart';
-import '../../providers/ranked_provider.dart';
 import '../../services/socket_service.dart';
 import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
-import '../../widgets/game_player_profile.dart';
+import '../common/game_duel_header.dart';
+import '../common/game_event_helper.dart';
+import '../common/game_exit_helper.dart';
+import '../common/game_reconnect_helper.dart';
+import '../common/game_result_action_buttons.dart';
+import '../common/game_result_summary.dart';
+import '../common/game_screen_transition.dart';
+import '../common/game_session_helper.dart';
+import '../common/game_stage_panel.dart';
+import '../common/game_timer_badge.dart';
+import '../common/game_waiting_view.dart';
 
 enum SpeedTapGameStatus {
   idle,
@@ -32,7 +41,7 @@ class SpeedTapScreen extends StatefulWidget {
 
 class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProviderStateMixin {
   final SocketService _socketService = SocketService();
-  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
   bool _hasScheduledPop = false;  // 중복 pop 방지
   bool _isExitDialogOpen = false;  // 나가기 다이얼로그 열림 상태
 
@@ -67,6 +76,11 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
   bool _opponentLeft = false;
   bool _rematchWaiting = false;
   bool _opponentWantsRematch = false;
+  bool _isReconnecting = false;
+  bool _isWaitingForReconnect = false;
+  Timer? _reconnectTimer;
+  Timer? _waitingReconnectTimer;
+  int _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
 
   // 타이머
   Timer? _countdownTimer;
@@ -130,15 +144,23 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
   void dispose() {
     _countdownTimer?.cancel();
     _startCountdownTimer?.cancel();
+    _reconnectTimer?.cancel();
+    _waitingReconnectTimer?.cancel();
     _animController.dispose();
     _socketListeners.offAll();
     super.dispose();
   }
 
+  bool get _isGameActive =>
+      _status != SpeedTapGameStatus.idle &&
+      _status != SpeedTapGameStatus.searching &&
+      _status != SpeedTapGameStatus.finished;
+
   void _startCountdown(int seconds) {
     _countdownTimer?.cancel();
     _remainingSeconds = seconds;
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) { timer.cancel(); return; }
       if (_remainingSeconds > 0) {
         setState(() => _remainingSeconds--);
       } else {
@@ -151,10 +173,21 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
     _countdownTimer?.cancel();
   }
 
+  void _startWaitingReconnectCountdown() {
+    _waitingReconnectTimer?.cancel();
+    _waitingReconnectTimer = GameReconnectHelper.startVisualCountdown(
+      onTick: (seconds) {
+        if (!mounted || !_isWaitingForReconnect) return;
+        setState(() => _reconnectSecondsRemaining = seconds);
+      },
+    );
+  }
+
   void _runStartCountdown(int from) {
     _startCountdownTimer?.cancel();
     _preRoundCountdown = from;
     _startCountdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) { timer.cancel(); return; }
       if (_preRoundCountdown > 1) {
         setState(() => _preRoundCountdown--);
       } else {
@@ -165,13 +198,49 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
   }
 
   void _setupSocketListeners() {
+    _socketListeners.on('connect', (_) {
+      _myId = _socketService.socket?.id;
+      if (!_isGameActive || _roomId == null) return;
+      _reconnectTimer?.cancel();
+      _waitingReconnectTimer?.cancel();
+      _stopCountdown();
+      _startCountdownTimer?.cancel();
+      _reconnectTimer = GameReconnectHelper.startReconnectTimeout(
+        context: context,
+        showFailureSnackBar: false,
+        onEnterWaiting: () => setState(() {
+          _isReconnecting = true;
+          _isWaitingForReconnect = false;
+          _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+        }),
+        onTick: (seconds) {
+          if (!mounted) return;
+          setState(() => _reconnectSecondsRemaining = seconds);
+        },
+        onTimeout: () {
+          GameSessionHelper.handleReconnectTimeout(
+            context: context,
+            mounted: mounted,
+            hasScheduledPop: _hasScheduledPop,
+            markScheduledPop: () => _hasScheduledPop = true,
+            beforeNavigate: () {
+              _stopCountdown();
+              _startCountdownTimer?.cancel();
+              _reset();
+            },
+          );
+        },
+      );
+    });
+
     _socketListeners.on('waiting_for_match', (_) {
       setState(() => _status = SpeedTapGameStatus.searching);
     });
 
     _socketListeners.on('match_found', (data) {
       final players = data['players'] as List;
-      final opponent = players.firstWhere((p) => p['id'] != _myId);
+      final opponent = players.cast<Map<String, dynamic>?>().firstWhere((p) => p!['id'] != _myId, orElse: () => null);
+      if (opponent == null) return;
       final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
       _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
 
@@ -236,6 +305,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
         _lastPlayer1Taps = null;
         _lastWinnerIndex = null;
         _lastIsDraw = false;
+        _isWaitingForReconnect = false;
       });
       _runStartCountdown(countdown);
     });
@@ -249,8 +319,24 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
         _taps = [0, 0];
         _roundInProgress = true;
         _preRoundCountdown = 0; // 카운트다운 종료
+        _isWaitingForReconnect = false;
       });
-      _startCountdown(duration ~/ 1000);
+      _startCountdown((duration / 1000).ceil());
+    });
+
+    _socketListeners.on('speedtap_round_resumed', (data) {
+      final duration = data['duration'] as int? ?? 10000;
+      _startCountdownTimer?.cancel();
+      setState(() {
+        _status = SpeedTapGameStatus.playing;
+        _currentRound = data['round'];
+        _roundScores = List<int>.from(data['roundScores']);
+        _taps = List<int>.from(data['taps'] ?? [0, 0]);
+        _roundInProgress = true;
+        _preRoundCountdown = 0;
+        _isWaitingForReconnect = false;
+      });
+      _startCountdown((duration / 1000).ceil());
     });
 
     _socketListeners.on('speedtap_tap', (data) {
@@ -268,7 +354,65 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
         _lastWinnerIndex = data['roundWinner'];
         _lastIsDraw = data['isDraw'] ?? false;
         _roundScores = List<int>.from(data['roundScores']);
+        _isWaitingForReconnect = false;
       });
+    });
+
+    _socketListeners.on('rejoin_game_state', (data) {
+      if (data['gameType'] != 'speedtap') return;
+      _reconnectTimer?.cancel();
+      _myId = _socketService.socket?.id;
+      _startCountdownTimer?.cancel();
+      setState(() {
+        _roomId = data['roomId'] as String?;
+        _myPlayerIndex = (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
+        _currentRound = (data['round'] as num?)?.toInt() ?? _currentRound;
+        _roundScores = List<int>.from(data['roundScores'] ?? _roundScores);
+        _taps = List<int>.from(data['taps'] ?? _taps);
+        _roundInProgress = data['roundInProgress'] == true;
+        _status = SpeedTapGameStatus.playing;
+        _isReconnecting = false;
+        _isWaitingForReconnect = false;
+      });
+      GameReconnectHelper.completeReconnect(
+        context: context,
+        onRecovered: () {},
+      );
+    });
+
+    _socketListeners.on('reconnect_failed', (_) {
+      _reconnectTimer?.cancel();
+      GameSessionHelper.handleReconnectTimeout(
+        context: context,
+        mounted: mounted,
+        hasScheduledPop: _hasScheduledPop,
+        markScheduledPop: () => _hasScheduledPop = true,
+        beforeNavigate: () {
+          _stopCountdown();
+          _startCountdownTimer?.cancel();
+          _reset();
+        },
+        message: '20초 안에 연결을 복구하지 못해 게임에서 제외되었습니다.',
+      );
+    });
+
+    _socketListeners.on('opponent_disconnected', (_) {
+      if (!_isGameActive) return;
+      _stopCountdown();
+      _startCountdownTimer?.cancel();
+      setState(() {
+        _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+        _isWaitingForReconnect = true;
+        _isReconnecting = false;
+      });
+      _startWaitingReconnectCountdown();
+    });
+
+    _socketListeners.on('opponent_reconnected', (_) {
+      if (!_isGameActive) return;
+      _waitingReconnectTimer?.cancel();
+      setState(() => _isWaitingForReconnect = false);
+      GameReconnectHelper.showOpponentReconnected(context);
     });
 
     _socketListeners.on('game_end', (data) {
@@ -278,16 +422,21 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
         _status = SpeedTapGameStatus.finished;
         _winnerId = data['winner'];
         _isDraw = data['isDraw'] ?? false;
+        _isReconnecting = false;
+        _isWaitingForReconnect = false;
         if (data['roundScores'] != null) {
           _roundScores = List<int>.from(data['roundScores']);
         }
       });
+      _waitingReconnectTimer?.cancel();
     });
 
     _socketListeners.on('opponent_left', (data) {
       if (_status == SpeedTapGameStatus.idle ||
           _status == SpeedTapGameStatus.searching ||
-          _status == SpeedTapGameStatus.finished) return;
+          _status == SpeedTapGameStatus.finished) {
+        return;
+      }
       // 나가기 다이얼로그가 열려있으면 먼저 닫기
       if (_isExitDialogOpen && mounted) {
         Navigator.of(context).pop();
@@ -299,7 +448,10 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
         _opponentLeft = true;
         _rematchWaiting = false;
         _opponentWantsRematch = false;
+        _isReconnecting = false;
+        _isWaitingForReconnect = false;
       });
+      _waitingReconnectTimer?.cancel();
       // 즉시 알림 표시
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -313,46 +465,29 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
       }
     });
 
-    _socketListeners.on('rematch_waiting', (data) {
-      setState(() => _rematchWaiting = data['waiting'] ?? false);
-    });
+    GameEventHelper.registerRematchHandlers(
+      registry: _socketListeners,
+      onRematchWaiting: (waiting) {
+        setState(() => _rematchWaiting = waiting);
+      },
+      onOpponentRematchChanged: (wantsRematch) {
+        setState(() => _opponentWantsRematch = wantsRematch);
+      },
+    );
 
-    _socketListeners.on('rematch_requested', (_) {
-      setState(() => _opponentWantsRematch = true);
-    });
-
-    _socketListeners.on('rematch_cancelled', (_) {
-      setState(() => _opponentWantsRematch = false);
-    });
-
-    // 에러 처리 (방이 없어진 경우 등)
-    _socketListeners.on('error', (data) {
-      final message = data['message'] ?? '';
-      if (message.toString().contains('Invalid room') ||
-          message.toString().contains('not in progress')) {
-        _handleRoomInvalid();
-      }
-    });
+    GameEventHelper.registerInvalidRoomHandler(
+      registry: _socketListeners,
+      onInvalidRoom: _handleRoomInvalid,
+    );
   }
 
   void _handleRoomInvalid() {
-    if (!mounted || _hasScheduledPop) return;
-    _hasScheduledPop = true;
-
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('연결이 끊어져 게임이 종료되었습니다.'),
-        backgroundColor: Colors.orange,
-      ),
+    GameSessionHelper.handleInvalidRoom(
+      context: context,
+      mounted: mounted,
+      hasScheduledPop: _hasScheduledPop,
+      markScheduledPop: () => _hasScheduledPop = true,
     );
-
-    // GameProvider 초기화 후 로비로 이동
-    try {
-      context.read<GameProvider>().reset();
-    } catch (_) {}
-
-    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   void _findMatch() {
@@ -394,24 +529,17 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
   }
 
   void _leaveGame() {
-    // 랭크전인 경우 RankedProvider에서 roomId 가져오기
-    String? roomId = _roomId;
-    if (widget.isRanked && roomId == null) {
-      try {
-        roomId = context.read<RankedProvider>().roomId;
-      } catch (_) {}
-    }
-    if (roomId != null) {
-      _socketService.emit('leave_room', {'roomId': roomId});
-    }
-    // GameProvider 상태도 초기화
-    try {
-      context.read<GameProvider>().reset();
-    } catch (_) {}
-    _reset();
+    GameSessionHelper.leaveGame(
+      context: context,
+      socketService: _socketService,
+      roomId: _roomId,
+      isRanked: widget.isRanked,
+      resetState: _reset,
+    );
   }
 
   void _reset() {
+    _waitingReconnectTimer?.cancel();
     setState(() {
       _status = SpeedTapGameStatus.idle;
       _roomId = null;
@@ -427,6 +555,8 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
       _rematchWaiting = false;
       _opponentWantsRematch = false;
       _isInvitationGame = false;
+      _isReconnecting = false;
+      _isWaitingForReconnect = false;
     });
   }
 
@@ -451,7 +581,32 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
                 onPressed: () => _showExitDialog(theme),
               ),
             ),
-            body: _buildBody(theme),
+            body: Stack(
+              children: [
+                GameScreenTransition(
+                  transitionKey: '${_status.name}-$_currentRound-$_preRoundCountdown-$_roundInProgress-${_lastWinnerIndex ?? -1}-$_lastIsDraw',
+                  child: _buildBody(theme),
+                ),
+                if (_isReconnecting)
+                  GameReconnectHelper.buildReconnectOverlay(
+                    title: '재연결 중...',
+                    message: '네트워크 연결을 다시 붙이는 중입니다.',
+                    resultMessage: '20초 안에 돌아오지 못하면 이 게임은 패배로 종료됩니다.',
+                    secondsRemaining: _reconnectSecondsRemaining,
+                    countdownLabel: '패배 처리까지',
+                    accentColor: theme.primary,
+                  ),
+                if (_isWaitingForReconnect)
+                  GameReconnectHelper.buildReconnectOverlay(
+                    title: '상대 재연결 대기 중',
+                    message: '상대 연결이 끊겨 게임을 잠시 멈췄습니다.',
+                    resultMessage: '20초 안에 돌아오지 않으면 자동 승리로 처리됩니다.',
+                    secondsRemaining: _reconnectSecondsRemaining,
+                    countdownLabel: '자동 승리까지',
+                    accentColor: theme.primary,
+                  ),
+              ],
+            ),
           ),
         );
       },
@@ -459,18 +614,17 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
   }
 
   Widget _buildRankedWaitingView(GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(gradient: theme.backgroundGradient),
-      child: const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('게임 준비 중...', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          ],
-        ),
-      ),
+    return GameWaitingView(
+      backgroundGradient: theme.backgroundGradient,
+      accentColor: theme.primary,
+      icon: Icons.touch_app,
+      title: '스피드탭 준비 중',
+      subtitle: '라운드와 점수판을 맞추고 있습니다.',
+      statusMessages: const [
+        '탭 카운트와 라운드 수를 맞추고 있습니다.',
+        '시작 카운트다운을 준비하고 있습니다.',
+        '상대의 입력 상태를 확인하고 있습니다.',
+      ],
     );
   }
 
@@ -818,70 +972,21 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
     return Column(
       children: [
         // 프로필 & 점수판
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFFE0F7FA), Color(0xFFF0FAFA)],
-            ),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: GamePlayerProfile(
-                  name: _myNickname ?? '나',
-                  avatarUrl: _myAvatarUrl,
-                  isActive: true,
-                  isMe: true,
-                  profileSettings: _myProfileSettings,
-                  activeColor: const Color(0xFF00CEC9),
-                  extraWidget: _buildTapScoreWidget(_taps[_myPlayerIndex], _roundScores[_myPlayerIndex], true),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Column(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF00CEC9),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        'R$_currentRound',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'VS',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF00CEC9),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: GamePlayerProfile(
-                  name: _opponentNickname ?? '상대',
-                  avatarUrl: _opponentAvatarUrl,
-                  isActive: false,
-                  isMe: false,
-                  profileSettings: _opponentProfileSettings,
-                  activeColor: const Color(0xFF00CEC9),
-                  extraWidget: _buildTapScoreWidget(_taps[1 - _myPlayerIndex], _roundScores[1 - _myPlayerIndex], false),
-                ),
-              ),
-            ],
-          ),
+        GameDuelHeader(
+          backgroundColors: const [Color(0xFFE0F7FA), Color(0xFFF0FAFA)],
+          accentColor: const Color(0xFF00CEC9),
+          centerLabel: 'R$_currentRound',
+          centerSubtitle: '3라운드 대결',
+          myName: _myNickname ?? '나',
+          opponentName: _opponentNickname ?? '상대',
+          myAvatarUrl: _myAvatarUrl,
+          opponentAvatarUrl: _opponentAvatarUrl,
+          myActive: true,
+          opponentActive: false,
+          myProfileSettings: _myProfileSettings,
+          opponentProfileSettings: _opponentProfileSettings,
+          myExtraWidget: _buildTapScoreWidget(_taps[_myPlayerIndex], _roundScores[_myPlayerIndex], true),
+          opponentExtraWidget: _buildTapScoreWidget(_taps[1 - _myPlayerIndex], _roundScores[1 - _myPlayerIndex], false),
         ),
 
         // 게임 영역
@@ -897,36 +1002,15 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
   Widget _buildTapScoreWidget(int tapCount, int roundWins, bool isMe) {
     return Column(
       children: [
-        // 탭 카운트
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-          decoration: BoxDecoration(
-            color: isMe ? const Color(0xFF00CEC9) : Colors.grey,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(
-            '$tapCount',
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
+        GameHeaderScorePill(
+          score: tapCount,
+          color: isMe ? const Color(0xFF00CEC9) : Colors.grey,
         ),
         const SizedBox(height: 2),
-        // 라운드 승리 수
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: List.generate(2, (index) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 1),
-              child: Icon(
-                index < roundWins ? Icons.star : Icons.star_border,
-                size: 14,
-                color: index < roundWins ? Colors.amber : Colors.grey.shade300,
-              ),
-            );
-          }),
+        GameHeaderStarTrack(
+          total: 2,
+          active: roundWins,
+          activeColor: Colors.amber,
         ),
       ],
     );
@@ -997,8 +1081,6 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
   }
 
   Widget _buildTapView() {
-    final bool isLowTime = _remainingSeconds <= 3;
-
     return GestureDetector(
       onTapDown: (_) => _tap(),
       child: AnimatedBuilder(
@@ -1022,26 +1104,11 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     // 타이머
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                      decoration: BoxDecoration(
-                        color: isLowTime ? Colors.red : Colors.white,
-                        borderRadius: BorderRadius.circular(30),
-                        boxShadow: [
-                          BoxShadow(
-                            color: (isLowTime ? Colors.red : const Color(0xFF00CEC9)).withValues(alpha: 0.3),
-                            blurRadius: 10,
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        '$_remainingSeconds',
-                        style: TextStyle(
-                          fontSize: 48,
-                          fontWeight: FontWeight.bold,
-                          color: isLowTime ? Colors.white : const Color(0xFF00CEC9),
-                        ),
-                      ),
+                    GameTimerBadge(
+                      seconds: _remainingSeconds,
+                      label: '탭 남은 시간',
+                      accentColor: const Color(0xFF00CEC9),
+                      showLabel: false,
                     ),
                     const SizedBox(height: 40),
                     // 탭 아이콘
@@ -1103,15 +1170,16 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(
-            _lastIsDraw ? '무승부!' : (isMyWin ? '라운드 승리!' : '라운드 패배'),
-            style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-              color: _lastIsDraw ? Colors.orange : (isMyWin ? Colors.green : Colors.red),
-            ),
+          GameStagePanel(
+            icon: _lastIsDraw
+                ? Icons.handshake_rounded
+                : (isMyWin ? Icons.flash_on_rounded : Icons.timer_off_rounded),
+            title: _lastIsDraw ? '무승부!' : (isMyWin ? '라운드 승리!' : '라운드 패배'),
+            subtitle: '탭 수를 집계했고, 다음 라운드로 넘어갈 준비를 하고 있어요.',
+            accentColor: _lastIsDraw ? Colors.orange : (isMyWin ? Colors.green : Colors.red),
+            compact: true,
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 28),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -1147,10 +1215,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
             ],
           ),
           const SizedBox(height: 32),
-          Text(
-            '다음 라운드 준비 중...',
-            style: TextStyle(color: Colors.grey.shade600),
-          ),
+          Text('다음 라운드 준비 중...', style: TextStyle(color: Colors.grey.shade600)),
         ],
       ),
     );
@@ -1227,116 +1292,61 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
         ),
       ),
       child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: resultColor.withValues(alpha: 0.3),
-                    blurRadius: 20,
-                  ),
-                ],
-              ),
-              child: Icon(resultIcon, size: 64, color: resultColor),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              resultText,
-              style: TextStyle(
-                fontSize: 36,
-                fontWeight: FontWeight.bold,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              GameResultHero(
+                icon: resultIcon,
                 color: resultColor,
+                title: resultText,
+                subtitle: _isDraw
+                    ? '세 라운드 내내 팽팽하게 맞붙었어요.'
+                    : (isWinner ? '손끝 집중력이 끝까지 이어졌어요.' : '다음 판은 시작 템포를 더 빠르게 가져가봐요.'),
               ),
-            ),
-            const SizedBox(height: 16),
-            // 최종 점수
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _buildFinalScoreCard('나', _roundScores[_myPlayerIndex], true),
-                const SizedBox(width: 32),
-                const Text(':', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
-                const SizedBox(width: 32),
-                _buildFinalScoreCard(_opponentNickname ?? '상대', _roundScores[1 - _myPlayerIndex], false),
-              ],
-            ),
-            const SizedBox(height: 24),
+              const SizedBox(height: 22),
+              GameResultMatchupRow(
+                leftLabel: '나',
+                leftValue: '${_roundScores[_myPlayerIndex]}',
+                rightLabel: _opponentNickname ?? '상대',
+                rightValue: '${_roundScores[1 - _myPlayerIndex]}',
+                accentColor: resultColor,
+              ),
+              const SizedBox(height: 24),
             if (_opponentLeft)
-              Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.exit_to_app, size: 16, color: Colors.grey.shade600),
-                    const SizedBox(width: 8),
-                    Text('상대방이 나갔습니다', style: TextStyle(color: Colors.grey.shade600)),
-                  ],
-                ),
+              const GameResultStatusPill(
+                icon: Icons.exit_to_app_rounded,
+                text: '상대방이 나가서 경기 종료',
+                color: Color(0xFF6B7280),
               ),
             if (_opponentWantsRematch && !_opponentLeft)
-              Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.green.shade200),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.hourglass_top, size: 16, color: Colors.green.shade700),
-                    const SizedBox(width: 8),
-                    Text(
-                      '$_opponentNickname님이 대기 중...',
-                      style: TextStyle(color: Colors.green.shade700, fontWeight: FontWeight.w500),
-                    ),
-                  ],
-                ),
+              GameResultStatusPill(
+                icon: Icons.hourglass_top_rounded,
+                text: '$_opponentNickname님이 재경기 대기 중',
+                color: const Color(0xFF15803D),
               ),
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (!_opponentLeft)
-                  ElevatedButton.icon(
-                    onPressed: _rematchWaiting ? _cancelRematch : _requestRematch,
-                    icon: Icon(_rematchWaiting ? Icons.hourglass_top : Icons.replay),
-                    label: Text(_rematchWaiting ? '대기 중...' : '재경기'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _rematchWaiting ? Colors.orange : const Color(0xFF00CEC9),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                    ),
-                  ),
-                if (!_isInvitationGame)
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      _leaveGame();
-                      _findMatch();
-                    },
-                    icon: const Icon(Icons.search),
-                    label: const Text('다시 찾기'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF00CEC9),
-                      side: const BorderSide(color: Color(0xFF00CEC9)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                    ),
-                  ),
-                if (!_isInvitationGame && !_opponentLeft && _opponentUserId != null && !context.read<FriendProvider>().isFriend(_opponentUserId!))
-                  OutlinedButton.icon(
-                    onPressed: () {
+            GameResultActionButtons(
+              accentColor: const Color(0xFF00CEC9),
+              opponentLeft: _opponentLeft,
+              rematchWaiting: _rematchWaiting,
+              isInvitationGame: _isInvitationGame,
+              canSendFriendRequest: !_isInvitationGame &&
+                  !_opponentLeft &&
+                  _opponentUserId != null &&
+                  !context.read<FriendProvider>().isFriend(_opponentUserId!),
+              onRematchPressed: _rematchWaiting ? _cancelRematch : _requestRematch,
+              onSearchAgainPressed: () {
+                _leaveGame();
+                _findMatch();
+              },
+              onLobbyPressed: () {
+                _leaveGame();
+                Navigator.pop(context);
+              },
+              onFriendRequestPressed: _opponentUserId == null
+                  ? null
+                  : () {
                       context.read<FriendProvider>().sendFriendRequestByUserId(_opponentUserId!);
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -1345,63 +1355,11 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
                         ),
                       );
                     },
-                    icon: const Icon(Icons.person_add),
-                    label: const Text('친구 요청'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.green,
-                      side: const BorderSide(color: Colors.green),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                    ),
-                  ),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    _leaveGame();
-                    Navigator.pop(context);
-                  },
-                  icon: const Icon(Icons.home),
-                  label: const Text('로비'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.grey,
-                    side: BorderSide(color: Colors.grey.shade400),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                  ),
-                ),
-              ],
             ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildFinalScoreCard(String name, int score, bool isMe) {
-    return Column(
-      children: [
-        Text(
-          name,
-          style: TextStyle(
-            fontSize: 14,
-            color: isMe ? const Color(0xFF00CEC9) : Colors.grey.shade600,
-            fontWeight: isMe ? FontWeight.bold : FontWeight.normal,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          decoration: BoxDecoration(
-            color: isMe ? const Color(0xFF00CEC9) : Colors.grey,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(
-            '$score',
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
@@ -1433,41 +1391,13 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
     }
 
     _isExitDialogOpen = true;
-    showDialog(
+    showGameExitDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
-          children: [
-            Icon(Icons.exit_to_app, color: Color(0xFF00CEC9)),
-            SizedBox(width: 8),
-            Text('게임 나가기'),
-          ],
-        ),
-        content: Text(
-          isRankedWaiting
-              ? '랭크전 진행 중입니다.\n나가시겠습니까?'
-              : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              _leaveGame();
-              Navigator.pop(context);
-              Navigator.pop(context);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00CEC9),
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('나가기'),
-          ),
-        ],
-      ),
+      accentColor: const Color(0xFF00CEC9),
+      message: isRankedWaiting
+          ? '랭크전 진행 중입니다.\n나가시겠습니까?'
+          : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
+      onExit: _leaveGame,
     ).then((_) => _isExitDialogOpen = false);
   }
 }

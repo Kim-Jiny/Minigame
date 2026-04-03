@@ -4,13 +4,22 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
 import '../../providers/game_provider.dart';
-import '../../providers/ranked_provider.dart';
 import '../../services/socket_service.dart';
 import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
-import '../../widgets/game_player_profile.dart';
 import '../../utils/game_theme.dart';
+import '../common/game_duel_header.dart';
+import '../common/game_event_helper.dart';
+import '../common/game_exit_helper.dart';
+import '../common/game_reconnect_helper.dart';
+import '../common/game_result_action_buttons.dart';
+import '../common/game_result_summary.dart';
+import '../common/game_screen_transition.dart';
+import '../common/game_session_helper.dart';
+import '../common/game_stage_panel.dart';
+import '../common/game_timer_badge.dart';
+import '../common/game_waiting_view.dart';
 
 enum SequenceGameStatus {
   idle,
@@ -34,7 +43,7 @@ class SequenceScreen extends StatefulWidget {
 class _SequenceScreenState extends State<SequenceScreen>
     with SingleTickerProviderStateMixin {
   final SocketService _socketService = SocketService();
-  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
   bool _hasScheduledPop = false;  // 중복 pop 방지
   bool _isExitDialogOpen = false;  // 나가기 다이얼로그 열림 상태
 
@@ -71,6 +80,12 @@ class _SequenceScreenState extends State<SequenceScreen>
   bool _opponentLeft = false;
   bool _rematchWaiting = false;
   bool _opponentWantsRematch = false;
+  bool _isReconnecting = false;
+  bool _isWaitingForReconnect = false;
+  bool _isResyncingPhase = false;
+  Timer? _reconnectTimer;
+  Timer? _waitingReconnectTimer;
+  int _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
 
   // 타이머
   int _timeLimit = 0; // ms
@@ -82,6 +97,7 @@ class _SequenceScreenState extends State<SequenceScreen>
   int? _lastInputPosition;
   bool? _lastInputCorrect;
   Timer? _feedbackTimer;
+  int _sequencePlaybackToken = 0;
 
   late AnimationController _animController;
 
@@ -136,15 +152,24 @@ class _SequenceScreenState extends State<SequenceScreen>
     _showTimer?.cancel();
     _feedbackTimer?.cancel();
     _countdownTimer?.cancel();
+    _reconnectTimer?.cancel();
+    _waitingReconnectTimer?.cancel();
     _animController.dispose();
     _socketListeners.offAll();
     super.dispose();
   }
 
-  void _startCountdown() {
+  bool get _isGameActive =>
+      _status != SequenceGameStatus.idle &&
+      _status != SequenceGameStatus.searching &&
+      _status != SequenceGameStatus.finished;
+
+  void _startCountdown([int? overrideTimeLimitMs]) {
     _countdownTimer?.cancel();
-    _remainingSeconds = (_timeLimit / 1000).ceil();
+    final countdownMs = overrideTimeLimitMs ?? _timeLimit;
+    _remainingSeconds = (countdownMs / 1000).ceil();
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) { timer.cancel(); return; }
       if (_remainingSeconds > 0) {
         setState(() => _remainingSeconds--);
       } else {
@@ -157,14 +182,67 @@ class _SequenceScreenState extends State<SequenceScreen>
     _countdownTimer?.cancel();
   }
 
+  void _cancelSequencePlayback() {
+    _sequencePlaybackToken++;
+    _showTimer?.cancel();
+  }
+
+  void _startWaitingReconnectCountdown() {
+    _waitingReconnectTimer?.cancel();
+    _waitingReconnectTimer = GameReconnectHelper.startVisualCountdown(
+      onTick: (seconds) {
+        if (!mounted || !_isWaitingForReconnect) return;
+        setState(() => _reconnectSecondsRemaining = seconds);
+      },
+    );
+  }
+
   void _setupSocketListeners() {
+    _socketListeners.on('connect', (_) {
+      _myId = _socketService.socket?.id;
+      if (!_isGameActive || _roomId == null) return;
+      _reconnectTimer?.cancel();
+      _waitingReconnectTimer?.cancel();
+      _cancelSequencePlayback();
+      _stopCountdown();
+      _feedbackTimer?.cancel();
+      _reconnectTimer = GameReconnectHelper.startReconnectTimeout(
+        context: context,
+        showFailureSnackBar: false,
+        onEnterWaiting: () => setState(() {
+          _isReconnecting = true;
+          _isWaitingForReconnect = false;
+          _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+        }),
+        onTick: (seconds) {
+          if (!mounted) return;
+          setState(() => _reconnectSecondsRemaining = seconds);
+        },
+        onTimeout: () {
+          GameSessionHelper.handleReconnectTimeout(
+            context: context,
+            mounted: mounted,
+            hasScheduledPop: _hasScheduledPop,
+            markScheduledPop: () => _hasScheduledPop = true,
+            beforeNavigate: () {
+              _cancelSequencePlayback();
+              _countdownTimer?.cancel();
+              _feedbackTimer?.cancel();
+              _reset();
+            },
+          );
+        },
+      );
+    });
+
     _socketListeners.on('waiting_for_match', (_) {
       setState(() => _status = SequenceGameStatus.searching);
     });
 
     _socketListeners.on('match_found', (data) {
       final players = data['players'] as List;
-      final opponent = players.firstWhere((p) => p['id'] != _myId);
+      final opponent = players.cast<Map<String, dynamic>?>().firstWhere((p) => p!['id'] != _myId, orElse: () => null);
+      if (opponent == null) return;
       final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
       _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
 
@@ -217,12 +295,15 @@ class _SequenceScreenState extends State<SequenceScreen>
           _opponentLeft = false;
           _isDraw = false;
           _winnerId = null;
+          _isReconnecting = false;
+          _isWaitingForReconnect = false;
         });
         _showSequence();
       }
     });
 
     _socketListeners.on('sequence_show', (data) {
+      final isReconnectResume = data['isReconnectResume'] == true;
       setState(() {
         _sequence = List<int>.from(data['sequence']);
         _currentLevel = data['level'];
@@ -230,8 +311,19 @@ class _SequenceScreenState extends State<SequenceScreen>
         _timeLimit = data['timeLimit'] ?? 9000;
         _remainingSeconds = (_timeLimit / 1000).ceil();
         _myInputs = [];
+        _isWaitingForReconnect = false;
       });
-      _showSequence();
+      if (isReconnectResume) {
+        _cancelSequencePlayback();
+        _stopCountdown();
+        setState(() {
+          _status = SequenceGameStatus.showing;
+          _showingIndex = -1;
+          _isResyncingPhase = true;
+        });
+      } else {
+        _showSequence();
+      }
     });
 
     _socketListeners.on('sequence_timeout', (data) {
@@ -264,17 +356,152 @@ class _SequenceScreenState extends State<SequenceScreen>
       setState(() {
         _myMaxLevel = _currentLevel;
         _status = SequenceGameStatus.waiting;
+        _isWaitingForReconnect = false;
       });
+    });
+
+    _socketListeners.on('sequence_round_resumed', (data) {
+      _cancelSequencePlayback();
+      final sequence = List<int>.from(data['sequence'] ?? _sequence);
+      final playerInputs = List<List<int>>.from(
+        (data['playerInputs'] as List<dynamic>? ?? const [])
+            .map((item) => List<int>.from(item as List<dynamic>)),
+      );
+      final playerFailed = List<bool>.from(data['playerFailed'] ?? [_myFailed, _opponentFailed]);
+      final playerMaxLevels = List<int>.from(data['playerMaxLevels'] ?? [_myMaxLevel, _opponentMaxLevel]);
+      final phase = data['phase'] as String? ?? 'playing';
+
+      final myInputs = playerInputs.length > _myPlayerIndex
+          ? playerInputs[_myPlayerIndex]
+          : _myInputs;
+      final opponentIndex = _myPlayerIndex == 0 ? 1 : 0;
+      final myFailed = playerFailed.length > _myPlayerIndex
+          ? playerFailed[_myPlayerIndex]
+          : _myFailed;
+      final opponentFailed = playerFailed.length > opponentIndex
+          ? playerFailed[opponentIndex]
+          : _opponentFailed;
+      final remainingTimeMs = (data['remainingTimeMs'] as num?)?.toInt() ?? (data['timeLimit'] as num?)?.toInt() ?? _timeLimit;
+
+      setState(() {
+        _sequence = sequence;
+        _currentLevel = data['level'] ?? _currentLevel;
+        _timeLimit = data['timeLimit'] ?? _timeLimit;
+        _remainingSeconds = (remainingTimeMs / 1000).ceil();
+        _myInputs = myInputs;
+        _myFailed = myFailed;
+        _opponentFailed = opponentFailed;
+        _myMaxLevel = playerMaxLevels.length > _myPlayerIndex
+            ? playerMaxLevels[_myPlayerIndex]
+            : _myMaxLevel;
+        _opponentMaxLevel = playerMaxLevels.length > opponentIndex
+            ? playerMaxLevels[opponentIndex]
+            : _opponentMaxLevel;
+        _status = phase == 'waiting'
+            ? SequenceGameStatus.waiting
+            : (myFailed ? SequenceGameStatus.waiting : SequenceGameStatus.playing);
+        _isWaitingForReconnect = false;
+        _isReconnecting = false;
+        _isResyncingPhase = false;
+      });
+      if (phase == 'playing' && !myFailed) {
+        _startCountdown(remainingTimeMs);
+      } else {
+        _stopCountdown();
+      }
+    });
+
+    _socketListeners.on('rejoin_game_state', (data) {
+      if (data['gameType'] != 'sequence') return;
+      _reconnectTimer?.cancel();
+      _cancelSequencePlayback();
+      _myId = _socketService.socket?.id;
+      final remainingTimeMs = (data['remainingTimeMs'] as num?)?.toInt() ?? (data['timeLimit'] as num?)?.toInt() ?? _timeLimit;
+      setState(() {
+        _roomId = data['roomId'] as String?;
+        _myPlayerIndex = (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
+        _gridSize = (data['gridSize'] as num?)?.toInt() ?? _gridSize;
+        _sequence = List<int>.from(data['sequence'] ?? _sequence);
+        _currentLevel = (data['level'] as num?)?.toInt() ?? _currentLevel;
+        _showDelay = (data['showDelay'] as num?)?.toInt() ?? _showDelay;
+        _timeLimit = (data['timeLimit'] as num?)?.toInt() ?? _timeLimit;
+        _remainingSeconds = (remainingTimeMs / 1000).ceil();
+        _isHardcore = data['isHardcore'] == true;
+        _myInputs = List<int>.from(data['myInputs'] ?? _myInputs);
+        _myFailed = data['myFailed'] == true;
+        _opponentFailed = data['opponentFailed'] == true;
+        _myMaxLevel = (data['myMaxLevel'] as num?)?.toInt() ?? _myMaxLevel;
+        _opponentMaxLevel = (data['opponentMaxLevel'] as num?)?.toInt() ?? _opponentMaxLevel;
+        final phase = data['phase'] as String? ?? 'playing';
+        _status = switch (phase) {
+          'showing' => SequenceGameStatus.showing,
+          'waiting' => SequenceGameStatus.waiting,
+          _ => (_myFailed ? SequenceGameStatus.waiting : SequenceGameStatus.playing),
+        };
+        _isReconnecting = false;
+        _isWaitingForReconnect = false;
+        _isResyncingPhase = phase == 'showing';
+      });
+      final phase = data['phase'] as String? ?? 'playing';
+      if (phase == 'playing' && _status == SequenceGameStatus.playing) {
+        _startCountdown(remainingTimeMs);
+      } else {
+        _stopCountdown();
+      }
+      GameReconnectHelper.completeReconnect(
+        context: context,
+        onRecovered: () {},
+      );
+    });
+
+    _socketListeners.on('reconnect_failed', (_) {
+      _reconnectTimer?.cancel();
+      GameSessionHelper.handleReconnectTimeout(
+        context: context,
+        mounted: mounted,
+        hasScheduledPop: _hasScheduledPop,
+        markScheduledPop: () => _hasScheduledPop = true,
+        beforeNavigate: () {
+          _cancelSequencePlayback();
+          _stopCountdown();
+          _feedbackTimer?.cancel();
+          _reset();
+        },
+        message: '20초 안에 연결을 복구하지 못해 게임에서 제외되었습니다.',
+      );
+    });
+
+    _socketListeners.on('opponent_disconnected', (_) {
+      if (!_isGameActive) return;
+      _cancelSequencePlayback();
+      _stopCountdown();
+      _feedbackTimer?.cancel();
+      setState(() {
+        _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+        _isWaitingForReconnect = true;
+        _isReconnecting = false;
+      });
+      _startWaitingReconnectCountdown();
+    });
+
+    _socketListeners.on('opponent_reconnected', (_) {
+      if (!_isGameActive) return;
+      _waitingReconnectTimer?.cancel();
+      setState(() => _isWaitingForReconnect = false);
+      GameReconnectHelper.showOpponentReconnected(context);
     });
 
     _socketListeners.on('game_end', (data) {
       if (_status == SequenceGameStatus.finished) return;
-      _showTimer?.cancel();
+      _cancelSequencePlayback();
       _stopCountdown();
       setState(() {
         _status = SequenceGameStatus.finished;
         _winnerId = data['winner'];
         _isDraw = data['isDraw'] ?? false;
+        _isReconnecting = false;
+        _isWaitingForReconnect = false;
+        _isResyncingPhase = false;
         if (data['maxLevels'] != null) {
           final maxLevels = List<int>.from(data['maxLevels']);
           _myMaxLevel = maxLevels[_myPlayerIndex];
@@ -284,12 +511,15 @@ class _SequenceScreenState extends State<SequenceScreen>
           _opponentMaxLevel = data['player${1 - _myPlayerIndex}Level'] ?? 0;
         }
       });
+      _waitingReconnectTimer?.cancel();
     });
 
     _socketListeners.on('opponent_left', (data) {
       if (_status == SequenceGameStatus.idle ||
           _status == SequenceGameStatus.searching ||
-          _status == SequenceGameStatus.finished) return;
+          _status == SequenceGameStatus.finished) {
+        return;
+      }
       // 나가기 다이얼로그가 열려있으면 먼저 닫기
       if (_isExitDialogOpen && mounted) {
         Navigator.of(context).pop();
@@ -301,7 +531,11 @@ class _SequenceScreenState extends State<SequenceScreen>
         _opponentLeft = true;
         _rematchWaiting = false;
         _opponentWantsRematch = false;
+        _isReconnecting = false;
+        _isWaitingForReconnect = false;
+        _isResyncingPhase = false;
       });
+      _waitingReconnectTimer?.cancel();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -314,54 +548,39 @@ class _SequenceScreenState extends State<SequenceScreen>
       }
     });
 
-    _socketListeners.on('rematch_waiting', (data) {
-      setState(() => _rematchWaiting = data['waiting'] ?? false);
-    });
+    GameEventHelper.registerRematchHandlers(
+      registry: _socketListeners,
+      onRematchWaiting: (waiting) {
+        setState(() => _rematchWaiting = waiting);
+      },
+      onOpponentRematchChanged: (wantsRematch) {
+        setState(() => _opponentWantsRematch = wantsRematch);
+      },
+    );
 
-    _socketListeners.on('rematch_requested', (_) {
-      setState(() => _opponentWantsRematch = true);
-    });
-
-    _socketListeners.on('rematch_cancelled', (_) {
-      setState(() => _opponentWantsRematch = false);
-    });
-
-    // 에러 처리 (방이 없어진 경우 등)
-    _socketListeners.on('error', (data) {
-      final message = data['message'] ?? '';
-      if (message.toString().contains('Invalid room') ||
-          message.toString().contains('not in progress')) {
-        _handleRoomInvalid();
-      }
-    });
+    GameEventHelper.registerInvalidRoomHandler(
+      registry: _socketListeners,
+      onInvalidRoom: _handleRoomInvalid,
+    );
   }
 
   void _handleRoomInvalid() {
-    if (!mounted || _hasScheduledPop) return;
-    _hasScheduledPop = true;
-
-    _showTimer?.cancel();
-    _countdownTimer?.cancel();
-    _feedbackTimer?.cancel();
-
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('연결이 끊어져 게임이 종료되었습니다.'),
-        backgroundColor: Colors.orange,
-      ),
+    GameSessionHelper.handleInvalidRoom(
+      context: context,
+      mounted: mounted,
+      hasScheduledPop: _hasScheduledPop,
+      markScheduledPop: () => _hasScheduledPop = true,
+      beforeNavigate: () {
+        _cancelSequencePlayback();
+        _countdownTimer?.cancel();
+        _feedbackTimer?.cancel();
+      },
     );
-
-    // GameProvider 초기화 후 로비로 이동
-    try {
-      context.read<GameProvider>().reset();
-    } catch (_) {}
-
-    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
 
   void _showSequence() {
+    final playbackToken = ++_sequencePlaybackToken;
     debugPrint('🎮 _showSequence called! sequence: $_sequence');
     setState(() {
       _status = SequenceGameStatus.showing;
@@ -374,7 +593,7 @@ class _SequenceScreenState extends State<SequenceScreen>
     _showTimer?.cancel();
 
     void showNext() {
-      if (!mounted) return;
+      if (!mounted || playbackToken != _sequencePlaybackToken) return;
 
       if (index < _sequence.length) {
         // 칸 켜기
@@ -382,11 +601,12 @@ class _SequenceScreenState extends State<SequenceScreen>
 
         // showDelay 후 칸 끄기
         Future.delayed(Duration(milliseconds: _showDelay), () {
-          if (!mounted) return;
+          if (!mounted || playbackToken != _sequencePlaybackToken) return;
           setState(() => _showingIndex = -1);
 
           // gap 후 다음 칸
           Future.delayed(Duration(milliseconds: gapDuration), () {
+            if (!mounted || playbackToken != _sequencePlaybackToken) return;
             index++;
             showNext();
           });
@@ -394,7 +614,7 @@ class _SequenceScreenState extends State<SequenceScreen>
       } else {
         // 시퀀스 다 보여준 후 입력 모드
         Future.delayed(const Duration(milliseconds: 300), () {
-          if (mounted) {
+          if (mounted && playbackToken == _sequencePlaybackToken) {
             setState(() {
               _showingIndex = -1;
               _status = SequenceGameStatus.playing;
@@ -406,7 +626,10 @@ class _SequenceScreenState extends State<SequenceScreen>
     }
 
     // 첫 번째 시작
-    Future.delayed(const Duration(milliseconds: 500), showNext);
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (!mounted || playbackToken != _sequencePlaybackToken) return;
+      showNext();
+    });
   }
 
   void _findMatch() {
@@ -485,25 +708,19 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   void _leaveGame() {
-    String? roomId = _roomId;
-    if (widget.isRanked && roomId == null) {
-      try {
-        roomId = context.read<RankedProvider>().roomId;
-      } catch (_) {}
-    }
-    if (roomId != null) {
-      _socketService.emit('leave_room', {'roomId': roomId});
-    }
-    // GameProvider 상태도 초기화
-    try {
-      context.read<GameProvider>().reset();
-    } catch (_) {}
-    _reset();
+    GameSessionHelper.leaveGame(
+      context: context,
+      socketService: _socketService,
+      roomId: _roomId,
+      isRanked: widget.isRanked,
+      resetState: _reset,
+    );
   }
 
   void _reset() {
     _showTimer?.cancel();
     _feedbackTimer?.cancel();
+    _waitingReconnectTimer?.cancel();
     setState(() {
       _status = SequenceGameStatus.idle;
       _roomId = null;
@@ -521,6 +738,9 @@ class _SequenceScreenState extends State<SequenceScreen>
       _rematchWaiting = false;
       _opponentWantsRematch = false;
       _isInvitationGame = false;
+      _isReconnecting = false;
+      _isWaitingForReconnect = false;
+      _isResyncingPhase = false;
     });
   }
 
@@ -545,24 +765,52 @@ class _SequenceScreenState extends State<SequenceScreen>
             onPressed: _showExitDialog,
           ),
         ),
-        body: _buildBody(),
+        body: Stack(
+          children: [
+            GameScreenTransition(
+              transitionKey: '${_status.name}-$_currentLevel-${_myInputs.length}-$_myFailed-$_opponentFailed-$_isResyncingPhase',
+              child: _buildBody(),
+            ),
+            if (_isReconnecting)
+              GameReconnectHelper.buildReconnectOverlay(
+                title: '재연결 중...',
+                message: '네트워크 연결을 다시 붙이는 중입니다.',
+                resultMessage: '20초 안에 돌아오지 못하면 이 게임은 패배로 종료됩니다.',
+                secondsRemaining: _reconnectSecondsRemaining,
+                countdownLabel: '패배 처리까지',
+                accentColor: _theme.primary,
+              ),
+            if (_isWaitingForReconnect)
+              GameReconnectHelper.buildReconnectOverlay(
+                title: '상대 재연결 대기 중',
+                message: _isResyncingPhase
+                    ? '게임 상태를 다시 맞추는 중입니다.'
+                    : '상대 연결이 끊겨 게임을 잠시 멈췄습니다.',
+                resultMessage: _isResyncingPhase
+                    ? '동기화가 끝나면 현재 단계부터 자연스럽게 이어집니다.'
+                    : '20초 안에 돌아오지 않으면 자동 승리로 처리됩니다.',
+                secondsRemaining: _reconnectSecondsRemaining,
+                countdownLabel: _isResyncingPhase ? '동기화 진행 중' : '자동 승리까지',
+                accentColor: _theme.primary,
+              ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildRankedWaitingView() {
-    return Container(
-      decoration: BoxDecoration(gradient: _theme.backgroundGradient),
-      child: const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('게임 준비 중...', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          ],
-        ),
-      ),
+    return GameWaitingView(
+      backgroundGradient: _theme.backgroundGradient,
+      accentColor: _theme.primary,
+      icon: Icons.psychology,
+      title: '순서 기억 준비 중',
+      subtitle: '라운드 정보와 난이도를 맞추고 있습니다.',
+      statusMessages: const [
+        '시퀀스 길이와 난이도를 불러오고 있습니다.',
+        '입력 시간을 계산하고 있습니다.',
+        '상대와 진행 상태를 맞추고 있습니다.',
+      ],
     );
   }
 
@@ -823,7 +1071,7 @@ class _SequenceScreenState extends State<SequenceScreen>
                   Switch(
                     value: _isHardcore,
                     onChanged: (value) => setState(() => _isHardcore = value),
-                    activeColor: Colors.red,
+                    activeThumbColor: Colors.red,
                     activeTrackColor: Colors.red.shade200,
                   ),
                 ],
@@ -1028,7 +1276,6 @@ class _SequenceScreenState extends State<SequenceScreen>
 
   Widget _buildPlayingView() {
     final theme = _theme;
-    final isLowTime = _remainingSeconds <= 3;
     return Column(
       children: [
         _buildHeader(),
@@ -1041,34 +1288,11 @@ class _SequenceScreenState extends State<SequenceScreen>
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 // 타이머 표시
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: isLowTime ? Colors.red.shade50 : Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: isLowTime ? Colors.red : Colors.grey.shade300,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.timer,
-                        size: 20,
-                        color: isLowTime ? Colors.red : Colors.grey.shade600,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '$_remainingSeconds초',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: isLowTime ? Colors.red : Colors.grey.shade700,
-                        ),
-                      ),
-                    ],
-                  ),
+                GameTimerBadge(
+                  seconds: _remainingSeconds,
+                  label: '입력 남은 시간',
+                  accentColor: const Color(0xFF6366F1),
+                  compact: true,
                 ),
                 const SizedBox(height: 16),
                 Text(
@@ -1107,26 +1331,19 @@ class _SequenceScreenState extends State<SequenceScreen>
               ),
             ),
             child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    _myFailed ? Icons.close : Icons.check_circle,
-                    size: 64,
-                    color: _myFailed ? Colors.red : Colors.green,
+              child: GameStagePanel(
+                icon: _myFailed ? Icons.close_rounded : Icons.check_circle_rounded,
+                title: _myFailed ? '입력 종료' : '입력 완료',
+                subtitle: message,
+                accentColor: _myFailed ? Colors.red : Colors.green,
+                content: const SizedBox(
+                  width: 30,
+                  height: 30,
+                  child: CircularProgressIndicator(
+                    color: Color(0xFF9B59B6),
+                    strokeWidth: 3,
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    message,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: _myFailed ? Colors.red : Colors.green,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  const CircularProgressIndicator(color: Color(0xFF9B59B6)),
-                ],
+                ),
               ),
             ),
           ),
@@ -1136,91 +1353,30 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   Widget _buildHeader() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFFF3E5F5), Color(0xFFFCE4EC)],
-        ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: GamePlayerProfile(
-              name: _myNickname ?? '나',
-              avatarUrl: _myAvatarUrl,
-              isActive: !_myFailed,
-              isMe: true,
-              profileSettings: _myProfileSettings,
-              activeColor: const Color(0xFF9B59B6),
-              extraWidget: _buildStatusWidget(_myFailed),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Column(
-              children: [
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF9B59B6),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    'Lv.$_currentLevel',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  'VS',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF9B59B6),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: GamePlayerProfile(
-              name: _opponentNickname ?? '상대',
-              avatarUrl: _opponentAvatarUrl,
-              isActive: !_opponentFailed,
-              isMe: false,
-              profileSettings: _opponentProfileSettings,
-              activeColor: const Color(0xFF9B59B6),
-              extraWidget: _buildStatusWidget(_opponentFailed),
-            ),
-          ),
-        ],
-      ),
+    return GameDuelHeader(
+      backgroundColors: const [Color(0xFFF3E5F5), Color(0xFFFCE4EC)],
+      accentColor: const Color(0xFF9B59B6),
+      centerLabel: 'Lv.$_currentLevel',
+      centerSubtitle: _isHardcore ? '하드코어' : (_gridSize == 16 ? '4x4 패턴' : '3x3 패턴'),
+      myName: _myNickname ?? '나',
+      opponentName: _opponentNickname ?? '상대',
+      myAvatarUrl: _myAvatarUrl,
+      opponentAvatarUrl: _opponentAvatarUrl,
+      myActive: !_myFailed,
+      opponentActive: !_opponentFailed,
+      myProfileSettings: _myProfileSettings,
+      opponentProfileSettings: _opponentProfileSettings,
+      myExtraWidget: _buildStatusWidget(_myFailed),
+      opponentExtraWidget: _buildStatusWidget(_opponentFailed),
     );
   }
 
   Widget _buildStatusWidget(bool failed) {
     if (!failed) return const SizedBox.shrink();
-    return Container(
-      margin: const EdgeInsets.only(top: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: Colors.red,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: const Text(
-        'OUT',
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.bold,
-          color: Colors.white,
-        ),
-      ),
+    return const GameHeaderStatusPill(
+      text: 'OUT',
+      color: Colors.red,
+      margin: EdgeInsets.only(top: 4),
     );
   }
 
@@ -1381,204 +1537,74 @@ class _SequenceScreenState extends State<SequenceScreen>
         ),
       ),
       child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: resultColor.withValues(alpha: 0.3),
-                    blurRadius: 20,
-                  ),
-                ],
-              ),
-              child: Icon(resultIcon, size: 64, color: resultColor),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+            GameResultHero(
+              icon: resultIcon,
+              color: resultColor,
+              title: resultText,
+              subtitle: _isDraw
+                  ? '기억력 대결이 끝까지 팽팽했어요.'
+                  : (isWinner ? '더 높은 단계까지 침착하게 도달했어요.' : '다음 판은 초반 패턴부터 더 단단하게 기억해봐요.'),
             ),
-            const SizedBox(height: 24),
-            Text(
-              resultText,
-              style: TextStyle(
-                fontSize: 36,
-                fontWeight: FontWeight.bold,
-                color: resultColor,
-              ),
-            ),
-            const SizedBox(height: 16),
-            // 최고 레벨 비교
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _buildLevelCard('나', _myMaxLevel, true),
-                const SizedBox(width: 32),
-                const Text(':',
-                    style:
-                        TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
-                const SizedBox(width: 32),
-                _buildLevelCard(_opponentNickname ?? '상대', _opponentMaxLevel, false),
-              ],
+            const SizedBox(height: 22),
+            GameResultMatchupRow(
+              leftLabel: '나',
+              leftValue: 'Lv.$_myMaxLevel',
+              rightLabel: _opponentNickname ?? '상대',
+              rightValue: 'Lv.$_opponentMaxLevel',
+              accentColor: resultColor,
             ),
             const SizedBox(height: 24),
             if (_opponentLeft)
-              Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.exit_to_app,
-                        size: 16, color: Colors.grey.shade600),
-                    const SizedBox(width: 8),
-                    Text('상대방이 나갔습니다',
-                        style: TextStyle(color: Colors.grey.shade600)),
-                  ],
-                ),
+              const GameResultStatusPill(
+                icon: Icons.exit_to_app_rounded,
+                text: '상대방이 나가서 경기 종료',
+                color: Color(0xFF6B7280),
               ),
             if (_opponentWantsRematch && !_opponentLeft)
-              Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.green.shade200),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.hourglass_top,
-                        size: 16, color: Colors.green.shade700),
-                    const SizedBox(width: 8),
-                    Text(
-                      '$_opponentNickname님이 대기 중...',
-                      style: TextStyle(
-                          color: Colors.green.shade700,
-                          fontWeight: FontWeight.w500),
-                    ),
-                  ],
-                ),
+              GameResultStatusPill(
+                icon: Icons.hourglass_top_rounded,
+                text: '$_opponentNickname님이 재경기 대기 중',
+                color: const Color(0xFF15803D),
               ),
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (!_opponentLeft)
-                  ElevatedButton.icon(
-                    onPressed:
-                        _rematchWaiting ? _cancelRematch : _requestRematch,
-                    icon: Icon(
-                        _rematchWaiting ? Icons.hourglass_top : Icons.replay),
-                    label: Text(_rematchWaiting ? '대기 중...' : '재경기'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _rematchWaiting
-                          ? Colors.orange
-                          : const Color(0xFF9B59B6),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(30)),
-                    ),
-                  ),
-                if (!_isInvitationGame)
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      _leaveGame();
-                      _findMatch();
-                    },
-                    icon: const Icon(Icons.search),
-                    label: const Text('다시 찾기'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF9B59B6),
-                      side: const BorderSide(color: Color(0xFF9B59B6)),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(30)),
-                    ),
-                  ),
-                if (!_isInvitationGame &&
-                    !_opponentLeft &&
-                    _opponentUserId != null &&
-                    !context.read<FriendProvider>().isFriend(_opponentUserId!))
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      context
-                          .read<FriendProvider>()
-                          .sendFriendRequestByUserId(_opponentUserId!);
+            GameResultActionButtons(
+              accentColor: const Color(0xFF9B59B6),
+              opponentLeft: _opponentLeft,
+              rematchWaiting: _rematchWaiting,
+              isInvitationGame: _isInvitationGame,
+              canSendFriendRequest: !_isInvitationGame &&
+                  !_opponentLeft &&
+                  _opponentUserId != null &&
+                  !context.read<FriendProvider>().isFriend(_opponentUserId!),
+              onRematchPressed: _rematchWaiting ? _cancelRematch : _requestRematch,
+              onSearchAgainPressed: () {
+                _leaveGame();
+                _findMatch();
+              },
+              onLobbyPressed: () {
+                _leaveGame();
+                Navigator.pop(context);
+              },
+              onFriendRequestPressed: _opponentUserId == null
+                  ? null
+                  : () {
+                      context.read<FriendProvider>().sendFriendRequestByUserId(_opponentUserId!);
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content:
-                              Text('$_opponentNickname님에게 친구 요청을 보냈습니다'),
+                          content: Text('$_opponentNickname님에게 친구 요청을 보냈습니다'),
                           duration: const Duration(seconds: 2),
                         ),
                       );
                     },
-                    icon: const Icon(Icons.person_add),
-                    label: const Text('친구 요청'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.green,
-                      side: const BorderSide(color: Colors.green),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(30)),
-                    ),
-                  ),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    _leaveGame();
-                    Navigator.pop(context);
-                  },
-                  icon: const Icon(Icons.home),
-                  label: const Text('로비'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.grey,
-                    side: BorderSide(color: Colors.grey.shade400),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30)),
-                  ),
-                ),
-              ],
             ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildLevelCard(String name, int level, bool isMe) {
-    return Column(
-      children: [
-        Text(
-          name,
-          style: TextStyle(
-            fontSize: 14,
-            color: isMe ? const Color(0xFF9B59B6) : Colors.grey.shade600,
-            fontWeight: isMe ? FontWeight.bold : FontWeight.normal,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          decoration: BoxDecoration(
-            color: isMe ? const Color(0xFF9B59B6) : Colors.grey,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(
-            'Lv.$level',
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
@@ -1610,41 +1636,13 @@ class _SequenceScreenState extends State<SequenceScreen>
     }
 
     _isExitDialogOpen = true;
-    showDialog(
+    showGameExitDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
-          children: [
-            Icon(Icons.exit_to_app, color: Color(0xFF9B59B6)),
-            SizedBox(width: 8),
-            Text('게임 나가기'),
-          ],
-        ),
-        content: Text(
-          isRankedWaiting
-              ? '랭크전 진행 중입니다.\n나가시겠습니까?'
-              : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              _leaveGame();
-              Navigator.pop(context);
-              Navigator.pop(context);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF9B59B6),
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('나가기'),
-          ),
-        ],
-      ),
+      accentColor: const Color(0xFF9B59B6),
+      message: isRankedWaiting
+          ? '랭크전 진행 중입니다.\n나가시겠습니까?'
+          : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
+      onExit: _leaveGame,
     ).then((_) => _isExitDialogOpen = false);
   }
 }

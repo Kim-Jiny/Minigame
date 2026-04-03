@@ -1,40 +1,97 @@
 import { Router, Request, Response } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
-import { findOrCreateUser, updateNickname, deleteUser } from '../services/userService';
+import { findOrCreateUser, updateNickname, deleteUser, findUserById } from '../services/userService';
 import { generateToken, verifyToken } from '../utils/jwt';
 
 const router = Router();
+const GOOGLE_VERIFY_TIMEOUT_MS = 8000;
 
 // Google OAuth Client
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
 
 // POST /api/auth/google - Google 로그인
 router.post('/google', async (req: Request, res: Response): Promise<void> => {
   try {
     const { idToken } = req.body;
+    const audiences = [
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_IOS_CLIENT_ID,
+    ].filter(Boolean) as string[];
 
     if (!idToken) {
       res.status(400).json({ error: 'idToken is required' });
       return;
     }
 
-    // Google idToken 검증 (웹 + iOS 클라이언트 ID 모두 허용)
-    const ticket = await googleClient.verifyIdToken({
-      idToken,
-      audience: [
-        process.env.GOOGLE_CLIENT_ID!,
-        process.env.GOOGLE_IOS_CLIENT_ID!,
-      ].filter(Boolean),
-    });
-
-    const payload = ticket.getPayload();
-    if (!payload) {
-      res.status(401).json({ error: 'Invalid token' });
+    if (audiences.length === 0) {
+      console.error('Google auth error: GOOGLE_CLIENT_ID / GOOGLE_IOS_CLIENT_ID is not configured');
+      res.status(500).json({ error: 'Google auth is not configured' });
       return;
     }
 
-    const { sub: providerId, email, name, picture } = payload;
+    console.log('Google auth: verifying idToken', {
+      audienceCount: audiences.length,
+      audiences,
+      env: process.env.NODE_ENV,
+    });
+
+    let providerId: string;
+    let email: string | undefined;
+    let name: string | undefined;
+    let picture: string | undefined;
+
+    if (process.env.NODE_ENV === 'development') {
+      // 개발 환경: Google 서버 검증 건너뛰고 토큰 디코딩만
+      const decoded = jwt.decode(idToken) as any;
+      if (!decoded || !decoded.sub) {
+        res.status(401).json({ error: 'Invalid token' });
+        return;
+      }
+      providerId = decoded.sub;
+      email = decoded.email;
+      name = decoded.name;
+      picture = decoded.picture;
+      console.log('Google auth: dev mode - skipped verification');
+    } else {
+      // 프로덕션: Google 서버로 정식 검증
+      const ticket = await withTimeout(
+        googleClient.verifyIdToken({
+          idToken,
+          audience: audiences,
+        }),
+        GOOGLE_VERIFY_TIMEOUT_MS,
+        'Google ID token verification timed out'
+      );
+
+      const payload = ticket.getPayload();
+      if (!payload) {
+        res.status(401).json({ error: 'Invalid token' });
+        return;
+      }
+
+      providerId = payload.sub!;
+      email = payload.email;
+      name = payload.name;
+      picture = payload.picture;
+    }
 
     // 사용자 생성 또는 조회
     const user = await findOrCreateUser(
@@ -59,7 +116,9 @@ router.post('/google', async (req: Request, res: Response): Promise<void> => {
     });
   } catch (error) {
     console.error('Google auth error:', error);
-    res.status(401).json({ error: 'Authentication failed' });
+    const message = error instanceof Error ? error.message : 'Authentication failed';
+    const statusCode = message.includes('timed out') ? 504 : 401;
+    res.status(statusCode).json({ error: message });
   }
 });
 
@@ -213,6 +272,43 @@ router.post('/test', async (req: Request, res: Response): Promise<void> => {
   } catch (error) {
     console.error('Test auth error:', error);
     res.status(500).json({ error: 'Test login failed' });
+  }
+});
+
+// GET /api/auth/me - 토큰 검증 및 현재 사용자 조회
+router.get('/me', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'No token provided' });
+      return;
+    }
+
+    const token = authHeader.split(' ')[1];
+    const payload = verifyToken(token);
+
+    if (!payload) {
+      res.status(401).json({ error: 'Invalid token' });
+      return;
+    }
+
+    const user = await findUserById(payload.userId);
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    res.json({
+      user: {
+        id: user.id,
+        nickname: user.nickname,
+        email: user.email,
+        avatarUrl: user.avatar_url,
+      },
+    });
+  } catch (error) {
+    console.error('Get current user error:', error);
+    res.status(500).json({ error: 'Failed to fetch current user' });
   }
 });
 

@@ -9,6 +9,8 @@ import '../../providers/shop_provider.dart';
 import '../../services/socket_service.dart';
 import '../../services/socket_listener_registry.dart';
 import '../../models/shop_item.dart';
+import '../common/game_end_action_panel.dart';
+import '../common/game_reconnect_helper.dart';
 
 enum HunminGameStatus {
   idle,
@@ -28,7 +30,7 @@ class HunminScreen extends StatefulWidget {
 
 class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMixin {
   final SocketService _socketService = SocketService();
-  final SocketListenerRegistry _socketListeners = SocketListenerRegistry(SocketService());
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
 
   // 게임 상태
   HunminGameStatus _status = HunminGameStatus.idle;
@@ -155,20 +157,19 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
           _status != HunminGameStatus.finished &&
           _status != HunminGameStatus.searching;
       if (isInGame && _roomId != null) {
-        setState(() => _isReconnecting = true);
         _reconnectTimer?.cancel();
-        _reconnectTimer = Timer(const Duration(seconds: 5), () {
-          if (!mounted) return;
-          _turnTimer?.cancel();
-          setState(() {
-            _isReconnecting = false;
-            _status = HunminGameStatus.finished;
-            _opponentLeft = true;
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('재연결에 실패했습니다'), backgroundColor: Colors.orange),
-          );
-        });
+        _reconnectTimer = GameReconnectHelper.startReconnectTimeout(
+          context: context,
+          onEnterWaiting: () => setState(() => _isReconnecting = true),
+          onTimeout: () {
+            _turnTimer?.cancel();
+            setState(() {
+              _isReconnecting = false;
+              _status = HunminGameStatus.finished;
+              _opponentLeft = true;
+            });
+          },
+        );
       }
     });
 
@@ -203,30 +204,15 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
         _startTurnTimer();
       }
 
-      setState(() => _isReconnecting = false);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('게임에 재연결되었습니다'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
+      GameReconnectHelper.completeReconnect(
+        context: context,
+        onRecovered: () => setState(() => _isReconnecting = false),
+      );
     });
 
     // 상대방 재연결 알림
     _socketListeners.on('opponent_reconnected', (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('상대방이 재연결되었습니다'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
+      GameReconnectHelper.showOpponentReconnected(context);
     });
 
     _socketListeners.on('waiting_for_match', (_) {
@@ -369,7 +355,9 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
     _socketListeners.on('game_end', (data) {
       if (_status == HunminGameStatus.finished ||
           _status == HunminGameStatus.idle ||
-          _status == HunminGameStatus.searching) return;
+          _status == HunminGameStatus.searching) {
+        return;
+      }
       _turnTimer?.cancel();
 
       final scoreData = data['scores'] as List<dynamic>? ?? [0, 0];
@@ -385,7 +373,9 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
     _socketListeners.on('opponent_left', (_) {
       if (_status == HunminGameStatus.idle ||
           _status == HunminGameStatus.searching ||
-          _status == HunminGameStatus.finished) return;
+          _status == HunminGameStatus.finished) {
+        return;
+      }
       _turnTimer?.cancel();
       setState(() {
         _opponentLeft = true;
@@ -1277,58 +1267,29 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
           ),
           const SizedBox(height: 32),
 
-          // 리매치 버튼들
-          if (!_opponentLeft) ...[
-            if (_opponentWantsRematch && !_rematchWaiting)
-              Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  '상대방이 재대결을 원합니다!',
-                  style: const TextStyle(color: Colors.orange, fontSize: 14),
-                ),
-              ),
-            if (_rematchWaiting)
-              Column(
-                children: [
-                  const CircularProgressIndicator(color: Color(0xFF1E88E5)),
-                  const SizedBox(height: 8),
-                  const Text('재대결 대기 중...', style: TextStyle(color: Colors.white70)),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed: _cancelRematch,
-                    child: const Text('취소', style: TextStyle(color: Colors.white54)),
-                  ),
-                ],
-              )
-            else
-              ElevatedButton.icon(
-                onPressed: _requestRematch,
-                icon: const Icon(Icons.refresh),
-                label: const Text('재대결', style: TextStyle(fontSize: 16)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1E88E5),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-            const SizedBox(height: 12),
-          ],
-
-          OutlinedButton.icon(
-            onPressed: _leaveGame,
-            icon: const Icon(Icons.exit_to_app),
-            label: const Text('나가기', style: TextStyle(fontSize: 16)),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white70,
-              side: const BorderSide(color: Colors.white38),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          SizedBox(
+            width: 280,
+            child: GameEndActionPanel(
+              showRematchActions: !_opponentLeft,
+              opponentWantsRematch: _opponentWantsRematch,
+              rematchWaiting: _rematchWaiting,
+              primaryColor: const Color(0xFF1E88E5),
+              primaryForegroundColor: Colors.white,
+              onRequestRematch: _requestRematch,
+              onCancelRematch: _cancelRematch,
+              onLeave: _leaveGame,
+              rematchLabel: '재대결',
+              acceptRematchLabel: '재대결',
+              waitingText: '재대결 대기 중...',
+              cancelLabel: '취소',
+              leaveLabel: '나가기',
+              opponentRequestMessage: '상대방이 재대결을 원합니다!',
+              rematchIcon: Icons.refresh,
+              leaveIcon: Icons.exit_to_app,
+              acceptColor: Colors.orange,
+              waitingTextColor: Colors.white70,
+              leaveForegroundColor: Colors.white70,
+              leaveBorderSide: const BorderSide(color: Colors.white38),
             ),
           ),
         ],

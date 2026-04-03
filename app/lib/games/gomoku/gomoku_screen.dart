@@ -8,8 +8,9 @@ import '../../providers/shop_provider.dart';
 import '../../providers/ranked_provider.dart';
 import '../../services/socket_service.dart';
 import '../../config/app_config.dart';
-import '../../widgets/game_player_profile.dart';
 import '../../utils/game_theme.dart';
+import '../common/game_duel_header.dart';
+import '../common/game_result_action_buttons.dart';
 
 class GomokuScreen extends StatefulWidget {
   final bool isRanked;
@@ -331,7 +332,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
                   Switch(
                     value: game.isHardcore,
                     onChanged: (value) => game.setHardcoreMode(value),
-                    activeColor: Colors.red,
+                    activeThumbColor: Colors.red,
                   ),
                 ],
               ),
@@ -536,65 +537,49 @@ class _GomokuScreenState extends State<GomokuScreen> {
       child: Column(
         children: [
           // 프로필 & 턴 표시
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: game.isMyTurn
-                    ? [const Color(0xFF2D3436).withValues(alpha: 0.12), const Color(0xFF2D3436).withValues(alpha: 0.04)]
-                    : [const Color(0xFFDFE6E9), const Color(0xFFF0F0F0)],
-              ),
-            ),
-            child: Row(
-              children: [
-                // 내 프로필
-                Expanded(
-                  child: GamePlayerProfile(
-                    name: auth.nickname ?? '나',
-                    avatarUrl: auth.avatarUrl,
-                    isActive: game.isMyTurn,
-                    isMe: true,
-                    profileSettings: game.myProfileSettings ?? context.read<ShopProvider>().profileSettings,
-                    activeColor: const Color(0xFF2D3436),
-                  ),
-                ),
-                // VS & 타이머
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Column(
-                    children: [
-                      _buildTimer(game),
-                      const SizedBox(height: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: game.isMyTurn ? const Color(0xFF2D3436) : Colors.grey.shade300,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          game.isMyTurn ? '내 차례' : '상대 차례',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: game.isMyTurn ? Colors.white : Colors.grey.shade600,
-                          ),
-                        ),
+          GameDuelHeader(
+            backgroundColors: game.isMyTurn
+                ? [
+                    const Color(0xFF2D3436).withValues(alpha: 0.12),
+                    const Color(0xFF2D3436).withValues(alpha: 0.04),
+                  ]
+                : const [
+                    Color(0xFFDFE6E9),
+                    Color(0xFFF0F0F0),
+                  ],
+            accentColor: const Color(0xFF2D3436),
+            centerLabel: '',
+            myName: auth.nickname ?? '나',
+            opponentName: game.opponentNickname ?? '상대',
+            myAvatarUrl: auth.avatarUrl,
+            opponentAvatarUrl: game.opponentAvatarUrl,
+            myActive: game.isMyTurn,
+            opponentActive: !game.isMyTurn,
+            myProfileSettings: game.myProfileSettings ?? context.read<ShopProvider>().profileSettings,
+            opponentProfileSettings: game.opponentProfileSettings,
+            centerWidget: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Column(
+                children: [
+                  _buildTimer(game),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: game.isMyTurn ? const Color(0xFF2D3436) : Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      game.isMyTurn ? '내 차례' : '상대 차례',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: game.isMyTurn ? Colors.white : Colors.grey.shade600,
                       ),
-                    ],
+                    ),
                   ),
-                ),
-                // 상대 프로필
-                Expanded(
-                  child: GamePlayerProfile(
-                    name: game.opponentNickname ?? '상대',
-                    avatarUrl: game.opponentAvatarUrl,
-                    isActive: !game.isMyTurn,
-                    isMe: false,
-                    profileSettings: game.opponentProfileSettings,
-                    activeColor: const Color(0xFF2D3436),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
 
@@ -664,7 +649,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
           ),
           const SizedBox(width: 4),
           Text(
-            '${remaining}초',
+            '$remaining초',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
@@ -1026,50 +1011,29 @@ class _GomokuScreenState extends State<GomokuScreen> {
                     ),
                   ),
                 const SizedBox(height: 8),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    // 재경기 버튼 (상대가 나가지 않았을 때만 표시)
-                    if (!game.opponentLeft)
-                      ElevatedButton.icon(
-                        onPressed: game.rematchWaiting
-                            ? () => game.cancelRematch()
-                            : () => game.requestRematch(),
-                        icon: Icon(game.rematchWaiting ? Icons.hourglass_top : Icons.replay),
-                        label: Text(game.rematchWaiting ? '대기 중...' : '재경기'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: game.rematchWaiting
-                              ? Colors.orange
-                              : const Color(0xFF2D3436),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                        ),
-                      ),
-                    // 다시 찾기 버튼 (친구 초대 게임이 아닐 때만)
-                    if (!game.isInvitationGame)
-                      OutlinedButton.icon(
-                        onPressed: () {
-                          game.leaveGame();
-                          game.findMatch(AppConfig.gameTypeGomoku);
-                        },
-                        icon: const Icon(Icons.search),
-                        label: const Text('다시 찾기'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFF2D3436),
-                          side: const BorderSide(color: Color(0xFF2D3436)),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                        ),
-                      ),
-                    // 친구 요청 버튼 (랜덤 매칭이고 상대가 나가지 않았고 이미 친구가 아닐 때)
-                    if (!game.isInvitationGame && !game.opponentLeft && game.opponentUserId != null && !context.read<FriendProvider>().isFriend(game.opponentUserId!))
-                      OutlinedButton.icon(
-                        onPressed: () {
+                GameResultActionButtons(
+                  accentColor: const Color(0xFF2D3436),
+                  opponentLeft: game.opponentLeft,
+                  rematchWaiting: game.rematchWaiting,
+                  isInvitationGame: game.isInvitationGame,
+                  canSendFriendRequest: !game.isInvitationGame &&
+                      !game.opponentLeft &&
+                      game.opponentUserId != null &&
+                      !context.read<FriendProvider>().isFriend(game.opponentUserId!),
+                  onRematchPressed: game.rematchWaiting
+                      ? () => game.cancelRematch()
+                      : () => game.requestRematch(),
+                  onSearchAgainPressed: () {
+                    game.leaveGame();
+                    game.findMatch(AppConfig.gameTypeGomoku);
+                  },
+                  onLobbyPressed: () {
+                    game.leaveGame();
+                    Navigator.pop(context);
+                  },
+                  onFriendRequestPressed: game.opponentUserId == null
+                      ? null
+                      : () {
                           context.read<FriendProvider>().sendFriendRequestByUserId(game.opponentUserId!);
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
@@ -1078,33 +1042,6 @@ class _GomokuScreenState extends State<GomokuScreen> {
                             ),
                           );
                         },
-                        icon: const Icon(Icons.person_add),
-                        label: const Text('친구 요청'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.green,
-                          side: const BorderSide(color: Colors.green),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                        ),
-                      ),
-                    // 로비로 버튼
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        game.leaveGame();
-                        Navigator.pop(context);
-                      },
-                      icon: const Icon(Icons.home),
-                      label: const Text('로비'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.grey,
-                        side: BorderSide(color: Colors.grey.shade400),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(30),
-                        ),
-                      ),
-                    ),
-                  ],
                 ),
               ],
             ),
