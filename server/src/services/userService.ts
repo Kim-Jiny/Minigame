@@ -120,3 +120,40 @@ export async function deleteUser(userId: number): Promise<void> {
   await pool.query('DELETE FROM dm_user_items WHERE user_id = $1', [userId]);
   await pool.query('DELETE FROM dm_friendships WHERE user_id = $1 OR friend_id = $1', [userId]);
 }
+
+export async function getActiveBan(userId: number): Promise<{
+  id: number;
+  ban_type: string;
+  reason: string;
+  expires_at: Date | null;
+} | null> {
+  const pool = getPool();
+
+  if (!pool) {
+    throw new Error('Database not connected');
+  }
+
+  const result = await pool.query(
+    `SELECT id, ban_type, reason, expires_at
+     FROM dm_user_bans
+     WHERE user_id = $1
+       AND is_active = TRUE
+       AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+     ORDER BY banned_at DESC
+     LIMIT 1`,
+    [userId]
+  );
+
+  return result.rows[0] || null;
+}
+
+export async function assertUserNotBanned(userId: number): Promise<void> {
+  const ban = await getActiveBan(userId);
+  if (!ban) return;
+
+  const expiryMessage = ban.expires_at
+    ? ` (until ${new Date(ban.expires_at).toISOString()})`
+    : '';
+
+  throw new Error(`User is banned: ${ban.reason}${expiryMessage}`);
+}

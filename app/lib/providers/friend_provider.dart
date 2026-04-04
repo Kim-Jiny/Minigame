@@ -140,8 +140,10 @@ class FriendProvider extends ChangeNotifier with ProviderFeedback {
   List<FriendRequest> _sentRequests = [];
   List<Invitation> _invitations = [];
   bool _listenersInitialized = false;
+  bool _hasFetchedInitialData = false;
   Map<int, int> _unreadCounts = {}; // friendId -> unread count
   final Set<int> _pendingRemovals = {};
+  int? _activeChatFriendId;
 
   // 초대 받았을 때 콜백
   Function(Invitation)? onInvitationReceived;
@@ -163,6 +165,8 @@ class FriendProvider extends ChangeNotifier with ProviderFeedback {
   bool isRemoving(int friendId) => _pendingRemovals.contains(friendId);
   int get totalUnreadCount => _unreadCounts.values.fold(0, (sum, count) => sum + count);
   int get pendingRequestCount => _receivedRequests.length;
+  int? get activeChatFriendId => _activeChatFriendId;
+  bool get hasFetchedInitialData => _hasFetchedInitialData;
 
   // 특정 userId가 이미 친구인지 확인
   bool isFriend(int userId) {
@@ -175,14 +179,15 @@ class FriendProvider extends ChangeNotifier with ProviderFeedback {
       _setupSocketListeners();
       _listenersInitialized = true;
     }
-    // 이미 소켓이 연결되어 있으면 바로 데이터 가져오기
-    if (_socketService.isConnected) {
-      debugPrint('🔧 Socket connected, fetching initial data');
-      _fetchInitialData();
+    // 로비 입장이 끝난 뒤에만 즉시 조회한다.
+    if (_socketService.isReady) {
+      debugPrint('🔧 Socket ready, fetching initial data');
+      refreshAll();
     }
   }
 
-  void _fetchInitialData() {
+  void refreshAll() {
+    _hasFetchedInitialData = true;
     getMyFriendCode();
     getFriends();
     getFriendRequests();
@@ -193,13 +198,20 @@ class FriendProvider extends ChangeNotifier with ProviderFeedback {
   void _setupSocketListeners() {
     // 로비 입장 후 데이터 가져오기
     _socketListeners.on('lobby_joined', (_) {
-      _fetchInitialData();
+      refreshAll();
     });
 
     // 친구 코드 응답
     _socketListeners.on('friend_code', (data) {
       debugPrint('📥 Received friend_code: ${data['code']}');
       _myFriendCode = data['code'];
+      notifyListeners();
+    });
+
+    _socketListeners.on('friend_code_error', (data) {
+      _myFriendCode = null;
+      final message = data['message'] as String? ?? '친구 코드를 불러오지 못했습니다.';
+      setError(message);
       notifyListeners();
     });
 
@@ -356,6 +368,9 @@ class FriendProvider extends ChangeNotifier with ProviderFeedback {
     // 실시간 초대 받음
     _socketListeners.on('game_invitation', (data) {
       final invitation = Invitation.fromJson(data['invitation']);
+      if (_invitations.any((existing) => existing.id == invitation.id)) {
+        return;
+      }
       _invitations.insert(0, invitation);
       notifyListeners();
 
@@ -367,6 +382,10 @@ class FriendProvider extends ChangeNotifier with ProviderFeedback {
     _socketListeners.on('accept_invitation_result', (data) {
       setLoading(false);
       if (data['success'] == true) {
+        final acceptedInvitationId = data['invitationId'] as int?;
+        if (acceptedInvitationId != null) {
+          _invitations.removeWhere((i) => i.id == acceptedInvitationId);
+        }
         // 게임 시작 콜백 호출 (게임 상태 포함)
         // 수락자는 게임 화면으로 이동 필요
         final roomId = data['roomId'] as String?;
@@ -385,6 +404,10 @@ class FriendProvider extends ChangeNotifier with ProviderFeedback {
     _socketListeners.on('decline_invitation_result', (data) {
       setLoading(false);
       if (data['success'] == true) {
+        final declinedInvitationId = data['invitationId'] as int?;
+        if (declinedInvitationId != null) {
+          _invitations.removeWhere((i) => i.id == declinedInvitationId);
+        }
         setSuccess('초대를 거절했습니다.');
       } else {
         setError(data['message']);
@@ -426,10 +449,19 @@ class FriendProvider extends ChangeNotifier with ProviderFeedback {
       if (data['message'] != null) {
         final senderId = data['message']['senderId'] as int?;
         if (senderId == null) return;
+        if (_activeChatFriendId == senderId) return;
         _unreadCounts[senderId] = (_unreadCounts[senderId] ?? 0) + 1;
         notifyListeners();
       }
     });
+  }
+
+  void setActiveChatFriend(int? friendId) {
+    _activeChatFriendId = friendId;
+    if (friendId != null) {
+      _unreadCounts.remove(friendId);
+      notifyListeners();
+    }
   }
 
   void getMyFriendCode() {
@@ -523,18 +555,12 @@ class FriendProvider extends ChangeNotifier with ProviderFeedback {
     startLoading(clearSuccess: false);
     notifyListeners();
     _socketService.emit('accept_invitation', {'invitationId': invitationId});
-    // 로컬에서 제거
-    _invitations.removeWhere((i) => i.id == invitationId);
-    notifyListeners();
   }
 
   void declineInvitation(int invitationId) {
     startLoading();
     notifyListeners();
     _socketService.emit('decline_invitation', {'invitationId': invitationId});
-    // 로컬에서 제거
-    _invitations.removeWhere((i) => i.id == invitationId);
-    notifyListeners();
   }
 
   void clearMessages() {
@@ -550,6 +576,20 @@ class FriendProvider extends ChangeNotifier with ProviderFeedback {
   void markMessagesRead(int friendId) {
     _socketService.emit('mark_messages_read', {'friendId': friendId});
     _unreadCounts.remove(friendId);
+    notifyListeners();
+  }
+
+  void resetState() {
+    _myFriendCode = null;
+    _friends = [];
+    _receivedRequests = [];
+    _sentRequests = [];
+    _invitations = [];
+    _hasFetchedInitialData = false;
+    _unreadCounts = {};
+    _pendingRemovals.clear();
+    _activeChatFriendId = null;
+    clearFeedback();
     notifyListeners();
   }
 

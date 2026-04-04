@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import bcrypt from 'bcrypt';
 
 let pool: Pool;
 
@@ -290,11 +291,6 @@ export async function setupDatabase() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
-      -- 초기 관리자 계정 (jiny/1204)
-      INSERT INTO dm_admin_accounts (username, password)
-      VALUES ('jiny', '1204')
-      ON CONFLICT (username) DO NOTHING;
-
       -- 헥사곤 솔로 랭킹 테이블
       CREATE TABLE IF NOT EXISTS dm_hexagon_rankings (
         id SERIAL PRIMARY KEY,
@@ -372,6 +368,8 @@ export async function setupDatabase() {
 
     console.log('✅ Database tables ready');
 
+    await ensureDefaultAdminAccount(client);
+
     // 초기 상점 아이템 seed
     await seedShopItems(client);
 
@@ -379,6 +377,33 @@ export async function setupDatabase() {
   } catch (error) {
     console.error('❌ Database connection failed:', error);
     throw error;
+  }
+}
+
+async function ensureDefaultAdminAccount(client: any) {
+  const username = process.env.ADMIN_DEFAULT_USERNAME || 'jiny';
+  const password = process.env.ADMIN_DEFAULT_PASSWORD || '1204';
+  const passwordHash = await bcrypt.hash(password, 10);
+
+  const existing = await client.query(
+    'SELECT id, password FROM dm_admin_accounts WHERE username = $1',
+    [username]
+  );
+
+  if (existing.rows.length === 0) {
+    await client.query(
+      'INSERT INTO dm_admin_accounts (username, password) VALUES ($1, $2)',
+      [username, passwordHash]
+    );
+    return;
+  }
+
+  const currentPassword = existing.rows[0].password as string;
+  if (!currentPassword.startsWith('$2')) {
+    await client.query(
+      'UPDATE dm_admin_accounts SET password = $1 WHERE username = $2',
+      [passwordHash, username]
+    );
   }
 }
 

@@ -60,10 +60,14 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _setupSocketListeners();
-    _loadMessages();
+    if (_socketService.isReady) {
+      _loadMessages();
+    }
     // 채팅 화면 진입 시 읽음 처리
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<FriendProvider>().markMessagesRead(widget.friend.id);
+      final friendProvider = context.read<FriendProvider>();
+      friendProvider.setActiveChatFriend(widget.friend.id);
+      friendProvider.markMessagesRead(widget.friend.id);
     });
   }
 
@@ -74,11 +78,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
     _socketListeners.on('messages_list', (data) {
       if (data['friendId'] == widget.friend.id) {
+        final incomingMessages = (data['messages'] as List)
+            .map((m) => Message.fromJson(m))
+            .toList();
         setState(() {
-          _messages.clear();
-          _messages.addAll(
-            (data['messages'] as List).map((m) => Message.fromJson(m)).toList(),
-          );
+          _mergeMessages(incomingMessages);
           _isLoading = false;
         });
         _scrollToBottom();
@@ -90,7 +94,7 @@ class _ChatScreenState extends State<ChatScreen> {
         final msg = Message.fromJson(data['message']);
         if (msg.receiverId == widget.friend.id) {
           setState(() {
-            _messages.add(msg);
+            _appendMessage(msg);
           });
           _scrollToBottom();
         }
@@ -102,7 +106,7 @@ class _ChatScreenState extends State<ChatScreen> {
         final msg = Message.fromJson(data['message']);
         if (msg.senderId == widget.friend.id) {
           setState(() {
-            _messages.add(msg);
+            _appendMessage(msg);
           });
           _scrollToBottom();
           // 읽음 처리 (FriendProvider를 통해 상태 동기화)
@@ -116,6 +120,26 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _loadMessages() {
     _socketService.emit('get_messages', {'friendId': widget.friend.id});
+  }
+
+  void _mergeMessages(List<Message> incomingMessages) {
+    final messagesById = <int, Message>{
+      for (final message in _messages) message.id: message,
+      for (final message in incomingMessages) message.id: message,
+    };
+
+    _messages
+      ..clear()
+      ..addAll(messagesById.values.toList()
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt)));
+  }
+
+  void _appendMessage(Message message) {
+    if (_messages.any((existing) => existing.id == message.id)) {
+      return;
+    }
+    _messages.add(message);
+    _messages.sort((a, b) => a.createdAt.compareTo(b.createdAt));
   }
 
   void _scrollToBottom() {
@@ -143,6 +167,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    context.read<FriendProvider>().setActiveChatFriend(null);
     _socketListeners.offAll();
     _messageController.dispose();
     _scrollController.dispose();

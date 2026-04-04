@@ -1,11 +1,26 @@
 import { Router, Request, Response } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
-import { findOrCreateUser, updateNickname, deleteUser, findUserById } from '../services/userService';
+import { createPublicKey } from 'crypto';
+import { findOrCreateUser, updateNickname, deleteUser, findUserById, assertUserNotBanned } from '../services/userService';
 import { generateToken, verifyToken } from '../utils/jwt';
 
 const router = Router();
 const GOOGLE_VERIFY_TIMEOUT_MS = 8000;
+const APPLE_JWKS_URL = 'https://appleid.apple.com/auth/keys';
+const APPLE_ISSUER = 'https://appleid.apple.com';
+const APPLE_AUDIENCES = [
+  process.env.APPLE_CLIENT_ID,
+  process.env.APPLE_BUNDLE_ID,
+  'com.minigame.minigameApp',
+].filter(Boolean) as string[];
+
+let appleKeysCache:
+  | {
+      expiresAt: number;
+      keys: Array<Record<string, unknown>>;
+    }
+  | null = null;
 
 // Google OAuth Client
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -25,6 +40,78 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
       }
     );
   });
+}
+
+async function getAppleSigningKeys(): Promise<Array<Record<string, unknown>>> {
+  const now = Date.now();
+  if (appleKeysCache && appleKeysCache.expiresAt > now) {
+    return appleKeysCache.keys;
+  }
+
+  const response = await withTimeout(
+    fetch(APPLE_JWKS_URL),
+    GOOGLE_VERIFY_TIMEOUT_MS,
+    'Apple signing key fetch timed out'
+  );
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch Apple signing keys');
+  }
+
+  const data = (await response.json()) as { keys?: Array<Record<string, unknown>> };
+  const keys = data.keys ?? [];
+  if (keys.length === 0) {
+    throw new Error('Apple signing keys are unavailable');
+  }
+
+  appleKeysCache = {
+    keys,
+    expiresAt: now + 60 * 60 * 1000,
+  };
+
+  return keys;
+}
+
+async function verifyAppleIdToken(idToken: string): Promise<{ sub: string; email?: string }> {
+  if (APPLE_AUDIENCES.length === 0) {
+    throw new Error('Apple auth is not configured');
+  }
+
+  const decoded = jwt.decode(idToken, { complete: true }) as
+    | { header?: { kid?: string; alg?: string } }
+    | null;
+  const kid = decoded?.header?.kid;
+  const alg = decoded?.header?.alg;
+
+  if (!kid || alg !== 'RS256') {
+    throw new Error('Invalid Apple token header');
+  }
+
+  const keys = await getAppleSigningKeys();
+  const jwk = keys.find((key) => key.kid === kid && key.alg === alg);
+  if (!jwk) {
+    throw new Error('Matching Apple signing key not found');
+  }
+
+  const publicKey = createPublicKey({
+    key: jwk as any,
+    format: 'jwk',
+  });
+
+  const payload = jwt.verify(idToken, publicKey, {
+    algorithms: ['RS256'],
+    issuer: APPLE_ISSUER,
+    audience: APPLE_AUDIENCES as any,
+  }) as { sub?: string; email?: string };
+
+  if (!payload.sub) {
+    throw new Error('Invalid Apple token payload');
+  }
+
+  return {
+    sub: payload.sub,
+    email: payload.email,
+  };
 }
 
 // POST /api/auth/google - Google 로그인
@@ -101,6 +188,7 @@ router.post('/google', async (req: Request, res: Response): Promise<void> => {
       name || email?.split('@')[0] || 'User',
       picture || null
     );
+    await assertUserNotBanned(user.id);
 
     // JWT 발급
     const token = generateToken(user.id);
@@ -117,7 +205,11 @@ router.post('/google', async (req: Request, res: Response): Promise<void> => {
   } catch (error) {
     console.error('Google auth error:', error);
     const message = error instanceof Error ? error.message : 'Authentication failed';
-    const statusCode = message.includes('timed out') ? 504 : 401;
+    const statusCode = message.includes('banned')
+      ? 403
+      : message.includes('timed out')
+        ? 504
+        : 401;
     res.status(statusCode).json({ error: message });
   }
 });
@@ -132,17 +224,7 @@ router.post('/apple', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Apple idToken 디코딩 (검증은 클라이언트에서 수행됨)
-    // 실제 프로덕션에서는 Apple 공개키로 검증해야 함
-    const decoded = jwt.decode(idToken) as {
-      sub: string;
-      email?: string;
-    } | null;
-
-    if (!decoded || !decoded.sub) {
-      res.status(401).json({ error: 'Invalid token' });
-      return;
-    }
+    const decoded = await verifyAppleIdToken(idToken);
 
     // Apple은 최초 로그인시에만 사용자 정보를 제공
     const email = decoded.email || appleUser?.email || null;
@@ -158,6 +240,7 @@ router.post('/apple', async (req: Request, res: Response): Promise<void> => {
       name || email?.split('@')[0] || 'Apple User',
       null
     );
+    await assertUserNotBanned(user.id);
 
     // JWT 발급
     const token = generateToken(user.id);
@@ -173,7 +256,9 @@ router.post('/apple', async (req: Request, res: Response): Promise<void> => {
     });
   } catch (error) {
     console.error('Apple auth error:', error);
-    res.status(401).json({ error: 'Authentication failed' });
+    const message = error instanceof Error ? error.message : 'Authentication failed';
+    const statusCode = message.includes('banned') ? 403 : 401;
+    res.status(statusCode).json({ error: message });
   }
 });
 
@@ -218,6 +303,7 @@ router.post('/kakao', async (req: Request, res: Response): Promise<void> => {
 
     // 사용자 생성 또는 조회
     const user = await findOrCreateUser('kakao', providerId, email, nickname, avatarUrl);
+    await assertUserNotBanned(user.id);
 
     // JWT 발급
     const token = generateToken(user.id);
@@ -233,7 +319,9 @@ router.post('/kakao', async (req: Request, res: Response): Promise<void> => {
     });
   } catch (error) {
     console.error('Kakao auth error:', error);
-    res.status(401).json({ error: 'Authentication failed' });
+    const message = error instanceof Error ? error.message : 'Authentication failed';
+    const statusCode = message.includes('banned') ? 403 : 401;
+    res.status(statusCode).json({ error: message });
   }
 });
 
@@ -258,6 +346,7 @@ router.post('/test', async (req: Request, res: Response): Promise<void> => {
     }
 
     const user = result.rows[0];
+    await assertUserNotBanned(user.id);
     const token = generateToken(user.id);
 
     res.json({
@@ -271,7 +360,9 @@ router.post('/test', async (req: Request, res: Response): Promise<void> => {
     });
   } catch (error) {
     console.error('Test auth error:', error);
-    res.status(500).json({ error: 'Test login failed' });
+    const message = error instanceof Error ? error.message : 'Test login failed';
+    const statusCode = message.includes('banned') ? 403 : 500;
+    res.status(statusCode).json({ error: message });
   }
 });
 
@@ -297,6 +388,7 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
       res.status(404).json({ error: 'User not found' });
       return;
     }
+    await assertUserNotBanned(user.id);
 
     res.json({
       user: {
@@ -308,7 +400,9 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
     });
   } catch (error) {
     console.error('Get current user error:', error);
-    res.status(500).json({ error: 'Failed to fetch current user' });
+    const message = error instanceof Error ? error.message : 'Failed to fetch current user';
+    const statusCode = message.includes('banned') ? 403 : 500;
+    res.status(statusCode).json({ error: message });
   }
 });
 
@@ -341,6 +435,7 @@ router.put('/nickname', async (req: Request, res: Response): Promise<void> => {
       res.status(400).json({ error: 'nickname must be 2-20 characters' });
       return;
     }
+    await assertUserNotBanned(payload.userId);
 
     const user = await updateNickname(payload.userId, trimmedNickname);
 
@@ -354,7 +449,9 @@ router.put('/nickname', async (req: Request, res: Response): Promise<void> => {
     });
   } catch (error) {
     console.error('Update nickname error:', error);
-    res.status(500).json({ error: 'Failed to update nickname' });
+    const message = error instanceof Error ? error.message : 'Failed to update nickname';
+    const statusCode = message.includes('banned') ? 403 : 500;
+    res.status(statusCode).json({ error: message });
   }
 });
 

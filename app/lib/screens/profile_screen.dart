@@ -23,7 +23,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _loadUnreadCount();
+    if (context.read<AuthProvider>().userId != null) {
+      _loadUnreadCount();
+    }
   }
 
   Future<void> _loadUnreadCount() async {

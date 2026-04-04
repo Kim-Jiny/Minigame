@@ -239,6 +239,13 @@ class _ReactionScreenState extends State<ReactionScreen> {
       debugPrint('🎮 [ReactionScreen] game_start received: $data');
       debugPrint('🎮 [ReactionScreen] Current status=$_status, rematchWaiting=$_rematchWaiting');
       if (data['gameType'] == 'reaction') {
+        if (data['players'] != null) {
+          final players = data['players'] as List;
+          final updatedIndex = players.indexWhere((p) => p['id'] == _myId);
+          if (updatedIndex != -1) {
+            _myPlayerIndex = updatedIndex;
+          }
+        }
         // finished 상태에서 재경기 요청 안 했으면 무시
         if (_status == ReactionGameStatus.finished && !_rematchWaiting) {
           debugPrint('🎮 [ReactionScreen] ❌ game_start ignored: not waiting for rematch');
@@ -1103,14 +1110,12 @@ class _ReactionScreenState extends State<ReactionScreen> {
 
     // 랭크전에서는 결과만 표시하고 자동으로 돌아가기
     if (widget.isRanked) {
-      if (!_hasScheduledPop) {
-        _hasScheduledPop = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          Future.delayed(const Duration(seconds: 2), () {
-            if (mounted) Navigator.pop(context);
-          });
-        });
-      }
+      GameSessionHelper.scheduleRankedAutoReturn(
+        context: context,
+        mounted: mounted,
+        hasScheduledPop: _hasScheduledPop,
+        markScheduledPop: () => _hasScheduledPop = true,
+      );
       return Container(
         decoration: BoxDecoration(gradient: theme.backgroundGradient),
         child: Center(
@@ -1218,8 +1223,13 @@ class _ReactionScreenState extends State<ReactionScreen> {
                 _findMatch();
               },
               onLobbyPressed: () {
-                _leaveGame();
-                Navigator.pop(context);
+                GameSessionHelper.leaveGameAndReturnToLobby(
+                  context: context,
+                  socketService: _socketService,
+                  roomId: _roomId,
+                  isRanked: widget.isRanked,
+                  resetState: _reset,
+                );
               },
               onFriendRequestPressed: _opponentUserId == null
                   ? null

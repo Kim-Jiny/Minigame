@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:provider/provider.dart';
 import '../../providers/game_provider.dart';
 import '../../providers/ranked_provider.dart';
@@ -97,6 +98,54 @@ class GameSessionHelper {
     } catch (_) {}
 
     resetState();
+  }
+
+  static void leaveGameAndReturnToLobby({
+    required BuildContext context,
+    required SocketService socketService,
+    required String? roomId,
+    required bool isRanked,
+    required VoidCallback resetState,
+  }) {
+    leaveGame(
+      context: context,
+      socketService: socketService,
+      roomId: roomId,
+      isRanked: isRanked,
+      resetState: resetState,
+    );
+
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.popUntil((route) => route.isFirst);
+    }
+  }
+
+  static void scheduleRankedAutoReturn({
+    required BuildContext context,
+    required bool mounted,
+    required bool hasScheduledPop,
+    required VoidCallback markScheduledPop,
+    Duration delay = const Duration(seconds: 2),
+  }) {
+    if (!mounted || hasScheduledPop) {
+      return;
+    }
+
+    markScheduledPop();
+    final navigator = Navigator.of(context);
+    final route = ModalRoute.of(context);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(delay, () {
+        if (!mounted) return;
+        if (route == null || !route.isCurrent) return;
+
+        if (navigator.canPop()) {
+          navigator.pop();
+        }
+      });
+    });
   }
 
   static String? resolveRoomId({

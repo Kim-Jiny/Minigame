@@ -116,6 +116,7 @@ class StatsProvider extends ChangeNotifier with ProviderFeedback {
   int _adDailyLimit = 7;
   int _adRewardCoins = 50;
   bool _adEnabled = true;
+  bool _hasFetchedInitialData = false;
 
   List<GameStats> get allStats => _allStats;
   List<GameRecord> get recentRecords => _recentRecords;
@@ -128,12 +129,20 @@ class StatsProvider extends ChangeNotifier with ProviderFeedback {
   int get adDailyLimit => _adDailyLimit;
   int get adRewardCoins => _adRewardCoins;
   bool get adEnabled => _adEnabled;
+  bool get hasFetchedInitialData => _hasFetchedInitialData;
 
   void initialize() {
     if (!_listenersInitialized) {
       _setupSocketListeners();
       _listenersInitialized = true;
     }
+    if (_socketService.isReady) {
+      refreshAll();
+    }
+  }
+
+  void refreshAll() {
+    _hasFetchedInitialData = true;
     getAllStats();
     getMileage();
     getRecentRecords();
@@ -143,10 +152,7 @@ class StatsProvider extends ChangeNotifier with ProviderFeedback {
   void _setupSocketListeners() {
     // 로비 재입장 시 데이터 동기화
     _socketListeners.on('lobby_joined', (_) {
-      getAllStats();
-      getMileage();
-      getRecentRecords();
-      getAdStatus();
+      refreshAll();
     });
 
     // 모든 통계 응답
@@ -302,6 +308,22 @@ class StatsProvider extends ChangeNotifier with ProviderFeedback {
   }
 
   void clearMessages() {
+    clearFeedback();
+    notifyListeners();
+  }
+
+  void resetState() {
+    _allStats = [];
+    _recentRecords = [];
+    _mileage = 0;
+    _currentStreak = 0;
+    _lastCoinsEarned = 0;
+    _lastStreakBonus = false;
+    _adRemaining = 0;
+    _adDailyLimit = 7;
+    _adRewardCoins = 50;
+    _adEnabled = true;
+    _hasFetchedInitialData = false;
     clearFeedback();
     notifyListeners();
   }

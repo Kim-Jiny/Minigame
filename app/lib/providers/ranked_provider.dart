@@ -200,6 +200,7 @@ class RankedProvider extends ChangeNotifier with ProviderFeedback {
   RankedStats? _loserStats;
   int? _winnerEloChange;
   int? _loserEloChange;
+  int _rankedStatsRequestId = 0;
 
   // Getters
   RankedStats? get stats => _stats;
@@ -257,6 +258,7 @@ class RankedProvider extends ChangeNotifier with ProviderFeedback {
 
     // 랭크 통계 응답
     _socketListeners.on('ranked_stats', (data) {
+      _rankedStatsRequestId++;
       if (data['stats'] != null) {
         _stats = RankedStats.fromJson(data['stats']);
       } else {
@@ -376,14 +378,15 @@ class RankedProvider extends ChangeNotifier with ProviderFeedback {
 
   // 랭크 통계 조회
   void getRankedStats() {
+    final requestId = ++_rankedStatsRequestId;
     setLoading(true);
     notifyListeners();
     _socketService.emit('get_ranked_stats', {});
 
     // 3초 후에도 응답이 없으면 기본값 사용
     Future.delayed(const Duration(seconds: 3), () {
-      if (isLoading && _stats == null) {
-        _stats = RankedStats.empty();
+      if (_rankedStatsRequestId == requestId && isLoading) {
+        _stats ??= RankedStats.empty();
         setLoading(false);
         notifyListeners();
       }

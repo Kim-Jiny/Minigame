@@ -314,10 +314,22 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
 
     _socketListeners.on('game_start', (data) {
       debugPrint('🔺 pyramid game_start 수신: $data');
+      if (data['players'] != null) {
+        final players = data['players'] as List<dynamic>;
+        final updatedIndex = players.indexWhere((p) => p['id'] == _myId);
+        if (updatedIndex != -1) {
+          _myPlayerIndex = updatedIndex;
+        }
+      }
       setState(() {
         _isSolo = data['isSolo'] as bool? ?? false;
         _scores = _isSolo ? [0] : [0, 0];
         _currentRound = 0;
+        _opponentLeft = false;
+        _rematchWaiting = false;
+        _opponentWantsRematch = false;
+        _winnerId = null;
+        _isDraw = false;
       });
     });
 
@@ -1154,7 +1166,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
               primaryForegroundColor: Colors.white,
               onRequestRematch: _requestRematch,
               onCancelRematch: _cancelRematch,
-              onLeave: () => Navigator.pop(context),
+              onLeave: _leaveGame,
               rematchLabel: '재대결',
               acceptRematchLabel: '재대결 수락',
               waitingText: '상대방 응답 대기 중...',
@@ -1565,12 +1577,12 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
   }
 
   void _leaveGame() {
+    _idleTimer?.cancel();
+    _buzzTimer?.cancel();
     if (_roomId != null) {
-      _idleTimer?.cancel();
-      _buzzTimer?.cancel();
       _socketService.emit('leave_room', {'roomId': _roomId});
     }
-    Navigator.pop(context);
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   void _showExitDialog(GameTheme theme) {

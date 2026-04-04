@@ -163,6 +163,7 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
   late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
   DateTime? _pausedAt;
   bool _providersInitialized = false;
+  bool _userProvidersCleared = false;
 
   @override
   void initState() {
@@ -231,12 +232,21 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer2<RemoteConfigService, AuthProvider>(
-      builder: (context, configService, auth, child) {
+    const lobbyScreen = LobbyScreen();
+
+    return Consumer3<RemoteConfigService, AuthProvider, GameProvider>(
+      child: lobbyScreen,
+      builder: (context, configService, auth, game, child) {
+        final isHandlingGameReconnect =
+            auth.isLoggedIn &&
+            !_serverConnected &&
+            (game.status == GameStatus.searching ||
+                game.status == GameStatus.matched ||
+                game.status == GameStatus.playing);
         final shouldShowBlockingRoot =
             configService.isUnderMaintenance ||
             !auth.isLoggedIn ||
-            (auth.isLoggedIn && !_serverConnected);
+            (auth.isLoggedIn && !_serverConnected && !isHandlingGameReconnect);
 
         if (shouldShowBlockingRoot) {
           _collapseToRootIfNeeded();
@@ -251,8 +261,9 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
         }
 
         if (auth.isLoggedIn) {
-          // FriendProvider, StatsProvider, ShopProvider 초기화
-          if (!_providersInitialized) {
+          _userProvidersCleared = false;
+          // 로그인 유저 전용 Provider는 인증 유저일 때만 초기화
+          if (auth.userId != null && !_providersInitialized) {
             _providersInitialized = true;
             WidgetsBinding.instance.addPostFrameCallback((_) {
               context.read<FriendProvider>().initialize();
@@ -263,12 +274,24 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
 
           // 서버 연결 대기
           if (!_serverConnected) {
+            if (isHandlingGameReconnect) {
+              return child!;
+            }
             return ServerLoadingScreen(onConnected: _onServerConnected);
           }
 
-          return const LobbyScreen();
+          return child!;
         }
         _providersInitialized = false;
+        if (!_userProvidersCleared) {
+          _userProvidersCleared = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            context.read<FriendProvider>().resetState();
+            context.read<StatsProvider>().resetState();
+            context.read<ShopProvider>().resetState();
+          });
+        }
         return const LoginScreen();
       },
     );

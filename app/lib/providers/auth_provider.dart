@@ -54,6 +54,15 @@ class AuthProvider extends ChangeNotifier with ProviderFeedback {
     notifyListeners();
   }
 
+  void _handleSocketDisconnected(dynamic _) {
+    if (_socketId == null && _joinRequestedSocketId == null) {
+      return;
+    }
+    _socketId = null;
+    _joinRequestedSocketId = null;
+    notifyListeners();
+  }
+
   void _handleLobbyJoined(dynamic _) {
     _socketId = _socketService.socket?.id;
     _joinRequestedSocketId = _socketId;
@@ -62,6 +71,9 @@ class AuthProvider extends ChangeNotifier with ProviderFeedback {
 
   void _ensureSocketListeners() {
     _socketListeners.on('connect', _handleConnect);
+    _socketListeners.on('disconnect', _handleSocketDisconnected);
+    _socketListeners.on('connect_error', _handleSocketDisconnected);
+    _socketListeners.on('reconnect_error', _handleSocketDisconnected);
     _socketListeners.on('lobby_joined', _handleLobbyJoined);
     _socketListeners.on('auth_error', _handleAuthError);
   }
@@ -103,18 +115,23 @@ class AuthProvider extends ChangeNotifier with ProviderFeedback {
 
   Future<void> _emitJoinLobby() async {
     final socketId = _socketService.socket?.id;
-    if (socketId == null || _nickname == null || _userId == null) return;
+    if (socketId == null || _nickname == null) return;
     if (_joinRequestedSocketId == socketId && _socketService.isLobbyJoined) return;
 
     _joinRequestedSocketId = socketId;
     final deviceInfo = await DeviceInfoService().getDeviceInfo();
-    _socketService.emit('join_lobby', {
+    final payload = <String, dynamic>{
       'nickname': _nickname,
-      'userId': _userId,
       'avatarUrl': _avatarUrl,
       'deviceInfo': deviceInfo,
-      'token': _apiService.jwtToken,
-    }, requireLobbyJoined: false);
+    };
+    if (_userId != null) {
+      payload['userId'] = _userId;
+    }
+    if (_apiService.jwtToken != null) {
+      payload['token'] = _apiService.jwtToken;
+    }
+    _socketService.emit('join_lobby', payload, requireLobbyJoined: false);
     _socketId = socketId;
   }
 

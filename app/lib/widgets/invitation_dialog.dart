@@ -150,13 +150,13 @@ class InvitationDialog extends StatelessWidget {
 }
 
 // 초대 다이얼로그 표시 함수
-void showInvitationDialog(
+Future<T?> showInvitationDialog<T>(
   BuildContext context,
   Invitation invitation,
   VoidCallback onAccept,
   VoidCallback onDecline,
 ) {
-  showDialog(
+  return showDialog<T>(
     context: context,
     barrierDismissible: false,
     builder: (context) => InvitationDialog(

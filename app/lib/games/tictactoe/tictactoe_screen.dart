@@ -10,6 +10,7 @@ import '../../config/app_config.dart';
 import '../../utils/game_theme.dart';
 import '../common/game_duel_header.dart';
 import '../common/game_result_action_buttons.dart';
+import '../common/game_session_helper.dart';
 
 class TicTacToeScreen extends StatefulWidget {
   final bool isRanked;
@@ -820,14 +821,12 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
 
     // 랭크전에서는 결과만 표시하고 자동으로 돌아가기
     if (widget.isRanked) {
-      if (!_hasScheduledPop) {
-        _hasScheduledPop = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          Future.delayed(const Duration(seconds: 2), () {
-            if (mounted) Navigator.pop(context);
-          });
-        });
-      }
+      GameSessionHelper.scheduleRankedAutoReturn(
+        context: context,
+        mounted: mounted,
+        hasScheduledPop: _hasScheduledPop,
+        markScheduledPop: () => _hasScheduledPop = true,
+      );
       final isWinner = game.isWinner;
       final isDraw = game.isDraw;
       return Container(
@@ -997,8 +996,13 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
                     game.findMatch(AppConfig.gameTypeTicTacToe);
                   },
                   onLobbyPressed: () {
-                    game.leaveGame();
-                    Navigator.pop(context);
+                    GameSessionHelper.leaveGameAndReturnToLobby(
+                      context: context,
+                      socketService: SocketService(),
+                      roomId: game.roomId,
+                      isRanked: widget.isRanked,
+                      resetState: game.reset,
+                    );
                   },
                   onFriendRequestPressed: game.opponentUserId == null
                       ? null

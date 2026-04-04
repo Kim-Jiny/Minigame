@@ -4,10 +4,12 @@ import '../../providers/game_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
 import '../../providers/shop_provider.dart';
+import '../../services/socket_service.dart';
 import '../../config/app_config.dart';
 import '../../utils/game_theme.dart';
 import '../common/game_duel_header.dart';
 import '../common/game_result_action_buttons.dart';
+import '../common/game_session_helper.dart';
 
 class InfiniteTicTacToeScreen extends StatefulWidget {
   final bool isRanked;
@@ -604,14 +606,12 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
   Widget _buildFinishedView(GameProvider game, GameTheme theme) {
     // 랭크전에서는 결과만 표시하고 자동으로 돌아가기
     if (widget.isRanked) {
-      if (!_hasScheduledPop) {
-        _hasScheduledPop = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          Future.delayed(const Duration(seconds: 2), () {
-            if (mounted) Navigator.pop(context);
-          });
-        });
-      }
+      GameSessionHelper.scheduleRankedAutoReturn(
+        context: context,
+        mounted: mounted,
+        hasScheduledPop: _hasScheduledPop,
+        markScheduledPop: () => _hasScheduledPop = true,
+      );
       final isWinner = game.isWinner;
       return Container(
         decoration: BoxDecoration(gradient: theme.backgroundGradient),
@@ -770,8 +770,13 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
                     game.findMatch(AppConfig.gameTypeInfiniteTicTacToe);
                   },
                   onLobbyPressed: () {
-                    game.leaveGame();
-                    Navigator.pop(context);
+                    GameSessionHelper.leaveGameAndReturnToLobby(
+                      context: context,
+                      socketService: SocketService(),
+                      roomId: game.roomId,
+                      isRanked: false,
+                      resetState: game.reset,
+                    );
                   },
                   onFriendRequestPressed: game.opponentUserId == null
                       ? null

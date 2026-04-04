@@ -20,7 +20,7 @@ import { shopService } from '../services/shopService';
 import { rankedService, RANKED_GAMES, HARDCORE_GAMES } from '../services/rankedService';
 import { getPool } from '../config/database';
 import { verifyToken } from '../utils/jwt';
-import { findUserById } from '../services/userService';
+import { findUserById, assertUserNotBanned } from '../services/userService';
 
 // 유저 접속 기록 저장
 async function saveUserSession(
@@ -2506,27 +2506,43 @@ export function setupSocketHandlers(io: Server) {
           return;
         }
 
-        const user = await findUserById(payload.userId);
-        if (!user) {
-          socket.emit('auth_error', { message: 'User not found' });
+        try {
+          const user = await findUserById(payload.userId);
+          if (!user) {
+            socket.emit('auth_error', { message: 'User not found' });
+            return;
+          }
+
+          await assertUserNotBanned(user.id);
+
+          verifiedUserId = user.id;
+          verifiedNickname = user.nickname;
+          verifiedAvatarUrl = user.avatar_url ?? undefined;
+        } catch (error) {
+          socket.emit('auth_error', {
+            message: error instanceof Error ? error.message : 'Authentication failed',
+          });
           return;
         }
-
-        verifiedUserId = user.id;
-        verifiedNickname = user.nickname;
-        verifiedAvatarUrl = user.avatar_url ?? undefined;
       } else if (data.userId != null) {
         socket.emit('auth_error', { message: 'Authentication required' });
         return;
       }
 
-      currentPlayer = {
-        id: socket.id,
-        socket,
-        nickname: verifiedNickname,
-        userId: verifiedUserId,
-        avatarUrl: verifiedAvatarUrl,
-      };
+      try {
+        currentPlayer = {
+          id: socket.id,
+          socket,
+          nickname: verifiedNickname,
+          userId: verifiedUserId,
+          avatarUrl: verifiedAvatarUrl,
+        };
+      } catch (error) {
+        socket.emit('auth_error', {
+          message: error instanceof Error ? error.message : 'Failed to join lobby',
+        });
+        return;
+      }
 
       // 유저 ID가 있으면 소켓 매핑
       if (verifiedUserId) {
@@ -4101,24 +4117,22 @@ export function setupSocketHandlers(io: Server) {
     // 초대 수락
     socket.on('accept_invitation', async (data: { invitationId: number }) => {
       if (!currentPlayer?.userId) {
-        socket.emit('accept_invitation_result', { success: false, message: '로그인이 필요합니다.' });
+        socket.emit('accept_invitation_result', {
+          success: false,
+          message: '로그인이 필요합니다.',
+          invitationId: data.invitationId,
+        });
         return;
       }
 
       try {
         const invitation = await invitationService.getInvitation(data.invitationId);
         if (!invitation) {
-          socket.emit('accept_invitation_result', { success: false, message: '초대를 찾을 수 없습니다.' });
-          return;
-        }
-
-        // 게임방 생성
-        const isHardcore = invitation.isHardcore || false;
-        const roomId = `${invitation.gameType}_${isHardcore ? 'hc_' : ''}invite_${Date.now()}`;
-        const result = await invitationService.acceptInvitation(data.invitationId, roomId);
-
-        if (!result.success) {
-          socket.emit('accept_invitation_result', result);
+          socket.emit('accept_invitation_result', {
+            success: false,
+            message: '초대를 찾을 수 없습니다.',
+            invitationId: data.invitationId,
+          });
           return;
         }
 
@@ -4133,7 +4147,24 @@ export function setupSocketHandlers(io: Server) {
         } : null;
 
         if (!inviterPlayer) {
-          socket.emit('accept_invitation_result', { success: false, message: '초대한 사람이 오프라인입니다.' });
+          socket.emit('accept_invitation_result', {
+            success: false,
+            message: '초대한 사람이 오프라인입니다.',
+            invitationId: data.invitationId,
+          });
+          return;
+        }
+
+        // 게임방 생성
+        const isHardcore = invitation.isHardcore || false;
+        const roomId = `${invitation.gameType}_${isHardcore ? 'hc_' : ''}invite_${Date.now()}`;
+        const result = await invitationService.acceptInvitation(data.invitationId, roomId);
+
+        if (!result.success) {
+          socket.emit('accept_invitation_result', {
+            ...result,
+            invitationId: data.invitationId,
+          });
           return;
         }
 
@@ -4201,6 +4232,7 @@ export function setupSocketHandlers(io: Server) {
           // 반응속도 게임
           socket.emit('accept_invitation_result', {
             success: true,
+            invitationId: data.invitationId,
             roomId,
             gameType: invitation.gameType,
             gameState: {
@@ -4238,6 +4270,7 @@ export function setupSocketHandlers(io: Server) {
           // 가위바위보 게임
           socket.emit('accept_invitation_result', {
             success: true,
+            invitationId: data.invitationId,
             roomId,
             gameType: invitation.gameType,
             gameState: {
@@ -4275,6 +4308,7 @@ export function setupSocketHandlers(io: Server) {
           // 스피드탭 게임
           socket.emit('accept_invitation_result', {
             success: true,
+            invitationId: data.invitationId,
             roomId,
             gameType: invitation.gameType,
             gameState: {
@@ -4313,6 +4347,7 @@ export function setupSocketHandlers(io: Server) {
           const seqGame = room.game as SequenceGame;
           socket.emit('accept_invitation_result', {
             success: true,
+            invitationId: data.invitationId,
             roomId,
             gameType: invitation.gameType,
             gameState: {
@@ -4356,6 +4391,7 @@ export function setupSocketHandlers(io: Server) {
           const stroopGame = room.game as StroopGame;
           socket.emit('accept_invitation_result', {
             success: true,
+            invitationId: data.invitationId,
             roomId,
             gameType: invitation.gameType,
             gameState: {
@@ -4396,6 +4432,7 @@ export function setupSocketHandlers(io: Server) {
           // 헥사곤 게임
           socket.emit('accept_invitation_result', {
             success: true,
+            invitationId: data.invitationId,
             roomId,
             gameType: invitation.gameType,
             gameState: { players, isInvitation: true }
@@ -4427,6 +4464,7 @@ export function setupSocketHandlers(io: Server) {
           // 수식피라미드 게임
           socket.emit('accept_invitation_result', {
             success: true,
+            invitationId: data.invitationId,
             roomId,
             gameType: invitation.gameType,
             gameState: { players, isInvitation: true }
@@ -4457,6 +4495,7 @@ export function setupSocketHandlers(io: Server) {
           // 훈민정음 게임
           socket.emit('accept_invitation_result', {
             success: true,
+            invitationId: data.invitationId,
             roomId,
             gameType: invitation.gameType,
             gameState: { players, isInvitation: true }
@@ -4492,6 +4531,7 @@ export function setupSocketHandlers(io: Server) {
           // 초대 받은 사람에게 게임 상태 포함해서 전송
           socket.emit('accept_invitation_result', {
             success: true,
+            invitationId: data.invitationId,
             roomId,
             gameType: invitation.gameType,
             // 게임 상태 포함
@@ -4547,21 +4587,32 @@ export function setupSocketHandlers(io: Server) {
           }, 500);
         }
       } catch (error) {
-        socket.emit('accept_invitation_result', { success: false, message: '초대 수락 실패' });
+        socket.emit('accept_invitation_result', {
+          success: false,
+          message: '초대 수락 실패',
+          invitationId: data.invitationId,
+        });
       }
     });
 
     // 초대 거절
     socket.on('decline_invitation', async (data: { invitationId: number }) => {
       if (!currentPlayer?.userId) {
-        socket.emit('decline_invitation_result', { success: false, message: '로그인이 필요합니다.' });
+        socket.emit('decline_invitation_result', {
+          success: false,
+          message: '로그인이 필요합니다.',
+          invitationId: data.invitationId,
+        });
         return;
       }
 
       try {
         const invitation = await invitationService.getInvitation(data.invitationId);
         const result = await invitationService.declineInvitation(data.invitationId);
-        socket.emit('decline_invitation_result', result);
+        socket.emit('decline_invitation_result', {
+          ...result,
+          invitationId: data.invitationId,
+        });
 
         // 초대 타임아웃 정리
         const timeoutId = invitationTimeouts.get(data.invitationId);
@@ -4581,7 +4632,11 @@ export function setupSocketHandlers(io: Server) {
           }
         }
       } catch (error) {
-        socket.emit('decline_invitation_result', { success: false, message: '초대 거절 실패' });
+        socket.emit('decline_invitation_result', {
+          success: false,
+          message: '초대 거절 실패',
+          invitationId: data.invitationId,
+        });
       }
     });
 
@@ -4880,10 +4935,30 @@ export function setupSocketHandlers(io: Server) {
     // 재대결 요청 (양쪽 모두 눌러야 시작)
     socket.on('rematch_request', (data: { roomId: string }) => {
       const room = rooms.get(data.roomId);
-      const isRoomParticipant = room?.players.some(p => p.id === socket.id) ?? false;
-      const canStartRematch = room && room.status === 'finished' && room.players.length === 2 && isRoomParticipant;
+      const participantIndex = room
+        ? room.players.findIndex((player) =>
+            player.id === socket.id ||
+            (!!currentPlayer?.userId && player.userId === currentPlayer.userId))
+        : -1;
+      const participant = participantIndex !== -1 && room
+        ? room.players[participantIndex]
+        : null;
 
-      if (!canStartRematch) {
+      // 게임 종료 화면에서 잠깐 재연결된 경우 userId 기준으로 현재 소켓을 다시 연결한다.
+      if (room && participant) {
+        participant.id = socket.id;
+        participant.socket = socket;
+        participant.nickname = currentPlayer?.nickname ?? participant.nickname;
+        participant.avatarUrl = currentPlayer?.avatarUrl ?? participant.avatarUrl;
+        socket.join(data.roomId);
+        currentRoomId = data.roomId;
+        currentPlayer = participant;
+      }
+
+      const isRoomParticipant = participant != null;
+      const hasFullRoom = room?.players.length === 2;
+
+      if (!room || !hasFullRoom || !isRoomParticipant) {
         socket.emit('rematch_waiting', {
           waiting: false,
         });
@@ -4893,125 +4968,154 @@ export function setupSocketHandlers(io: Server) {
         return;
       }
 
-      if (room.status === 'finished') {
-        // 재경기 요청 목록 초기화
-        if (!room.rematchRequests) {
-          room.rematchRequests = new Set();
-        }
-
-        // 현재 플레이어 요청 추가
-        room.rematchRequests.add(socket.id);
-        console.log(`🔄 Rematch requested by ${currentPlayer?.nickname} (${room.rematchRequests.size}/2)`);
-
-        // 상대방에게 알림
-        socket.to(data.roomId).emit('rematch_requested', {
-          from: currentPlayer?.nickname,
-          fromId: socket.id,
-        });
-
-        // 본인에게 대기 상태 알림
+      // 이미 재경기가 시작된 뒤 늦게 도착한 중복 요청은 무시한다.
+      if (room.status !== 'finished') {
         socket.emit('rematch_waiting', {
-          waiting: true,
+          waiting: false,
         });
+        return;
+      }
 
-        // 두 명 모두 요청했으면 게임 시작
-        if (room.rematchRequests.size >= 2) {
-          // 게임 리셋
-          if (room.gameType === 'tictactoe') {
-            room.game = new TicTacToeGame();
-          } else if (room.gameType === 'infinite_tictactoe') {
-            room.game = new InfiniteTicTacToeGame();
-          } else if (room.gameType === 'gomoku') {
-            room.game = new GomokuGame();
-          } else if (room.gameType === 'reaction') {
-            room.game = new ReactionGame();
-          } else if (room.gameType === 'rps') {
-            room.game = new RpsGame();
-          } else if (room.gameType === 'speedtap') {
-            room.game = new SpeedTapGame();
-          } else if (room.gameType === 'sequence') {
-            room.game = new SequenceGame(room.isHardcore);
-          } else if (room.gameType === 'stroop') {
-            room.game = new StroopGame(room.isHardcore);
-          } else if (room.gameType === 'hexagon') {
-            room.game = new HexagonGame(false);
-          } else if (room.gameType === 'hunmin') {
-            room.game = new HunminGame();
-          }
-          room.status = 'playing';
-          room.rematchRequests.clear();
+      // 재경기 요청 목록 초기화
+      if (!room.rematchRequests) {
+        room.rematchRequests = new Set();
+      }
 
-          // 플레이어 순서 교체 (선공/후공 바꾸기)
-          room.players.reverse();
+      const rematchRequesterKey = participant.userId != null
+        ? `user:${participant.userId}`
+        : `socket:${participant.id}`;
 
-          if (room.gameType === 'reaction') {
-            // 반응속도 게임 재대결
-            io.to(data.roomId).emit('game_start', {
-              gameType: 'reaction',
-            });
-            scheduleRoundStart(room, 1000, () => startReactionRound(io, room));
-          } else if (room.gameType === 'rps') {
-            // 가위바위보 게임 재대결
-            io.to(data.roomId).emit('game_start', {
-              gameType: 'rps',
-            });
-            scheduleRoundStart(room, 1000, () => startRpsRound(io, room));
-          } else if (room.gameType === 'speedtap') {
-            // 스피드탭 게임 재대결
-            io.to(data.roomId).emit('game_start', {
-              gameType: 'speedtap',
-            });
-            scheduleRoundStart(room, 1000, () => startSpeedTapRound(io, room));
-          } else if (room.gameType === 'sequence') {
-            // 순서 기억하기 게임 재대결
-            const seqGame = room.game as SequenceGame;
-            io.to(data.roomId).emit('game_start', {
-              gameType: 'sequence',
-              gridSize: seqGame.getGridSize(),
-              sequence: seqGame.getSequence(),
-              level: seqGame.getCurrentLevel(),
-              showDelay: seqGame.getShowDelay(),
-              isHardcore: seqGame.getIsHardcore(),
-              timeLimit: seqGame.getTimeLimit(),
-            });
-            scheduleExistingSequencePhase(io, room);
-          } else if (room.gameType === 'stroop') {
-            // 스트룹 게임 재대결
-            const stroopGame = room.game as StroopGame;
-            io.to(data.roomId).emit('game_start', {
-              gameType: 'stroop',
-              isHardcore: stroopGame.getIsHardcore(),
-              colors: stroopGame.getColors(),
-            });
-            scheduleRoundStart(room, 1000, () => startStroopRound(io, room));
-          } else if (room.gameType === 'hexagon') {
-            // 헥사곤 게임 재대결
-            io.to(data.roomId).emit('game_start', {
-              gameType: 'hexagon',
-              isSolo: false,
-            });
-            setTimeout(() => startHexagonRound(io, room), 1000);
-          } else if (room.gameType === 'hunmin') {
-            // 훈민정음 게임 재대결
-            io.to(data.roomId).emit('game_start', {
-              gameType: 'hunmin',
-              players: room.players.map(p => ({ id: p.id, nickname: p.nickname })),
-            });
-            setTimeout(() => startHunminRound(io, room), 1000);
-          } else {
-            // 턴제 게임
-            startTurnTimer(io, room);
-            const turnGame = room.game as TicTacToeGame | InfiniteTicTacToeGame | GomokuGame;
-            io.to(data.roomId).emit('game_start', {
-              currentTurn: room.players[0].id,
-              board: turnGame?.getBoard(),
-              turnTimeLimit: getTurnTimeLimit(room),
-              turnStartTime: room.turnStartTime,
-              players: room.players.map(p => ({ id: p.id, nickname: p.nickname })),
-            });
-          }
-          console.log(`🎮 Rematch started: ${room.players[0].nickname} vs ${room.players[1].nickname}`);
+      // 현재 플레이어 요청 추가
+      room.rematchRequests.add(rematchRequesterKey);
+      console.log(`🔄 Rematch requested by ${currentPlayer?.nickname} (${room.rematchRequests.size}/${room.players.length})`);
+
+      // 상대방에게 알림
+      socket.to(data.roomId).emit('rematch_requested', {
+        from: currentPlayer?.nickname,
+        fromId: socket.id,
+      });
+
+      // 본인에게 대기 상태 알림
+      socket.emit('rematch_waiting', {
+        waiting: true,
+      });
+
+      // 두 명 모두 요청했으면 게임 시작
+      if (room.rematchRequests.size >= room.players.length) {
+        // 게임 리셋
+        if (room.gameType === 'tictactoe') {
+          room.game = new TicTacToeGame();
+        } else if (room.gameType === 'infinite_tictactoe') {
+          room.game = new InfiniteTicTacToeGame();
+        } else if (room.gameType === 'gomoku') {
+          room.game = new GomokuGame();
+        } else if (room.gameType === 'reaction') {
+          room.game = new ReactionGame();
+        } else if (room.gameType === 'rps') {
+          room.game = new RpsGame();
+        } else if (room.gameType === 'speedtap') {
+          room.game = new SpeedTapGame();
+        } else if (room.gameType === 'sequence') {
+          room.game = new SequenceGame(room.isHardcore);
+        } else if (room.gameType === 'stroop') {
+          room.game = new StroopGame(room.isHardcore);
+        } else if (room.gameType === 'hexagon') {
+          room.game = new HexagonGame(false);
+        } else if (room.gameType === 'hunmin') {
+          room.game = new HunminGame();
         }
+        room.status = 'playing';
+        room.rematchRequests.clear();
+
+        // 플레이어 순서 교체 (선공/후공 바꾸기)
+        room.players.reverse();
+        const rematchPlayers = room.players.map(p => ({
+          id: p.id,
+          nickname: p.nickname,
+          userId: p.userId,
+          avatarUrl: p.avatarUrl,
+        }));
+
+        if (room.gameType === 'reaction') {
+          // 반응속도 게임 재대결
+          io.to(data.roomId).emit('game_start', {
+            gameType: 'reaction',
+            players: rematchPlayers,
+          });
+          scheduleRoundStart(room, 1000, () => startReactionRound(io, room));
+        } else if (room.gameType === 'rps') {
+          // 가위바위보 게임 재대결
+          io.to(data.roomId).emit('game_start', {
+            gameType: 'rps',
+            players: rematchPlayers,
+          });
+          scheduleRoundStart(room, 1000, () => startRpsRound(io, room));
+        } else if (room.gameType === 'speedtap') {
+          // 스피드탭 게임 재대결
+          io.to(data.roomId).emit('game_start', {
+            gameType: 'speedtap',
+            players: rematchPlayers,
+          });
+          scheduleRoundStart(room, 1000, () => startSpeedTapRound(io, room));
+        } else if (room.gameType === 'sequence') {
+          // 순서 기억하기 게임 재대결
+          const seqGame = room.game as SequenceGame;
+          io.to(data.roomId).emit('game_start', {
+            gameType: 'sequence',
+            players: rematchPlayers,
+            gridSize: seqGame.getGridSize(),
+            sequence: seqGame.getSequence(),
+            level: seqGame.getCurrentLevel(),
+            showDelay: seqGame.getShowDelay(),
+            isHardcore: seqGame.getIsHardcore(),
+            timeLimit: seqGame.getTimeLimit(),
+          });
+          scheduleExistingSequencePhase(io, room);
+        } else if (room.gameType === 'stroop') {
+          // 스트룹 게임 재대결
+          const stroopGame = room.game as StroopGame;
+          io.to(data.roomId).emit('game_start', {
+            gameType: 'stroop',
+            players: rematchPlayers,
+            isHardcore: stroopGame.getIsHardcore(),
+            colors: stroopGame.getColors(),
+          });
+          scheduleRoundStart(room, 1000, () => startStroopRound(io, room));
+        } else if (room.gameType === 'hexagon') {
+          // 헥사곤 게임 재대결
+          io.to(data.roomId).emit('game_start', {
+            gameType: 'hexagon',
+            isSolo: false,
+            players: rematchPlayers,
+          });
+          setTimeout(() => startHexagonRound(io, room), 1000);
+        } else if (room.gameType === 'pyramid') {
+          // 수식피라미드 게임 재대결
+          io.to(data.roomId).emit('game_start', {
+            gameType: 'pyramid',
+            players: rematchPlayers,
+          });
+          setTimeout(() => startPyramidRound(io, room), 1000);
+        } else if (room.gameType === 'hunmin') {
+          // 훈민정음 게임 재대결
+          io.to(data.roomId).emit('game_start', {
+            gameType: 'hunmin',
+            players: rematchPlayers,
+          });
+          setTimeout(() => startHunminRound(io, room), 1000);
+        } else {
+          // 턴제 게임
+          startTurnTimer(io, room);
+          const turnGame = room.game as TicTacToeGame | InfiniteTicTacToeGame | GomokuGame;
+          io.to(data.roomId).emit('game_start', {
+            currentTurn: room.players[0].id,
+            board: turnGame?.getBoard(),
+            turnTimeLimit: getTurnTimeLimit(room),
+            turnStartTime: room.turnStartTime,
+            players: room.players.map(p => ({ id: p.id, nickname: p.nickname })),
+          });
+        }
+        console.log(`🎮 Rematch started: ${room.players[0].nickname} vs ${room.players[1].nickname}`);
       }
     });
 
@@ -5019,7 +5123,13 @@ export function setupSocketHandlers(io: Server) {
     socket.on('rematch_cancel', (data: { roomId: string }) => {
       const room = rooms.get(data.roomId);
       if (room && room.rematchRequests) {
-        room.rematchRequests.delete(socket.id);
+        const participant = room.players.find((player) =>
+          player.id === socket.id ||
+          (!!currentPlayer?.userId && player.userId === currentPlayer.userId));
+        const rematchRequesterKey = participant?.userId != null
+          ? `user:${participant.userId}`
+          : `socket:${socket.id}`;
+        room.rematchRequests.delete(rematchRequesterKey);
         socket.emit('rematch_waiting', { waiting: false });
         socket.to(data.roomId).emit('rematch_cancelled', {
           from: currentPlayer?.nickname,

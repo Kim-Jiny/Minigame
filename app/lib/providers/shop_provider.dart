@@ -12,12 +12,14 @@ class ShopProvider extends ChangeNotifier with ProviderFeedback {
   List<UserItem> _userItems = [];
   UserProfileSettings? _profileSettings;
   bool _listenersInitialized = false;
+  bool _hasFetchedInitialData = false;
   String? _lastChangedNickname;
 
   List<ShopItem> get shopItems => _shopItems;
   List<UserItem> get userItems => _userItems;
   UserProfileSettings? get profileSettings => _profileSettings;
   String? get lastChangedNickname => _lastChangedNickname;
+  bool get hasFetchedInitialData => _hasFetchedInitialData;
 
   // 카테고리별 필터링
   List<ShopItem> getItemsByCategory(ShopCategory category) {
@@ -56,6 +58,13 @@ class ShopProvider extends ChangeNotifier with ProviderFeedback {
       _setupSocketListeners();
       _listenersInitialized = true;
     }
+    if (_socketService.isReady) {
+      refreshAll();
+    }
+  }
+
+  void refreshAll() {
+    _hasFetchedInitialData = true;
     getShopItems();
     getUserItems();
     getProfileSettings();
@@ -64,9 +73,7 @@ class ShopProvider extends ChangeNotifier with ProviderFeedback {
   void _setupSocketListeners() {
     // 로비 재입장 시 데이터 동기화
     _socketListeners.on('lobby_joined', (_) {
-      getShopItems();
-      getUserItems();
-      getProfileSettings();
+      refreshAll();
     });
 
     // 상점 아이템 응답
@@ -216,6 +223,16 @@ class ShopProvider extends ChangeNotifier with ProviderFeedback {
   void clearMessages() {
     clearFeedback();
     _lastChangedNickname = null;
+    notifyListeners();
+  }
+
+  void resetState() {
+    _shopItems = [];
+    _userItems = [];
+    _profileSettings = null;
+    _hasFetchedInitialData = false;
+    _lastChangedNickname = null;
+    clearFeedback();
     notifyListeners();
   }
 

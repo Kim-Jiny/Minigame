@@ -1,14 +1,15 @@
 import { Router, Request, Response } from 'express';
 import { getPool } from '../config/database';
 import * as jwt from 'jsonwebtoken';
+import bcrypt from 'bcrypt';
 import { coinService } from '../services/coinService';
 import { updateNickname } from '../services/userService';
 
 const router = Router();
-const ADMIN_JWT_SECRET = process.env.JWT_SECRET || 'admin-secret-key';
+const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || 'admin-secret-key';
 
 // 관리자 토큰 검증 미들웨어
-function verifyAdminToken(req: Request, res: Response, next: Function) {
+async function verifyAdminToken(req: Request, res: Response, next: Function) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     res.status(401).json({ error: 'No token provided' });
@@ -18,6 +19,27 @@ function verifyAdminToken(req: Request, res: Response, next: Function) {
   const token = authHeader.split(' ')[1];
   try {
     const payload = jwt.verify(token, ADMIN_JWT_SECRET) as { adminId: number; username: string };
+    if (!payload.adminId || !payload.username) {
+      res.status(401).json({ error: 'Invalid token payload' });
+      return;
+    }
+
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+
+    const result = await pool.query(
+      'SELECT id, username FROM dm_admin_accounts WHERE id = $1 AND username = $2',
+      [payload.adminId, payload.username]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(401).json({ error: 'Admin account not found' });
+      return;
+    }
+
     (req as any).admin = payload;
     next();
   } catch {
@@ -42,8 +64,8 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     }
 
     const result = await pool.query(
-      'SELECT id, username FROM dm_admin_accounts WHERE username = $1 AND password = $2',
-      [username, password]
+      'SELECT id, username, password FROM dm_admin_accounts WHERE username = $1',
+      [username]
     );
 
     if (result.rows.length === 0) {
@@ -52,6 +74,12 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     }
 
     const admin = result.rows[0];
+    const passwordMatched = await bcrypt.compare(password, admin.password);
+    if (!passwordMatched) {
+      res.status(401).json({ error: 'Invalid credentials' });
+      return;
+    }
+
     const token = jwt.sign(
       { adminId: admin.id, username: admin.username },
       ADMIN_JWT_SECRET,

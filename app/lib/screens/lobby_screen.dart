@@ -126,6 +126,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   int _currentIndex = 0;
   String? _lastProcessedInvitationRoomId; // 중복 초대 게임 처리 방지
+  int? _openInvitationDialogId;
   RemoteConfigService? _configService;
   FriendProvider? _friendProvider;
 
@@ -175,7 +176,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
     // 초대 받았을 때
     friendProvider.onInvitationReceived = (invitation) {
-      if (mounted) {
+      if (mounted && _openInvitationDialogId != invitation.id) {
+        _openInvitationDialogId = invitation.id;
         showInvitationDialog(
           context,
           invitation,
@@ -185,7 +187,11 @@ class _LobbyScreenState extends State<LobbyScreen> {
           () {
             friendProvider.declineInvitation(invitation.id);
           },
-        );
+        ).whenComplete(() {
+          if (mounted && _openInvitationDialogId == invitation.id) {
+            _openInvitationDialogId = null;
+          }
+        });
       }
     };
 

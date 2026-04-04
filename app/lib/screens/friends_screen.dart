@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/friend_provider.dart';
 import '../providers/auth_provider.dart';
 import '../models/shop_item.dart';
+import '../services/socket_service.dart';
 import 'chat_screen.dart';
 
 class FriendsScreen extends StatefulWidget {
@@ -19,14 +20,15 @@ class _FriendsScreenState extends State<FriendsScreen> {
   @override
   void initState() {
     super.initState();
-    // 화면 진입 시 서버에서 데이터 새로고침
+    // 첫 진입에서 아직 친구 데이터가 없을 때만 조회한다.
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final auth = context.read<AuthProvider>();
+      if (auth.userId == null) return;
       final friendProvider = context.read<FriendProvider>();
-      friendProvider.getMyFriendCode();
-      friendProvider.getFriends();
-      friendProvider.getFriendRequests();
-      friendProvider.getInvitations();
-      friendProvider.getUnreadCounts();
+      if (SocketService().isReady && !friendProvider.hasFetchedInitialData) {
+        friendProvider.refreshAll();
+      }
     });
   }
 
@@ -244,10 +246,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
 
         return RefreshIndicator(
           onRefresh: () async {
-            friendProvider.getFriends();
-            friendProvider.getFriendRequests();
-            friendProvider.getInvitations();
-            friendProvider.getUnreadCounts();
+            friendProvider.refreshAll();
           },
           child: LayoutBuilder(
             builder: (context, constraints) {

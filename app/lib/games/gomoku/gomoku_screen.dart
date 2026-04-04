@@ -11,6 +11,7 @@ import '../../config/app_config.dart';
 import '../../utils/game_theme.dart';
 import '../common/game_duel_header.dart';
 import '../common/game_result_action_buttons.dart';
+import '../common/game_session_helper.dart';
 
 class GomokuScreen extends StatefulWidget {
   final bool isRanked;
@@ -33,6 +34,10 @@ class _GomokuScreenState extends State<GomokuScreen> {
   bool _hasScheduledPop = false;  // 중복 pop 방지
   int? _previewPosition; // 미리보기 중인 셀 인덱스
   bool _wasMyTurn = false; // 내 턴 변경 감지용
+
+  void _resetBoardZoom() {
+    _transformationController.value = Matrix4.identity();
+  }
 
   @override
   void initState() {
@@ -601,7 +606,26 @@ class _GomokuScreenState extends State<GomokuScreen> {
 
           // 게임 보드
           Expanded(
-            child: _buildBoard(game),
+            child: Stack(
+              children: [
+                Positioned.fill(child: _buildBoard(game)),
+                Positioned(
+                  right: 16,
+                  bottom: 16,
+                  child: SafeArea(
+                    top: false,
+                    left: false,
+                    child: FloatingActionButton.small(
+                      heroTag: 'gomoku-reset-zoom',
+                      onPressed: _resetBoardZoom,
+                      backgroundColor: Colors.white,
+                      foregroundColor: theme.primary,
+                      child: const Icon(Icons.center_focus_strong),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
 
           // 착수 확인/취소 버튼
@@ -859,14 +883,12 @@ class _GomokuScreenState extends State<GomokuScreen> {
   Widget _buildFinishedView(GameProvider game, GameTheme theme) {
     // 랭크전에서는 결과만 표시하고 자동으로 돌아가기
     if (widget.isRanked) {
-      if (!_hasScheduledPop) {
-        _hasScheduledPop = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          Future.delayed(const Duration(seconds: 2), () {
-            if (mounted) Navigator.pop(context);
-          });
-        });
-      }
+      GameSessionHelper.scheduleRankedAutoReturn(
+        context: context,
+        mounted: mounted,
+        hasScheduledPop: _hasScheduledPop,
+        markScheduledPop: () => _hasScheduledPop = true,
+      );
       final isWinner = game.isWinner;
       final isDraw = game.isDraw;
       return Container(
@@ -1028,8 +1050,13 @@ class _GomokuScreenState extends State<GomokuScreen> {
                     game.findMatch(AppConfig.gameTypeGomoku);
                   },
                   onLobbyPressed: () {
-                    game.leaveGame();
-                    Navigator.pop(context);
+                    GameSessionHelper.leaveGameAndReturnToLobby(
+                      context: context,
+                      socketService: SocketService(),
+                      roomId: game.roomId,
+                      isRanked: widget.isRanked,
+                      resetState: game.reset,
+                    );
                   },
                   onFriendRequestPressed: game.opponentUserId == null
                       ? null

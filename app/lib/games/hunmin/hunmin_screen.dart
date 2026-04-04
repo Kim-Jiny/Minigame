@@ -91,6 +91,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
   late AnimationController _resultAnimController;
   String? _lastResultMessage;
   Color? _lastResultColor;
+  int _resultAnimationToken = 0;
 
   @override
   void initState() {
@@ -440,11 +441,12 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
   }
 
   void _showResultAnimation(String message, Color color) {
+    final animationToken = ++_resultAnimationToken;
     _lastResultMessage = message;
     _lastResultColor = color;
     _resultAnimController.forward(from: 0);
     Future.delayed(const Duration(milliseconds: 1500), () {
-      if (mounted) {
+      if (mounted && animationToken == _resultAnimationToken) {
         _resultAnimController.reverse();
       }
     });
@@ -597,7 +599,9 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
     if (_roomId != null) {
       _socketService.emit('leave_room', {'roomId': _roomId});
     }
-    if (mounted) Navigator.pop(context);
+    if (mounted) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
   }
 
   bool get _isMyTurn => _currentTurnPlayer == _myPlayerIndex;

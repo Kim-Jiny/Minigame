@@ -165,32 +165,39 @@ class SocketService {
     socket.onConnect((_) {
       _isLobbyJoined = false;
       AppLogger.debug('🔌 Connected to server! isConnected=${socket.connected}');
+      _dispatchEvent('connect', null);
     });
 
-    socket.onDisconnect((_) {
+    socket.onDisconnect((reason) {
       _isLobbyJoined = false;
       AppLogger.debug('Disconnected from server');
+      _dispatchEvent('disconnect', reason);
     });
 
     socket.onConnectError((error) {
       AppLogger.debug('🔌 Connection error: $error');
       _handleConnectionError();
+      _dispatchEvent('connect_error', error);
     });
 
     socket.on('reconnect_attempt', (attempt) {
       AppLogger.debug('🔁 Reconnect attempt: $attempt');
+      _dispatchEvent('reconnect_attempt', attempt);
     });
 
     socket.on('reconnect', (attempt) {
       AppLogger.debug('🔁 Reconnected after $attempt attempt(s)');
+      _dispatchEvent('reconnect', attempt);
     });
 
     socket.on('reconnect_error', (error) {
       AppLogger.debug('🔁 Reconnect error: $error');
+      _dispatchEvent('reconnect_error', error);
     });
 
-    socket.on('reconnect_failed', (_) {
+    socket.on('reconnect_failed', (data) {
       AppLogger.debug('🔁 Reconnect failed');
+      _dispatchEvent('reconnect_failed', data);
     });
   }
 
@@ -290,21 +297,24 @@ class SocketService {
     _socket!.off(event);
     _socket!.on(event, (data) {
       AppLogger.debug('📡 Received event: $event');
-
-      if (event == 'lobby_joined') {
-        _isLobbyJoined = true;
-        _flushPendingEmits();
-      }
-
-      final callbacks = List<Function(dynamic)>.from(_activeListeners[event] ?? []);
-      for (final cb in callbacks) {
-        try {
-          cb(data);
-        } catch (e) {
-          AppLogger.debug('📡 Error in listener for $event: $e');
-        }
-      }
+      _dispatchEvent(event, data);
     });
+  }
+
+  void _dispatchEvent(String event, dynamic data) {
+    if (event == 'lobby_joined') {
+      _isLobbyJoined = true;
+      _flushPendingEmits();
+    }
+
+    final callbacks = List<Function(dynamic)>.from(_activeListeners[event] ?? []);
+    for (final cb in callbacks) {
+      try {
+        cb(data);
+      } catch (e) {
+        AppLogger.debug('📡 Error in listener for $event: $e');
+      }
+    }
   }
 
   void _flushPendingEmits() {

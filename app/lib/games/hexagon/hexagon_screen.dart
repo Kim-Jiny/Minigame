@@ -365,11 +365,23 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     });
 
     _socketListeners.on('game_start', (data) {
+      if (data['players'] != null) {
+        final players = data['players'] as List<dynamic>;
+        final updatedIndex = players.indexWhere((p) => p['id'] == _myId);
+        if (updatedIndex != -1) {
+          _myPlayerIndex = updatedIndex;
+        }
+      }
       setState(() {
         _scores = [0, 0];
         _currentRound = 0;
         _foundCombinations = [];
         _isSolo = data['isSolo'] == true;
+        _opponentLeft = false;
+        _rematchWaiting = false;
+        _opponentWantsRematch = false;
+        _winnerId = null;
+        _isDraw = false;
       });
     });
 
@@ -1285,7 +1297,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
               primaryForegroundColor: theme.textOnPrimary,
               onRequestRematch: _requestRematch,
               onCancelRematch: _cancelRematch,
-              onLeave: () => Navigator.pop(context),
+              onLeave: _leaveGame,
               rematchLabel: '재대결',
               acceptRematchLabel: '재대결 수락',
               waitingText: '상대방 응답 대기 중...',
@@ -1681,13 +1693,13 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
   }
 
   void _leaveGame() {
+    _memorizeTimer?.cancel();
+    _idleTimer?.cancel();
+    _buzzTimer?.cancel();
     if (_roomId != null) {
-      _memorizeTimer?.cancel();
-      _idleTimer?.cancel();
-      _buzzTimer?.cancel();
       _socketService.emit('leave_room', {'roomId': _roomId});
     }
-    Navigator.pop(context);
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   void _showExitDialog(GameTheme theme) {
