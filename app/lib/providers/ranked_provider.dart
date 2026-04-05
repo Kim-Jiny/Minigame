@@ -176,6 +176,9 @@ class RankedProvider extends ChangeNotifier with ProviderFeedback {
   final SocketService _socketService = SocketService();
   late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
 
+  // dispose 이후 Future.delayed 콜백이 notifyListeners를 호출해 crash하지 않도록 가드.
+  bool _disposed = false;
+
   // 상태
   RankedStats? _stats = RankedStats.empty(); // 초기값으로 기본 stats 사용
   List<LeaderboardEntry> _leaderboard = [];
@@ -385,6 +388,7 @@ class RankedProvider extends ChangeNotifier with ProviderFeedback {
 
     // 3초 후에도 응답이 없으면 기본값 사용
     Future.delayed(const Duration(seconds: 3), () {
+      if (_disposed) return;
       if (_rankedStatsRequestId == requestId && isLoading) {
         _stats ??= RankedStats.empty();
         setLoading(false);
@@ -447,6 +451,7 @@ class RankedProvider extends ChangeNotifier with ProviderFeedback {
 
   @override
   void dispose() {
+    _disposed = true;
     _socketListeners.offAll();
     super.dispose();
   }

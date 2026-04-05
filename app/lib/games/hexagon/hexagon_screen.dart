@@ -1127,20 +1127,34 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
               ),
             ),
             // 20초 무활동 시 라운드 넘기기 버튼
+            // 4-state UI:
+            //  - 아무도 안 누름: "라운드 넘기기"
+            //  - 상대만 누름: "상대가 넘기기 요청" (탭해서 동의 가능)
+            //  - 나만 누름: "상대방 대기 중..." (비활성)
+            //  - 둘 다 누름: "라운드 넘기는 중..." (비활성)
             if (_skipAvailable && !_isSolo) ...[
               const SizedBox(height: 8),
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
                   onPressed: _mySkipVoted ? null : _skipRound,
-                  icon: Icon(_mySkipVoted ? Icons.check : Icons.skip_next),
+                  icon: Icon(
+                    _mySkipVoted
+                        ? Icons.check
+                        : (_opponentSkipVoted ? Icons.notification_important : Icons.skip_next),
+                  ),
                   label: Text(
                     _mySkipVoted
                         ? (_opponentSkipVoted ? '라운드 넘기는 중...' : '상대방 대기 중...')
-                        : '라운드 넘기기',
+                        : (_opponentSkipVoted ? '상대가 넘기기 요청' : '라운드 넘기기'),
                     style: const TextStyle(fontSize: 16),
                   ),
                   style: OutlinedButton.styleFrom(
+                    foregroundColor:
+                        (!_mySkipVoted && _opponentSkipVoted) ? Colors.orange : null,
+                    side: (!_mySkipVoted && _opponentSkipVoted)
+                        ? const BorderSide(color: Colors.orange, width: 2)
+                        : null,
                     padding: const EdgeInsets.symmetric(vertical: 10),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),

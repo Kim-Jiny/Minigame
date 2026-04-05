@@ -134,12 +134,22 @@ class _RankedScreenState extends State<RankedScreen> {
     game.ensureSocketListeners();
     debugPrint('🎮 [Navigate] GameProvider listeners re-registered');
 
-    if (auth.socketId != null) {
-      game.initialize(auth.socketId!);
-      debugPrint('🎮 [Navigate] GameProvider initialized');
-    } else {
-      debugPrint('🎮 [Navigate] ⚠️ auth.socketId is null!');
+    if (auth.socketId == null) {
+      // 소켓 미연결 상태에서 진입하면 GameProvider가 초기화되지 않아
+      // 게임 화면이 빈 상태로 떠버린다. 에러를 보여주고 안전하게 복귀.
+      debugPrint('🎮 [Navigate] ⚠️ auth.socketId is null - abort navigation');
+      _isNavigating = false;
+      _lastNavigatedGameIndex = null;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('서버 연결이 끊겼습니다. 다시 시도해주세요.')),
+        );
+      }
+      return;
     }
+
+    game.initialize(auth.socketId!);
+    debugPrint('🎮 [Navigate] GameProvider initialized');
 
     final gameScreen = GameRoutes.buildGameScreen(gameType, isRanked: true);
     if (gameScreen == null) {

@@ -549,6 +549,10 @@ class GameProvider extends ChangeNotifier {
   }
 
   void requestRematch() {
+    if (_roomId == null) {
+      debugPrint('🚨 requestRematch skipped: _roomId is null');
+      return;
+    }
     _socketService.emit('rematch_request', {'roomId': _roomId});
   }
 

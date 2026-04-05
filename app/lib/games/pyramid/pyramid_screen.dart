@@ -478,6 +478,14 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
         )).toList();
       }
 
+      // 시각적으로 같은 수식(순열만 다른 경로, 동일 value+operator 카드로 인한
+      // 같은 문자열 등)은 하나만 남긴다. 카드 정보가 이미 업데이트된 이 시점에
+      // 실행해야 _pathToString이 현재 라운드 기준으로 키를 만든다.
+      if (_validPaths.isNotEmpty && _cards.isNotEmpty) {
+        final seen = <String>{};
+        _validPaths = _validPaths.where((p) => seen.add(_pathToString(p))).toList();
+      }
+
       setState(() => _status = PyramidGameStatus.roundEnd);
     });
 
@@ -1022,20 +1030,34 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
               ),
             ),
             // 20초 무활동 시 라운드 넘기기 버튼
+            // 4-state UI:
+            //  - 아무도 안 누름: "라운드 넘기기"
+            //  - 상대만 누름: "상대가 넘기기 요청" (탭해서 동의 가능)
+            //  - 나만 누름: "상대방 대기 중..." (비활성)
+            //  - 둘 다 누름: "라운드 넘기는 중..." (비활성)
             if (_skipAvailable && !_isSolo) ...[
               const SizedBox(height: 8),
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
                   onPressed: _mySkipVoted ? null : _skipRound,
-                  icon: Icon(_mySkipVoted ? Icons.check : Icons.skip_next),
+                  icon: Icon(
+                    _mySkipVoted
+                        ? Icons.check
+                        : (_opponentSkipVoted ? Icons.notification_important : Icons.skip_next),
+                  ),
                   label: Text(
                     _mySkipVoted
                         ? (_opponentSkipVoted ? '라운드 넘기는 중...' : '상대방 대기 중...')
-                        : '라운드 넘기기',
+                        : (_opponentSkipVoted ? '상대가 넘기기 요청' : '라운드 넘기기'),
                     style: const TextStyle(fontSize: 16),
                   ),
                   style: OutlinedButton.styleFrom(
+                    foregroundColor:
+                        (!_mySkipVoted && _opponentSkipVoted) ? Colors.orange : null,
+                    side: (!_mySkipVoted && _opponentSkipVoted)
+                        ? const BorderSide(color: Colors.orange, width: 2)
+                        : null,
                     padding: const EdgeInsets.symmetric(vertical: 10),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),

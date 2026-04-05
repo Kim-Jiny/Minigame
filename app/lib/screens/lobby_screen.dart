@@ -418,7 +418,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   children: [
                     _buildHeroCard(context, auth.nickname ?? '플레이어'),
                     const SizedBox(height: 18),
-                    _buildQuickAccessStrip(context, width),
+                    _buildRankedCard(context),
                     const SizedBox(height: 20),
                     _buildSectionHeader(
                       icon: Icons.bolt,
@@ -732,38 +732,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
               _HeroMetric(label: '1인 플레이', value: '2개 지원'),
             ],
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildQuickAccessStrip(BuildContext context, double width) {
-    final rankedCard = _buildRankedCard(context);
-    final inviteCard = _buildPromoCard(
-      title: '친구 초대',
-      subtitle: '같이 하면 더 재밌어요',
-      icon: Icons.group_add_rounded,
-      color: const Color(0xFF0EA5E9),
-      onTap: () => setState(() => _currentIndex = 1),
-    );
-
-    if (width < 560) {
-      return Column(
-        children: [
-          SizedBox(width: double.infinity, child: rankedCard),
-          const SizedBox(height: 12),
-          SizedBox(width: double.infinity, child: inviteCard),
-        ],
-      );
-    }
-
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(child: rankedCard),
-          const SizedBox(width: 12),
-          Expanded(child: inviteCard),
         ],
       ),
     );

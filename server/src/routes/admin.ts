@@ -6,7 +6,20 @@ import { coinService } from '../services/coinService';
 import { updateNickname } from '../services/userService';
 
 const router = Router();
-const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || 'admin-secret-key';
+
+// ADMIN_JWT_SECRET은 반드시 환경변수로 주입해야 한다. 운영 환경에서 누락 시
+// 관리자 토큰 위조 위험이 있으므로 부팅을 실패시킨다.
+function resolveAdminJwtSecret(): string {
+  const fromEnv = process.env.ADMIN_JWT_SECRET;
+  if (fromEnv && fromEnv.length > 0) return fromEnv;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('ADMIN_JWT_SECRET environment variable is required in production');
+  }
+  console.warn('[admin] ADMIN_JWT_SECRET not set - using development fallback (DO NOT USE IN PRODUCTION)');
+  return 'dev-only-admin-secret';
+}
+
+const ADMIN_JWT_SECRET = resolveAdminJwtSecret();
 
 // 관리자 토큰 검증 미들웨어
 async function verifyAdminToken(req: Request, res: Response, next: Function) {

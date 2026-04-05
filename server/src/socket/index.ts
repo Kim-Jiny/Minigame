@@ -116,8 +116,14 @@ const matchQueues = new Map<string, Player[]>();
 const userSockets = new Map<number, Socket>();
 // 유저 ID별 현재 게임 룸 매핑 (게임 중인지 확인용)
 const userRooms = new Map<number, string>();
-// 초대 타임아웃 관리 (invitationId -> timeout)
-const invitationTimeouts = new Map<number, NodeJS.Timeout>();
+// 초대 타임아웃 관리 (invitationId -> { timeout, inviterId, inviteeId })
+// disconnect 시 소유자 기반으로 깨끗하게 cleanup 하기 위해 유저 id를 함께 저장.
+interface InvitationTimeoutEntry {
+  timeout: NodeJS.Timeout;
+  inviterId: number;
+  inviteeId: number;
+}
+const invitationTimeouts = new Map<number, InvitationTimeoutEntry>();
 const INVITATION_TIMEOUT_MS = 30000; // 30초
 
 // 재연결 유예 타이머 (게임 중 끊겼을 때 20초 대기)
@@ -174,12 +180,29 @@ function clearPhaseTimer(room: GameRoom) {
   room.phaseDeadlineAt = undefined;
 }
 
+// 타이머 콜백에서 발생한 sync throw / async reject를 모두 흡수한다.
+// 콜백이 async 함수를 fire-and-forget으로 호출하면 Promise rejection이
+// unhandledRejection으로 새어나가 서버가 죽거나, 전역 핸들러가 있어도 해당 방의
+// 상태가 finalize 안 된 채 방치된다. 이걸 한 곳에서 막는다.
+function runTimerCallbackSafely(label: string, callback: () => void | Promise<void>) {
+  try {
+    const result = callback();
+    if (result && typeof (result as Promise<void>).then === 'function') {
+      (result as Promise<void>).catch((err) => {
+        console.error(`[timer:${label}] async error:`, err);
+      });
+    }
+  } catch (err) {
+    console.error(`[timer:${label}] sync error:`, err);
+  }
+}
+
 function scheduleRoundTimer(room: GameRoom, delay: number, callback: () => void) {
   clearRoundTimer(room);
   room.roundDeadlineAt = Date.now() + delay;
   room.roundTimer = setTimeout(() => {
     room.roundDeadlineAt = undefined;
-    callback();
+    runTimerCallbackSafely('roundTimer', callback);
   }, delay);
 }
 
@@ -193,7 +216,7 @@ function schedulePhaseTimer(room: GameRoom, delay: number, callback: () => void)
   room.phaseDeadlineAt = Date.now() + delay;
   room.phaseTimer = setTimeout(() => {
     room.phaseDeadlineAt = undefined;
-    callback();
+    runTimerCallbackSafely('phaseTimer', callback);
   }, delay);
 }
 
@@ -201,7 +224,7 @@ function scheduleRoundStart(room: GameRoom, delay: number, callback: () => void)
   room.pendingRoundStart = true;
   schedulePhaseTimer(room, delay, () => {
     room.pendingRoundStart = false;
-    callback();
+    runTimerCallbackSafely('roundStart', callback);
   });
 }
 
@@ -2290,6 +2313,14 @@ async function startRankedGame(io: Server, room: GameRoom) {
 
 // 랭크전 개별 게임 종료 처리
 async function handleRankedGameEnd(io: Server, room: GameRoom, winnerIndex: number | null) {
+  try {
+    await handleRankedGameEndInner(io, room, winnerIndex);
+  } catch (err) {
+    console.error('[handleRankedGameEnd] fatal error:', err);
+  }
+}
+
+async function handleRankedGameEndInner(io: Server, room: GameRoom, winnerIndex: number | null) {
   if (!room.isRanked) return;
 
   // 플레이어가 나갔을 수 있으므로 안전하게 접근
@@ -2352,14 +2383,18 @@ async function handleRankedGameEnd(io: Server, room: GameRoom, winnerIndex: numb
 
     // 5초 후 다음 게임 시작 (클라이언트가 게임 화면에서 나올 시간 확보)
     setTimeout(() => {
-      console.log(`🎮 [handleRankedGameEnd] Starting next game now for room ${room.id}`);
-      console.log(`🎮 [handleRankedGameEnd] Room still exists: ${rooms.has(room.id)}`);
-      console.log(`🎮 [handleRankedGameEnd] Players count: ${room.players.length}`);
-      if (room.players.length < 2) {
-        console.log(`❌ [handleRankedGameEnd] Not enough players! Aborting next game.`);
-        return;
+      try {
+        console.log(`🎮 [handleRankedGameEnd] Starting next game now for room ${room.id}`);
+        console.log(`🎮 [handleRankedGameEnd] Room still exists: ${rooms.has(room.id)}`);
+        console.log(`🎮 [handleRankedGameEnd] Players count: ${room.players.length}`);
+        if (room.players.length < 2) {
+          console.log(`❌ [handleRankedGameEnd] Not enough players! Aborting next game.`);
+          return;
+        }
+        startRankedGame(io, room);
+      } catch (err) {
+        console.error('[handleRankedGameEnd] next game timer error:', err);
       }
-      startRankedGame(io, room);
     }, 5000);
   }
 }
@@ -3083,6 +3118,11 @@ export function setupSocketHandlers(io: Server) {
 
     // 게임 액션 (틱택토: 셀 클릭)
     socket.on('game_action', async (data: { roomId: string; action: any }) => {
+      // 이 핸들러 내부 어디서든 발생한 throw/reject가 프로세스나 다른 방에
+      // 영향을 주지 않도록 최상위 try/catch로 감싼다. Stroop 등 타임아웃 기반
+      // 게임에서 finalize 경로가 실패하면 양쪽 클라가 동시에 ping timeout으로
+      // 연결 끊김을 판정하는 문제를 방지하기 위함.
+      try {
       const room = rooms.get(data.roomId);
       if (!room || room.status !== 'playing') {
         socket.emit('error', { message: 'Invalid room or game not in progress' });
@@ -3093,6 +3133,20 @@ export function setupSocketHandlers(io: Server) {
       if (playerIndex === -1) {
         socket.emit('error', { message: 'You are not in this game' });
         return;
+      }
+
+      // 클라이언트 입력 검증: 보드 기반 게임(tictactoe 계열)은 position이 정수여야 한다.
+      // NaN/음수/소수/undefined를 그대로 makeMove에 넘기면 배열 접근 에러로 게임이 깨진다.
+      const isBoardGame =
+        room.gameType === 'tictactoe' ||
+        room.gameType === 'gomoku' ||
+        room.gameType === 'infinite_tictactoe';
+      if (isBoardGame) {
+        const pos = data?.action?.position;
+        if (typeof pos !== 'number' || !Number.isInteger(pos) || pos < 0 || pos >= 10000) {
+          socket.emit('error', { message: 'Invalid move position' });
+          return;
+        }
       }
 
       // 틱택토 게임 로직
@@ -3174,7 +3228,11 @@ export function setupSocketHandlers(io: Server) {
 
           // 랭크전인 경우 추가 처리
           if (room.isRanked) {
-            await handleRankedGameEnd(io, room, result.isDraw ? null : result.winner ?? null);
+            try {
+              await handleRankedGameEnd(io, room, result.isDraw ? null : result.winner ?? null);
+            } catch (err) {
+              console.error('handleRankedGameEnd failed:', err);
+            }
           }
         } else {
           // 게임 계속 - 다음 턴 타이머 시작
@@ -3738,6 +3796,14 @@ export function setupSocketHandlers(io: Server) {
           startHunminTurnTimer(io, room);
         }
       }
+      } catch (err) {
+        console.error('[game_action] unhandled error:', err, 'roomId:', data?.roomId, 'action:', data?.action);
+        try {
+          socket.emit('error', { message: '게임 처리 중 오류가 발생했습니다' });
+        } catch {
+          // socket이 이미 닫혔으면 무시
+        }
+      }
     });
 
     // ====== 친구 시스템 ======
@@ -4067,33 +4133,44 @@ export function setupSocketHandlers(io: Server) {
         friendSocket.emit('game_invitation', { invitation });
 
         // 초대 타임아웃 설정 (30초)
+        // async setTimeout 콜백에서 발생한 에러가 unhandledRejection으로 새어나가
+        // 프로세스를 죽이지 않도록 try/catch로 감싼다.
         const timeoutId = setTimeout(async () => {
-          // 초대가 아직 pending 상태인지 확인
-          const currentInvitation = await invitationService.getInvitation(invitation.id);
-          if (currentInvitation && currentInvitation.status === 'pending') {
-            // 초대 만료 처리
-            await invitationService.expireInvitation(invitation.id);
+          try {
+            // 초대가 아직 pending 상태인지 확인
+            const currentInvitation = await invitationService.getInvitation(invitation.id);
+            if (currentInvitation && currentInvitation.status === 'pending') {
+              // 초대 만료 처리
+              await invitationService.expireInvitation(invitation.id);
 
-            // 초대자에게 만료 알림
-            socket.emit('invitation_expired', {
-              invitationId: invitation.id,
-              friendNickname: currentInvitation.inviteeNickname,
-              message: '초대가 만료되었습니다.'
-            });
-
-            // 피초대자에게도 알림 (초대 목록에서 제거)
-            const inviteeSocket = userSockets.get(data.friendId);
-            if (inviteeSocket) {
-              inviteeSocket.emit('invitation_expired', {
+              // 초대자에게 만료 알림
+              socket.emit('invitation_expired', {
                 invitationId: invitation.id,
+                friendNickname: currentInvitation.inviteeNickname,
                 message: '초대가 만료되었습니다.'
               });
+
+              // 피초대자에게도 알림 (초대 목록에서 제거)
+              const inviteeSocket = userSockets.get(data.friendId);
+              if (inviteeSocket) {
+                inviteeSocket.emit('invitation_expired', {
+                  invitationId: invitation.id,
+                  message: '초대가 만료되었습니다.'
+                });
+              }
             }
+          } catch (err) {
+            console.error('[invitation timeout] failed to expire invitation:', err);
+          } finally {
+            invitationTimeouts.delete(invitation.id);
           }
-          invitationTimeouts.delete(invitation.id);
         }, INVITATION_TIMEOUT_MS);
 
-        invitationTimeouts.set(invitation.id, timeoutId);
+        invitationTimeouts.set(invitation.id, {
+          timeout: timeoutId,
+          inviterId: currentPlayer.userId,
+          inviteeId: data.friendId,
+        });
       } catch (error) {
         socket.emit('invite_result', { success: false, message: '초대 전송 실패' });
       }
@@ -4215,9 +4292,9 @@ export function setupSocketHandlers(io: Server) {
         if (invitation.inviterId) userRooms.set(invitation.inviterId, roomId);
 
         // 초대 타임아웃 정리
-        const timeoutId = invitationTimeouts.get(data.invitationId);
-        if (timeoutId) {
-          clearTimeout(timeoutId);
+        const pendingInvite = invitationTimeouts.get(data.invitationId);
+        if (pendingInvite) {
+          clearTimeout(pendingInvite.timeout);
           invitationTimeouts.delete(data.invitationId);
         }
 
@@ -4615,9 +4692,9 @@ export function setupSocketHandlers(io: Server) {
         });
 
         // 초대 타임아웃 정리
-        const timeoutId = invitationTimeouts.get(data.invitationId);
-        if (timeoutId) {
-          clearTimeout(timeoutId);
+        const pendingInvite = invitationTimeouts.get(data.invitationId);
+        if (pendingInvite) {
+          clearTimeout(pendingInvite.timeout);
           invitationTimeouts.delete(data.invitationId);
         }
 
@@ -5021,6 +5098,10 @@ export function setupSocketHandlers(io: Server) {
           room.game = new StroopGame(room.isHardcore);
         } else if (room.gameType === 'hexagon') {
           room.game = new HexagonGame(false);
+        } else if (room.gameType === 'pyramid') {
+          // 수식피라미드 재대결 시 게임 인스턴스를 새로 만들지 않으면
+          // 이전 게임의 점수/라운드 카운터가 그대로 이어진다.
+          room.game = new PyramidGame();
         } else if (room.gameType === 'hunmin') {
           room.game = new HunminGame();
         }
@@ -5314,6 +5395,17 @@ export function setupSocketHandlers(io: Server) {
         userSockets.delete(currentPlayer.userId);
       }
 
+      // 이 유저가 보낸/받은 pending 초대 타임아웃 정리 (메모리 누수 방지)
+      if (currentPlayer?.userId) {
+        const userId = currentPlayer.userId;
+        for (const [inviteId, entry] of invitationTimeouts.entries()) {
+          if (entry.inviterId === userId || entry.inviteeId === userId) {
+            clearTimeout(entry.timeout);
+            invitationTimeouts.delete(inviteId);
+          }
+        }
+      }
+
       // 대기열에서 제거
       matchQueues.forEach((queue, gameType) => {
         const index = queue.findIndex(p => p.id === socket.id);
@@ -5342,13 +5434,17 @@ export function setupSocketHandlers(io: Server) {
           });
           console.log(`⏳ Grace period started for user ${userId} in room ${roomId} (${RECONNECT_GRACE_MS / 1000}s)`);
           disconnectGraceTimers.set(userId, setTimeout(() => {
-          console.log(`⏰ Grace period expired for user ${userId}, leaving room ${roomId}`);
-          disconnectGraceTimers.delete(userId);
-          disconnectContexts.delete(userId);
-          expiredReconnectUsers.add(userId);
-          setTimeout(() => expiredReconnectUsers.delete(userId), 60000);
-          leaveRoom(socket, roomId);
-        }, RECONNECT_GRACE_MS));
+            try {
+              console.log(`⏰ Grace period expired for user ${userId}, leaving room ${roomId}`);
+              disconnectGraceTimers.delete(userId);
+              disconnectContexts.delete(userId);
+              expiredReconnectUsers.add(userId);
+              setTimeout(() => expiredReconnectUsers.delete(userId), 60000);
+              leaveRoom(socket, roomId);
+            } catch (err) {
+              console.error('[grace timer] cleanup error:', err);
+            }
+          }, RECONNECT_GRACE_MS));
           disconnectContexts.set(userId, { socket, roomId });
           return; // 즉시 leaveRoom 호출 안 함
         }
