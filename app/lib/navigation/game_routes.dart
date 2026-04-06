@@ -12,6 +12,7 @@ import '../games/stroop/stroop_screen.dart';
 import '../games/tictactoe/tictactoe_screen.dart';
 import '../games/numberbattle/numberbattle_screen.dart';
 import '../games/cardflip/cardflip_screen.dart';
+import '../games/mathrace/mathrace_screen.dart';
 import '../utils/game_catalog.dart';
 
 class GameRoutes {
@@ -33,6 +34,7 @@ class GameRoutes {
       GameCatalog.routeFor('hunmin'): (_) => const HunminScreen(),
       GameCatalog.routeFor('numberbattle'): (_) => const NumberBattleScreen(),
       GameCatalog.routeFor('cardflip'): (_) => const CardFlipScreen(),
+      GameCatalog.routeFor('mathrace'): (_) => const MathraceScreen(),
     };
   }
 
@@ -64,6 +66,8 @@ class GameRoutes {
         return NumberBattleScreen(isRanked: isRanked);
       case 'cardflip':
         return CardFlipScreen(isRanked: isRanked);
+      case 'mathrace':
+        return MathraceScreen(isRanked: isRanked);
       default:
         return null;
     }

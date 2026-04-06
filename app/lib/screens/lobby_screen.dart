@@ -96,6 +96,13 @@ class _LobbyScreenState extends State<LobbyScreen> {
       color: Color(0xFFFF6B6B),
       route: '/game/numberbattle',
     ),
+    _LobbyGameEntry(
+      title: '사칙연산',
+      subtitle: '스피드!',
+      icon: Icons.calculate,
+      color: Color(0xFFE74C3C),
+      route: '/game/mathrace',
+    ),
   ];
 
   static const List<_LobbyGameEntry> _featuredGames = [

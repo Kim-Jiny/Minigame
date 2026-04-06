@@ -15,6 +15,7 @@ class GameCatalog {
     'hunmin': '훈민정음',
     'numberbattle': '숫자배틀',
     'cardflip': '카드 뒤집기',
+    'mathrace': '사칙연산',
   };
 
   static const Map<String, String> _routes = {
@@ -31,6 +32,7 @@ class GameCatalog {
     'hunmin': '/game/hunmin',
     'numberbattle': '/game/numberbattle',
     'cardflip': '/game/cardflip',
+    'mathrace': '/game/mathrace',
   };
 
   static const Set<String> _boardGames = {
