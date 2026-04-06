@@ -13,6 +13,8 @@ class GameCatalog {
     'hexagon': '헥사곤',
     'pyramid': '수식피라미드',
     'hunmin': '훈민정음',
+    'numberbattle': '숫자배틀',
+    'cardflip': '카드 뒤집기',
   };
 
   static const Map<String, String> _routes = {
@@ -27,6 +29,8 @@ class GameCatalog {
     'hexagon': '/game/hexagon',
     'pyramid': '/game/pyramid',
     'hunmin': '/game/hunmin',
+    'numberbattle': '/game/numberbattle',
+    'cardflip': '/game/cardflip',
   };
 
   static const Set<String> _boardGames = {

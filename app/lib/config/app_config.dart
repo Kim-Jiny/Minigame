@@ -37,4 +37,6 @@ class AppConfig {
   static const String gameTypeHexagon = 'hexagon';
   static const String gameTypePyramid = 'pyramid';
   static const String gameTypeHunmin = 'hunmin';
+  static const String gameTypeNumberBattle = 'numberbattle';
+  static const String gameTypeCardFlip = 'cardflip';
 }

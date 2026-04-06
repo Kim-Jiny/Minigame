@@ -89,6 +89,13 @@ class _LobbyScreenState extends State<LobbyScreen> {
       color: Color(0xFF00CEC9),
       route: '/game/stroop',
     ),
+    _LobbyGameEntry(
+      title: '숫자배틀',
+      subtitle: '1→25!',
+      icon: Icons.grid_on,
+      color: Color(0xFFFF6B6B),
+      route: '/game/numberbattle',
+    ),
   ];
 
   static const List<_LobbyGameEntry> _featuredGames = [
@@ -121,6 +128,13 @@ class _LobbyScreenState extends State<LobbyScreen> {
       icon: Icons.translate,
       color: Color(0xFF1E88E5),
       route: '/game/hunmin',
+    ),
+    _LobbyGameEntry(
+      title: '카드 뒤집기',
+      subtitle: '짝 맞추기! 기억력 대결',
+      icon: Icons.style,
+      color: Color(0xFF6C5CE7),
+      route: '/game/cardflip',
     ),
   ];
 
@@ -487,6 +501,15 @@ class _LobbyScreenState extends State<LobbyScreen> {
                       color: _featuredGames[2].color,
                       route: _featuredGames[2].route,
                       badge: _featuredGames[2].badge,
+                    ),
+                    const SizedBox(height: 8),
+                    _buildLargeGameCard(
+                      context,
+                      title: _featuredGames[4].title,
+                      subtitle: _featuredGames[4].subtitle,
+                      icon: _featuredGames[4].icon,
+                      color: _featuredGames[4].color,
+                      route: _featuredGames[4].route,
                     ),
                     const SizedBox(height: 20),
                     _buildSectionHeader(

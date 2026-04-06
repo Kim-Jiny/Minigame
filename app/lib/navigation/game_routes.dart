@@ -10,6 +10,8 @@ import '../games/sequence/sequence_screen.dart';
 import '../games/speedtap/speedtap_screen.dart';
 import '../games/stroop/stroop_screen.dart';
 import '../games/tictactoe/tictactoe_screen.dart';
+import '../games/numberbattle/numberbattle_screen.dart';
+import '../games/cardflip/cardflip_screen.dart';
 import '../utils/game_catalog.dart';
 
 class GameRoutes {
@@ -29,6 +31,8 @@ class GameRoutes {
       GameCatalog.routeFor('hexagon'): (_) => const HexagonScreen(),
       GameCatalog.routeFor('pyramid'): (_) => const PyramidScreen(),
       GameCatalog.routeFor('hunmin'): (_) => const HunminScreen(),
+      GameCatalog.routeFor('numberbattle'): (_) => const NumberBattleScreen(),
+      GameCatalog.routeFor('cardflip'): (_) => const CardFlipScreen(),
     };
   }
 
@@ -56,6 +60,10 @@ class GameRoutes {
         return isRanked ? null : const PyramidScreen();
       case 'hunmin':
         return isRanked ? null : const HunminScreen();
+      case 'numberbattle':
+        return NumberBattleScreen(isRanked: isRanked);
+      case 'cardflip':
+        return CardFlipScreen(isRanked: isRanked);
       default:
         return null;
     }
