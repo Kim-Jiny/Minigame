@@ -27,6 +27,10 @@ export const RANKED_GAMES = [
   'reaction',
   'rps',
   'speedtap',
+  'numberbattle',
+  'mathrace',
+  'arrowdash',
+  'timing',
 ];
 
 // 하드코어 모드 게임 (랭크전에서 자동 하드코어)
