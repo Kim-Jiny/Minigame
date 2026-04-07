@@ -13,6 +13,8 @@ import '../games/tictactoe/tictactoe_screen.dart';
 import '../games/numberbattle/numberbattle_screen.dart';
 import '../games/cardflip/cardflip_screen.dart';
 import '../games/mathrace/mathrace_screen.dart';
+import '../games/arrowdash/arrowdash_screen.dart';
+import '../games/timing/timing_screen.dart';
 import '../utils/game_catalog.dart';
 
 class GameRoutes {
@@ -35,6 +37,8 @@ class GameRoutes {
       GameCatalog.routeFor('numberbattle'): (_) => const NumberBattleScreen(),
       GameCatalog.routeFor('cardflip'): (_) => const CardFlipScreen(),
       GameCatalog.routeFor('mathrace'): (_) => const MathraceScreen(),
+      GameCatalog.routeFor('arrowdash'): (_) => const ArrowdashScreen(),
+      GameCatalog.routeFor('timing'): (_) => const TimingScreen(),
     };
   }
 
@@ -68,6 +72,10 @@ class GameRoutes {
         return CardFlipScreen(isRanked: isRanked);
       case 'mathrace':
         return MathraceScreen(isRanked: isRanked);
+      case 'arrowdash':
+        return ArrowdashScreen(isRanked: isRanked);
+      case 'timing':
+        return TimingScreen(isRanked: isRanked);
       default:
         return null;
     }

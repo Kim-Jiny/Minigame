@@ -40,4 +40,6 @@ class AppConfig {
   static const String gameTypeNumberBattle = 'numberbattle';
   static const String gameTypeCardFlip = 'cardflip';
   static const String gameTypeMathrace = 'mathrace';
+  static const String gameTypeArrowDash = 'arrowdash';
+  static const String gameTypeTiming = 'timing';
 }

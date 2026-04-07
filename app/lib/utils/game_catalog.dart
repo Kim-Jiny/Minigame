@@ -16,6 +16,8 @@ class GameCatalog {
     'numberbattle': '숫자배틀',
     'cardflip': '카드 뒤집기',
     'mathrace': '사칙연산',
+    'arrowdash': '방향 맞추기',
+    'timing': '타이밍 맞추기',
   };
 
   static const Map<String, String> _routes = {
@@ -33,6 +35,8 @@ class GameCatalog {
     'numberbattle': '/game/numberbattle',
     'cardflip': '/game/cardflip',
     'mathrace': '/game/mathrace',
+    'arrowdash': '/game/arrowdash',
+    'timing': '/game/timing',
   };
 
   static const Set<String> _boardGames = {

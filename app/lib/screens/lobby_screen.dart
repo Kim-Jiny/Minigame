@@ -103,6 +103,20 @@ class _LobbyScreenState extends State<LobbyScreen> {
       color: Color(0xFFE74C3C),
       route: '/game/mathrace',
     ),
+    _LobbyGameEntry(
+      title: '방향 맞추기',
+      subtitle: '스와이프!',
+      icon: Icons.swipe,
+      color: Color(0xFF00B894),
+      route: '/game/arrowdash',
+    ),
+    _LobbyGameEntry(
+      title: '타이밍 맞추기',
+      subtitle: '집중!',
+      icon: Icons.timer,
+      color: Color(0xFF6C5CE7),
+      route: '/game/timing',
+    ),
   ];
 
   static const List<_LobbyGameEntry> _featuredGames = [
