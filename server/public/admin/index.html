@@ -255,6 +255,18 @@
       .nav-tabs button { padding: 10px 10px; font-size: 12px; }
       .bar-row .bar-label { width: 60px; font-size: 10px; }
     }
+    /* 게임 허브 */
+    .btn-back { background: #e0e0e0; color: #333; border: none; padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+    .btn-back:hover { background: #d0d0d0; }
+    .game-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+    .game-card { background: #fff; border: 1px solid #e6e6e6; border-radius: 16px; padding: 24px; cursor: pointer; transition: transform .12s, box-shadow .12s; }
+    .game-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,.08); border-color: #7C5CFF; }
+    .game-icon { font-size: 40px; margin-bottom: 12px; }
+    .game-name { font-size: 18px; font-weight: 700; color: #222; margin-bottom: 4px; }
+    .game-desc { font-size: 13px; color: #888; }
+    .game-links { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #eee; }
+    .game-links a { font-size: 12px; color: #6C5CE7; text-decoration: none; }
+    .game-links a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -269,10 +281,23 @@
     </div>
   </div>
 
-  <!-- Dashboard -->
+  <!-- Game Hub (게임 선택) -->
+  <div class="dashboard" id="gameHub" style="display:none">
+    <div class="header">
+      <h1>Backstage</h1>
+      <button onclick="logout()">Logout</button>
+    </div>
+    <h2 style="color:#333;margin:8px 4px 20px;font-size:18px">게임 선택</h2>
+    <div class="game-grid" id="gameGrid"></div>
+  </div>
+
+  <!-- Dashboard (듀오 아레나) -->
   <div class="dashboard" id="dashboard">
     <div class="header">
-      <h1>DUO Admin</h1>
+      <div style="display:flex;align-items:center;gap:12px">
+        <button class="btn-back" onclick="backToHub()">← 게임 선택</button>
+        <h1>듀오 아레나</h1>
+      </div>
       <button onclick="logout()">Logout</button>
     </div>
 
@@ -341,6 +366,82 @@
       <h3 style="margin-bottom:16px;color:#333">Ad Settings</h3>
       <div id="adConfigContainer" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
         <div class="empty">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dashboard (규칙찾기) -->
+  <div class="dashboard" id="ctrDashboard" style="display:none">
+    <div class="header">
+      <div style="display:flex;align-items:center;gap:12px">
+        <button class="btn-back" onclick="backToHub()">← 게임 선택</button>
+        <h1>규칙찾기</h1>
+      </div>
+      <button onclick="logout()">Logout</button>
+    </div>
+
+    <div class="nav-tabs">
+      <button class="active" onclick="ctrTab('stats', this)">통계</button>
+      <button onclick="ctrTab('inquiries', this)">문의 <span class="badge pending" id="ctrPendingBadge" style="display:none">0</span></button>
+    </div>
+
+    <!-- 통계 탭 -->
+    <div class="ctr-tab-content active" id="ctr-tab-stats">
+      <div class="stats-grid" id="ctrStatsGrid"><div class="empty">Loading...</div></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-top:16px">
+        <div class="stat-card">
+          <h3>국가별</h3>
+          <div id="ctrCountryList" style="margin-top:8px"></div>
+        </div>
+        <div class="stat-card">
+          <h3>앱 버전별</h3>
+          <div id="ctrVersionList" style="margin-top:8px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 문의 탭 -->
+    <div class="ctr-tab-content" id="ctr-tab-inquiries" style="display:none">
+      <div class="filter-tabs" id="ctrInquiryFilters">
+        <button class="active" onclick="filterCtrInquiries('all', this)">전체</button>
+        <button onclick="filterCtrInquiries('pending', this)">대기중</button>
+        <button onclick="filterCtrInquiries('replied', this)">답변완료</button>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr><th>ID</th><th>닉네임</th><th>내용</th><th>상태</th><th>등록일</th></tr>
+        </thead>
+        <tbody id="ctrInquiriesBody"><tr><td colspan="5" class="empty">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- CTR Inquiry Modal -->
+  <div class="modal" id="ctrInquiryModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>문의 상세</h2>
+        <button class="modal-close" onclick="closeModal('ctrInquiryModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label style="font-weight:600;color:#555;font-size:13px">보낸 사람</label>
+        <div class="content-box" id="ctrInqUser"></div>
+        <label style="font-weight:600;color:#555;font-size:13px">등록일</label>
+        <div class="content-box" id="ctrInqDate"></div>
+        <label style="font-weight:600;color:#555;font-size:13px">내용</label>
+        <div class="content-box" id="ctrInqContent" style="white-space:pre-wrap"></div>
+        <div id="ctrReplySection">
+          <label style="font-weight:600;color:#555;font-size:13px">답변</label>
+          <textarea id="ctrReplyText" placeholder="답변을 입력하세요..." style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;min-height:100px;font-size:14px"></textarea>
+        </div>
+        <div id="ctrExistingReply" style="display:none">
+          <label style="font-weight:600;color:#555;font-size:13px">답변 (전송됨)</label>
+          <div class="content-box" id="ctrReplyContent" style="white-space:pre-wrap"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-danger" onclick="deleteCtrInquiry()">삭제</button>
+        <button class="btn-primary" onclick="replyCtrInquiry()">답변 전송</button>
       </div>
     </div>
   </div>
@@ -443,7 +544,15 @@
     let currentUserPage = 1;
     let editingNoticeId = null;
 
-    if (token) showDashboard();
+    // 등록된 게임 목록 (확장 시 여기에 추가). privacy/terms 는 같은 서버의 상대 경로.
+    const GAMES = [
+      { id: 'duo', name: '듀오 아레나', desc: '유저 · 문의 · 공지 · 통계', icon: '🎮',
+        privacy: '/duo/privacy', terms: '/duo/terms' },
+      { id: 'ctr', name: '규칙찾기', desc: '문의 관리', icon: '🧩',
+        privacy: '/ctr/privacy', terms: '/ctr/terms' },
+    ];
+
+    if (token) showHub();
 
     // ============================================================
     // Auth
@@ -462,7 +571,7 @@
         if (data.success) {
           token = data.token;
           localStorage.setItem('adminToken', token);
-          showDashboard();
+          showHub();
         } else {
           errorEl.textContent = data.error || 'Login failed';
         }
@@ -475,18 +584,50 @@
       token = null;
       localStorage.removeItem('adminToken');
       document.getElementById('loginContainer').style.display = 'flex';
+      document.getElementById('gameHub').style.display = 'none';
       document.getElementById('dashboard').style.display = 'none';
+      document.getElementById('ctrDashboard').style.display = 'none';
     }
 
-    function showDashboard() {
+    // 로그인 후 게임 선택 허브
+    function showHub() {
       document.getElementById('loginContainer').style.display = 'none';
-      document.getElementById('dashboard').style.display = 'block';
-      loadStats();
-      loadInquiries('all');
-      loadNotices();
-      searchUsers();
-      loadAdConfig();
+      document.getElementById('dashboard').style.display = 'none';
+      document.getElementById('ctrDashboard').style.display = 'none';
+      document.getElementById('gameHub').style.display = 'block';
+      const grid = document.getElementById('gameGrid');
+      grid.innerHTML = GAMES.map(g => `
+        <div class="game-card" onclick="enterGame('${g.id}')">
+          <div class="game-icon">${g.icon}</div>
+          <div class="game-name">${g.name}</div>
+          <div class="game-desc">${g.desc}</div>
+          <div class="game-links">
+            <a href="${g.privacy}" target="_blank" rel="noopener" onclick="event.stopPropagation()">🔒 개인정보처리방침</a>
+            <a href="${g.terms}" target="_blank" rel="noopener" onclick="event.stopPropagation()">📄 이용약관</a>
+          </div>
+        </div>`).join('');
     }
+
+    // 특정 게임 admin 진입
+    function enterGame(id) {
+      document.getElementById('gameHub').style.display = 'none';
+      if (id === 'duo') {
+        document.getElementById('dashboard').style.display = 'block';
+        document.getElementById('ctrDashboard').style.display = 'none';
+        loadStats();
+        loadInquiries('all');
+        loadNotices();
+        searchUsers();
+        loadAdConfig();
+      } else if (id === 'ctr') {
+        document.getElementById('ctrDashboard').style.display = 'block';
+        document.getElementById('dashboard').style.display = 'none';
+        loadCtrStats();
+        loadCtrInquiries('all');
+      }
+    }
+
+    function backToHub() { showHub(); }
 
     function api(url, options = {}) {
       return fetch(url, {
@@ -1171,6 +1312,127 @@
       } catch (e) {
         alert('Error saving config');
       }
+    }
+
+    // ============================================================
+    // 규칙찾기(CTR) — 문의 관리
+    // ============================================================
+    let ctrInquiries = [];
+    let currentCtrInquiry = null;
+
+    function ctrTab(name, btn) {
+      document.querySelectorAll('#ctrDashboard .nav-tabs button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('ctr-tab-stats').style.display = name === 'stats' ? 'block' : 'none';
+      document.getElementById('ctr-tab-inquiries').style.display = name === 'inquiries' ? 'block' : 'none';
+    }
+
+    async function loadCtrStats() {
+      try {
+        const s = await api('/api/admin/ctr/stats');
+        const cards = [
+          { label: '총 유저', val: s.totalUsers, cls: '' },
+          { label: 'iOS', val: s.ios, cls: 'accent' },
+          { label: 'Android', val: s.android, cls: 'success' },
+          { label: '오늘 신규', val: s.newToday, cls: '' },
+          { label: 'DAU', val: s.dau, cls: 'accent' },
+          { label: 'WAU', val: s.wau, cls: '' },
+          { label: 'MAU', val: s.mau, cls: '' },
+        ];
+        document.getElementById('ctrStatsGrid').innerHTML = cards.map(c =>
+          `<div class="stat-card ${c.cls}"><h3>${c.label}</h3><div class="number">${c.val}</div></div>`).join('');
+        const row = (k, v) => `<div style="display:flex;justify-content:space-between;padding:5px 0;color:#555;font-size:14px"><span>${escapeHtml(k)}</span><b>${v}</b></div>`;
+        document.getElementById('ctrCountryList').innerHTML =
+          (s.countries || []).map(c => row(c.country, c.c)).join('') || '<div class="empty">데이터 없음</div>';
+        document.getElementById('ctrVersionList').innerHTML =
+          (s.versions || []).map(v => row(v.version, v.c)).join('') || '<div class="empty">데이터 없음</div>';
+      } catch (e) {
+        document.getElementById('ctrStatsGrid').innerHTML = '<div class="empty">통계 로드 실패</div>';
+      }
+    }
+
+    async function loadCtrInquiries(status) {
+      const tbody = document.getElementById('ctrInquiriesBody');
+      tbody.innerHTML = '<tr><td colspan="5" class="empty">Loading...</td></tr>';
+      try {
+        const data = await api('/api/admin/ctr/inquiries?status=' + (status || 'all'));
+        ctrInquiries = data.inquiries || [];
+        const badge = document.getElementById('ctrPendingBadge');
+        if (badge) {
+          badge.textContent = data.pendingCount || 0;
+          badge.style.display = data.pendingCount ? 'inline-block' : 'none';
+        }
+        if (ctrInquiries.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" class="empty">문의가 없습니다</td></tr>';
+          return;
+        }
+        tbody.innerHTML = ctrInquiries.map(i => {
+          const preview = (i.content || '').slice(0, 40);
+          const statusBadge = i.status === 'replied'
+            ? '<span class="badge replied">답변완료</span>'
+            : '<span class="badge pending">대기중</span>';
+          return `<tr onclick="openCtrInquiry(${i.id})" style="cursor:pointer">
+            <td>${i.id}</td>
+            <td>${escapeHtml(i.nickname || '익명')}</td>
+            <td>${escapeHtml(preview)}${(i.content||'').length > 40 ? '…' : ''}</td>
+            <td>${statusBadge}</td>
+            <td>${formatDateTime(i.created_at)}</td>
+          </tr>`;
+        }).join('');
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">불러오기 실패</td></tr>';
+      }
+    }
+
+    function filterCtrInquiries(status, btn) {
+      document.querySelectorAll('#ctrInquiryFilters button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      loadCtrInquiries(status);
+    }
+
+    function openCtrInquiry(id) {
+      const inq = ctrInquiries.find(x => x.id === id);
+      if (!inq) return;
+      currentCtrInquiry = inq;
+      document.getElementById('ctrInqUser').textContent = (inq.nickname || '익명') + '  ·  device: ' + (inq.device_id || '').slice(0, 12) + '…';
+      document.getElementById('ctrInqContent').textContent = inq.content || '';
+      document.getElementById('ctrInqDate').textContent = formatDateTime(inq.created_at);
+      const replied = inq.status === 'replied';
+      document.getElementById('ctrReplySection').style.display = replied ? 'none' : 'block';
+      document.getElementById('ctrExistingReply').style.display = replied ? 'block' : 'none';
+      if (replied) {
+        document.getElementById('ctrReplyContent').textContent = inq.reply || '';
+      } else {
+        document.getElementById('ctrReplyText').value = '';
+      }
+      document.getElementById('ctrInquiryModal').classList.add('show');
+    }
+
+    async function replyCtrInquiry() {
+      if (!currentCtrInquiry) return;
+      const reply = document.getElementById('ctrReplyText').value.trim();
+      if (!reply) { alert('답변 내용을 입력하세요'); return; }
+      try {
+        const data = await api(`/api/admin/ctr/inquiries/${currentCtrInquiry.id}/reply`, {
+          method: 'PUT', body: JSON.stringify({ reply })
+        });
+        if (data.success) {
+          document.getElementById('ctrInquiryModal').classList.remove('show');
+          loadCtrInquiries('all');
+        } else {
+          alert(data.error || '답변 실패');
+        }
+      } catch (e) { alert('답변 전송 오류'); }
+    }
+
+    async function deleteCtrInquiry() {
+      if (!currentCtrInquiry) return;
+      if (!confirm('이 문의를 삭제할까요?')) return;
+      try {
+        await api(`/api/admin/ctr/inquiries/${currentCtrInquiry.id}`, { method: 'DELETE' });
+        document.getElementById('ctrInquiryModal').classList.remove('show');
+        loadCtrInquiries('all');
+      } catch (e) { alert('삭제 오류'); }
     }
 
     // Enter key for login
