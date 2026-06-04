@@ -11,6 +11,7 @@ import { setupDatabase } from './config/database';
 import authRouter from './routes/auth';
 import inquiryRouter from './routes/inquiry';
 import adminRouter from './routes/admin';
+import catchTheRuleRouter from './routes/catchtherule';
 import path from 'path';
 
 // 전역 에러 안전망: 비동기 소켓 핸들러/타이머 콜백에서 발생한 에러가
@@ -57,8 +58,16 @@ app.use('/api/inquiry', inquiryRouter);
 // Admin routes
 app.use('/api/admin', adminRouter);
 
-// Admin page
-app.use('/admin', express.static(path.join(__dirname, '../public/admin')));
+// CatchTheRule (규칙찾기) 솔로 랭킹 — 로그인 불필요 공개 API
+app.use('/api/catchtherule', catchTheRuleRouter);
+
+// 관리자 페이지 — /backstage 로만 접근 (기존 /admin 경로는 제거).
+app.use('/backstage', express.static(path.join(__dirname, '../public/admin')));
+
+// 게임별 약관/개인정보처리방침 정적 페이지
+//   규칙찾기: /ctr/terms, /ctr/privacy   ·   듀오 아레나: /duo/terms, /duo/privacy
+app.use('/ctr', express.static(path.join(__dirname, '../public/ctr'), { extensions: ['html'] }));
+app.use('/duo', express.static(path.join(__dirname, '../public/duo'), { extensions: ['html'] }));
 
 // Socket.io 핸들러 설정
 setupSocketHandlers(io);

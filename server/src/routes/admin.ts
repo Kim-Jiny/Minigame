@@ -762,4 +762,124 @@ router.put('/ad-config/:key', verifyAdminToken, async (req: Request, res: Respon
   }
 });
 
+// ==================================================================
+// 규칙찾기(CatchTheRule) 관리 — 게임별 admin 모듈. 확장 시 게임별로 추가.
+// ==================================================================
+
+// GET /api/admin/ctr/inquiries?status=pending|replied|all - CTR 문의 목록
+router.get('/ctr/inquiries', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const status = typeof req.query.status === 'string' ? req.query.status : 'all';
+    const where = status === 'pending' || status === 'replied' ? 'WHERE status = $1' : '';
+    const params = where ? [status] : [];
+    const result = await pool.query(
+      `SELECT id, device_id, nickname, content, status, reply, replied_at, is_read, created_at
+       FROM ctr_inquiries ${where}
+       ORDER BY (status = 'pending') DESC, created_at DESC
+       LIMIT 300`,
+      params
+    );
+    const pending = await pool.query(`SELECT COUNT(*) FROM ctr_inquiries WHERE status = 'pending'`);
+    res.json({ inquiries: result.rows, pendingCount: parseInt(pending.rows[0].count, 10) });
+  } catch (error) {
+    console.error('CTR admin list inquiries error:', error);
+    res.status(500).json({ error: 'Failed to load inquiries' });
+  }
+});
+
+// PUT /api/admin/ctr/inquiries/:id/reply - CTR 문의 답변
+router.put('/ctr/inquiries/:id/reply', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { reply } = req.body;
+    if (!reply?.trim()) {
+      res.status(400).json({ error: 'Reply is required' });
+      return;
+    }
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const result = await pool.query(
+      `UPDATE ctr_inquiries
+       SET reply = $1, status = 'replied', replied_at = CURRENT_TIMESTAMP, is_read = FALSE
+       WHERE id = $2 RETURNING *`,
+      [reply.trim(), id]
+    );
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Inquiry not found' });
+      return;
+    }
+    res.json({ success: true, inquiry: result.rows[0] });
+  } catch (error) {
+    console.error('CTR admin reply error:', error);
+    res.status(500).json({ error: 'Failed to reply' });
+  }
+});
+
+// DELETE /api/admin/ctr/inquiries/:id - CTR 문의 삭제
+router.delete('/ctr/inquiries/:id', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    await pool.query('DELETE FROM ctr_inquiries WHERE id = $1', [id]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('CTR admin delete inquiry error:', error);
+    res.status(500).json({ error: 'Failed to delete' });
+  }
+});
+
+// GET /api/admin/ctr/stats - CTR 디바이스/유저 통계
+router.get('/ctr/stats', verifyAdminToken, async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const [total, platform, newToday, active, countries, versions] = await Promise.all([
+      pool.query(`SELECT COUNT(*)::int AS c FROM ctr_devices`),
+      pool.query(`SELECT COALESCE(platform, 'unknown') AS platform, COUNT(*)::int AS c FROM ctr_devices GROUP BY platform`),
+      pool.query(`SELECT COUNT(*)::int AS c FROM ctr_devices WHERE first_seen::date = CURRENT_DATE`),
+      pool.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE day = CURRENT_DATE)::int AS dau,
+          COUNT(DISTINCT device_id) FILTER (WHERE day >= CURRENT_DATE - 6)::int AS wau,
+          COUNT(DISTINCT device_id) FILTER (WHERE day >= CURRENT_DATE - 29)::int AS mau
+        FROM ctr_device_daily`),
+      pool.query(`SELECT COALESCE(country, '??') AS country, COUNT(*)::int AS c FROM ctr_devices GROUP BY country ORDER BY c DESC LIMIT 10`),
+      pool.query(`SELECT COALESCE(app_version, '?') AS version, COUNT(*)::int AS c FROM ctr_devices GROUP BY app_version ORDER BY c DESC LIMIT 10`),
+    ]);
+
+    const byPlatform: Record<string, number> = {};
+    platform.rows.forEach((r) => { byPlatform[r.platform] = r.c; });
+
+    res.json({
+      totalUsers: total.rows[0].c,
+      ios: byPlatform['ios'] || 0,
+      android: byPlatform['android'] || 0,
+      newToday: newToday.rows[0].c,
+      dau: active.rows[0].dau || 0,
+      wau: active.rows[0].wau || 0,
+      mau: active.rows[0].mau || 0,
+      countries: countries.rows,
+      versions: versions.rows,
+    });
+  } catch (error) {
+    console.error('CTR admin stats error:', error);
+    res.status(500).json({ error: 'Failed to load stats' });
+  }
+});
+
 export default router;

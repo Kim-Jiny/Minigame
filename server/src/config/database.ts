@@ -364,6 +364,69 @@ export async function setupDatabase() {
         ('reward_daily_limit', '7', '보상형 광고 일일 최대 횟수'),
         ('reward_enabled', 'true', '보상형 광고 활성화 여부')
       ON CONFLICT (config_key) DO NOTHING;
+
+      -- ================================================================
+      -- CatchTheRule (규칙찾기) — 로그인 없는 닉네임 기반 솔로 랭킹.
+      -- 프리픽스 ctr_ 로 다른 앱(dm_) 데이터와 분리. dm_users FK 없음.
+      -- device_id 로 기기당 1행 upsert(최고점 유지), 없으면 단순 insert.
+      -- ================================================================
+      CREATE TABLE IF NOT EXISTS ctr_rankings (
+        id SERIAL PRIMARY KEY,
+        mode VARCHAR(30) NOT NULL DEFAULT 'timeAttack',
+        device_id VARCHAR(64),
+        nickname VARCHAR(20) NOT NULL,
+        country VARCHAR(2),
+        score INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      -- country 컬럼 추가 (기존 테이블용) — ISO 3166-1 alpha-2 (예: KR)
+      ALTER TABLE ctr_rankings ADD COLUMN IF NOT EXISTS country VARCHAR(2);
+      -- 기기당 모드별 1행(최고점). device_id 가 있을 때만 유니크.
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_ctr_rankings_mode_device
+        ON ctr_rankings(mode, device_id) WHERE device_id IS NOT NULL;
+      -- 리더보드 정렬용.
+      CREATE INDEX IF NOT EXISTS idx_ctr_rankings_mode_score
+        ON ctr_rankings(mode, score DESC, created_at ASC);
+
+      -- CatchTheRule 문의 (로그인 없음 → device_id 로 본인 문의/답변 조회).
+      CREATE TABLE IF NOT EXISTS ctr_inquiries (
+        id SERIAL PRIMARY KEY,
+        device_id VARCHAR(64) NOT NULL,
+        nickname VARCHAR(20),
+        content TEXT NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',   -- pending | replied
+        reply TEXT,
+        replied_at TIMESTAMP,
+        is_read BOOLEAN DEFAULT FALSE,           -- 사용자가 답변을 읽었는지
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_ctr_inquiries_device ON ctr_inquiries(device_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_ctr_inquiries_status ON ctr_inquiries(status, created_at DESC);
+
+      -- CatchTheRule 디바이스(익명) — 로그인 없이 유저 카운팅/통계.
+      -- 향후 보상형 광고·광고제거 IAP 데이터의 토대(컬럼 확장).
+      CREATE TABLE IF NOT EXISTS ctr_devices (
+        device_id VARCHAR(64) PRIMARY KEY,
+        platform VARCHAR(10),                     -- ios | android
+        country VARCHAR(2),
+        app_version VARCHAR(20),
+        os_version VARCHAR(30),
+        launch_count INTEGER DEFAULT 1,
+        first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_ctr_devices_platform ON ctr_devices(platform);
+      CREATE INDEX IF NOT EXISTS idx_ctr_devices_last_seen ON ctr_devices(last_seen);
+
+      -- 일자별 활성 디바이스 (DAU/WAU/MAU 산출용).
+      CREATE TABLE IF NOT EXISTS ctr_device_daily (
+        device_id VARCHAR(64) NOT NULL,
+        day DATE NOT NULL,
+        platform VARCHAR(10),
+        PRIMARY KEY (device_id, day)
+      );
+      CREATE INDEX IF NOT EXISTS idx_ctr_device_daily_day ON ctr_device_daily(day);
     `);
 
     console.log('✅ Database tables ready');
