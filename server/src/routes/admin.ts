@@ -840,6 +840,46 @@ router.delete('/ctr/inquiries/:id', verifyAdminToken, async (req: Request, res: 
   }
 });
 
+// GET /api/admin/ctr/rankings?mode=timeAttack - CTR 랭킹 목록(운영 관리용)
+router.get('/ctr/rankings', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const mode = typeof req.query.mode === 'string' && req.query.mode ? req.query.mode : 'timeAttack';
+    const result = await pool.query(
+      `SELECT id, mode, device_id, nickname, country, score, created_at, updated_at
+       FROM ctr_rankings WHERE mode = $1
+       ORDER BY score DESC, updated_at ASC
+       LIMIT 500`,
+      [mode]
+    );
+    res.json({ rankings: result.rows });
+  } catch (error) {
+    console.error('CTR admin list rankings error:', error);
+    res.status(500).json({ error: 'Failed to load rankings' });
+  }
+});
+
+// DELETE /api/admin/ctr/rankings/:id - CTR 랭킹 기록 삭제(부정행위·부적절 닉네임 등)
+router.delete('/ctr/rankings/:id', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    await pool.query('DELETE FROM ctr_rankings WHERE id = $1', [id]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('CTR admin delete ranking error:', error);
+    res.status(500).json({ error: 'Failed to delete' });
+  }
+});
+
 // GET /api/admin/ctr/stats - CTR 디바이스/유저 통계
 router.get('/ctr/stats', verifyAdminToken, async (_req: Request, res: Response): Promise<void> => {
   try {

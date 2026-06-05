@@ -383,6 +383,7 @@
     <div class="nav-tabs">
       <button class="active" onclick="ctrTab('stats', this)">통계</button>
       <button onclick="ctrTab('inquiries', this)">문의 <span class="badge pending" id="ctrPendingBadge" style="display:none">0</span></button>
+      <button onclick="ctrTab('rankings', this)">랭킹</button>
     </div>
 
     <!-- 통계 탭 -->
@@ -412,6 +413,16 @@
           <tr><th>ID</th><th>닉네임</th><th>내용</th><th>상태</th><th>등록일</th></tr>
         </thead>
         <tbody id="ctrInquiriesBody"><tr><td colspan="5" class="empty">Loading...</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- 랭킹 탭 -->
+    <div class="ctr-tab-content" id="ctr-tab-rankings" style="display:none">
+      <table class="data-table">
+        <thead>
+          <tr><th>#</th><th>닉네임</th><th>국가</th><th>점수</th><th>수정일</th><th>관리</th></tr>
+        </thead>
+        <tbody id="ctrRankingsBody"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -1325,6 +1336,33 @@
       btn.classList.add('active');
       document.getElementById('ctr-tab-stats').style.display = name === 'stats' ? 'block' : 'none';
       document.getElementById('ctr-tab-inquiries').style.display = name === 'inquiries' ? 'block' : 'none';
+      document.getElementById('ctr-tab-rankings').style.display = name === 'rankings' ? 'block' : 'none';
+      if (name === 'rankings') loadCtrRankings();
+    }
+
+    async function loadCtrRankings() {
+      const tbody = document.getElementById('ctrRankingsBody');
+      tbody.innerHTML = '<tr><td colspan="6" class="empty">Loading...</td></tr>';
+      try {
+        const data = await api('/api/admin/ctr/rankings?mode=timeAttack');
+        const rows = data.rankings || [];
+        if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">랭킹이 없습니다</td></tr>'; return; }
+        tbody.innerHTML = rows.map((r, i) =>
+          `<tr><td>${i + 1}</td><td>${escapeHtml(r.nickname || '')}</td><td>${escapeHtml(r.country || '-')}</td>`
+          + `<td><b>${r.score}</b></td><td>${formatDateTime(r.updated_at)}</td>`
+          + `<td><button onclick="deleteCtrRanking(${r.id})" style="padding:4px 12px;background:#ff5b5b;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px">삭제</button></td></tr>`
+        ).join('');
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">불러오기 실패</td></tr>';
+      }
+    }
+
+    async function deleteCtrRanking(id) {
+      if (!confirm('이 랭킹 기록을 삭제할까요?\\n부정행위/부적절 닉네임 정리 용도입니다.')) return;
+      try {
+        await api('/api/admin/ctr/rankings/' + id, { method: 'DELETE' });
+        loadCtrRankings();
+      } catch (e) { alert('삭제 실패'); }
     }
 
     async function loadCtrStats() {

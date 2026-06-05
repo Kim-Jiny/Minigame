@@ -51,29 +51,26 @@ router.post('/scores', async (req: Request, res: Response): Promise<void> => {
       res.status(400).json({ error: `score must be an integer between 0 and ${MAX_SCORE}` });
       return;
     }
-
-    // 기기 식별자가 있으면 기기당 1행 upsert(최고점 유지), 없으면 단순 insert.
-    let bestScore = score;
-    if (deviceId) {
-      const upserted = await pool.query(
-        `INSERT INTO ctr_rankings (mode, device_id, nickname, country, score)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (mode, device_id) WHERE device_id IS NOT NULL
-         DO UPDATE SET
-           score = GREATEST(ctr_rankings.score, EXCLUDED.score),
-           nickname = EXCLUDED.nickname,
-           country = EXCLUDED.country,
-           updated_at = CURRENT_TIMESTAMP
-         RETURNING score`,
-        [mode, deviceId, nickname, country, score]
-      );
-      bestScore = upserted.rows[0].score;
-    } else {
-      await pool.query(
-        `INSERT INTO ctr_rankings (mode, nickname, country, score) VALUES ($1, $2, $3, $4)`,
-        [mode, nickname, country, score]
-      );
+    // deviceId 필수: 기기당 1행(최고점) 보장 + 중복 등록 방지.
+    if (!deviceId) {
+      res.status(400).json({ error: 'deviceId is required' });
+      return;
     }
+
+    // 기기당 1행 upsert(최고점 유지).
+    const upserted = await pool.query(
+      `INSERT INTO ctr_rankings (mode, device_id, nickname, country, score)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (mode, device_id) WHERE device_id IS NOT NULL
+       DO UPDATE SET
+         score = GREATEST(ctr_rankings.score, EXCLUDED.score),
+         nickname = EXCLUDED.nickname,
+         country = EXCLUDED.country,
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING score`,
+      [mode, deviceId, nickname, country, score]
+    );
+    const bestScore = upserted.rows[0].score;
 
     // 내 최고점보다 높은 점수의 개수 + 1 = 순위 (동점은 같은 순위).
     const rankResult = await pool.query(
