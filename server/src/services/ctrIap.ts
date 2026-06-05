@@ -11,8 +11,12 @@ export const ANDROID_PACKAGE = 'com.jiny.catchtherule';
 export const CTR_PRODUCTS: Record<string, { kind: 'remove_ads' | 'hints'; hints?: number }> = {
   'com.jiny.catchtherule.remove_ads': { kind: 'remove_ads' },
   'remove_ads': { kind: 'remove_ads' },
-  'com.jiny.catchtherule.hints_20': { kind: 'hints', hints: 20 },
-  'hints_20': { kind: 'hints', hints: 20 },
+  ...Object.fromEntries(
+    [5, 10, 20, 50].flatMap((n) => [
+      [`com.jiny.catchtherule.hints_${n}`, { kind: 'hints' as const, hints: n }],
+      [`hints_${n}`, { kind: 'hints' as const, hints: n }],
+    ])
+  ),
 };
 
 export interface VerifyResult {
