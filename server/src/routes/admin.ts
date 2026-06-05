@@ -880,6 +880,35 @@ router.delete('/ctr/rankings/:id', verifyAdminToken, async (req: Request, res: R
   }
 });
 
+// GET /api/admin/ctr/purchases?status=verified|failed|all - CTR 인앱결제 내역(영수증 검증 결과)
+router.get('/ctr/purchases', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const status = typeof req.query.status === 'string' ? req.query.status : 'all';
+    const where = status === 'verified' || status === 'failed' ? 'WHERE status = $1' : '';
+    const params = where ? [status] : [];
+    const result = await pool.query(
+      `SELECT id, device_id, platform, product_id, transaction_id, kind, verified, status, environment, created_at
+       FROM ctr_purchases ${where}
+       ORDER BY created_at DESC
+       LIMIT 500`,
+      params
+    );
+    const agg = await pool.query(
+      `SELECT
+         COUNT(*)::int AS total,
+         COUNT(*) FILTER (WHERE verified)::int AS verified,
+         COUNT(*) FILTER (WHERE NOT verified)::int AS failed
+       FROM ctr_purchases`
+    );
+    res.json({ purchases: result.rows, summary: agg.rows[0] });
+  } catch (error) {
+    console.error('CTR admin list purchases error:', error);
+    res.status(500).json({ error: 'Failed to load purchases' });
+  }
+});
+
 // GET /api/admin/ctr/stats - CTR 디바이스/유저 통계
 router.get('/ctr/stats', verifyAdminToken, async (_req: Request, res: Response): Promise<void> => {
   try {
