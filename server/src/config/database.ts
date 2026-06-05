@@ -427,6 +427,23 @@ export async function setupDatabase() {
         PRIMARY KEY (device_id, day)
       );
       CREATE INDEX IF NOT EXISTS idx_ctr_device_daily_day ON ctr_device_daily(day);
+
+      -- 인앱결제 영수증(검증 결과 포함). transaction_id 로 중복/재지급 방지.
+      CREATE TABLE IF NOT EXISTS ctr_purchases (
+        id SERIAL PRIMARY KEY,
+        device_id VARCHAR(64),
+        platform VARCHAR(10) NOT NULL,            -- ios | android
+        product_id VARCHAR(80) NOT NULL,
+        transaction_id VARCHAR(128) NOT NULL,
+        kind VARCHAR(20),                          -- remove_ads | hints
+        verified BOOLEAN NOT NULL DEFAULT FALSE,
+        status VARCHAR(20) NOT NULL DEFAULT 'unverified', -- verified | failed | unverified
+        environment VARCHAR(20),                   -- Production | Sandbox 등
+        raw TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_ctr_purchases_txn ON ctr_purchases(platform, transaction_id);
+      CREATE INDEX IF NOT EXISTS idx_ctr_purchases_created ON ctr_purchases(created_at DESC);
     `);
 
     console.log('✅ Database tables ready');

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getPool } from '../config/database';
+import { verifyApple, verifyAndroid, CTR_PRODUCTS, type VerifyResult } from '../services/ctrIap';
 
 /**
  * CatchTheRule (규칙찾기) 솔로 랭킹 API.
@@ -270,6 +271,62 @@ router.post('/inquiries/read', async (req: Request, res: Response): Promise<void
   } catch (error) {
     console.error('CTR mark inquiry read error:', error);
     res.status(500).json({ error: 'Failed to mark read' });
+  }
+});
+
+// POST /api/catchtherule/iap/verify - 인앱결제 영수증 검증 + 기록
+//   body(iOS):     { platform:"ios", deviceId, productId, transactionId, payload(JWS) }
+//   body(Android): { platform:"android", deviceId, productId, transactionId, payload(originalJson), signature }
+//   resp: { verified, kind, hints, alreadyProcessed }
+router.post('/iap/verify', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+
+    const body = req.body ?? {};
+    const platform = body.platform === 'ios' || body.platform === 'android' ? body.platform : null;
+    const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim().slice(0, 64) : null;
+    const payload = typeof body.payload === 'string' ? body.payload : '';
+    if (!platform || !payload) { res.status(400).json({ error: 'platform and payload required' }); return; }
+
+    // 검증
+    let result: VerifyResult;
+    if (platform === 'ios') {
+      result = verifyApple(payload);
+    } else {
+      result = verifyAndroid(payload, typeof body.signature === 'string' ? body.signature : '');
+    }
+
+    // 권위 있는 값은 검증된 페이로드에서, 없으면 클라이언트 값으로 보완
+    const productId = result.productId || (typeof body.productId === 'string' ? body.productId : '');
+    const transactionId = result.transactionId || (typeof body.transactionId === 'string' ? body.transactionId : '');
+    const product = CTR_PRODUCTS[productId];
+    const kind = product?.kind ?? null;
+    const status = result.verified ? 'verified' : 'failed';
+
+    if (!transactionId) { res.status(400).json({ error: 'transactionId missing' }); return; }
+
+    // 기록 (transaction 중복 시 재지급 방지). 새로 들어온 경우만 inserted.
+    const ins = await pool.query(
+      `INSERT INTO ctr_purchases (device_id, platform, product_id, transaction_id, kind, verified, status, environment, raw)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (platform, transaction_id) DO NOTHING
+       RETURNING id`,
+      [deviceId, platform, productId, transactionId, kind, result.verified, status, result.environment || null,
+       JSON.stringify({ reason: result.reason || null }).slice(0, 4000)]
+    );
+    const alreadyProcessed = ins.rows.length === 0;
+
+    res.json({
+      verified: result.verified,
+      kind,
+      hints: product?.hints ?? 0,
+      alreadyProcessed,
+      reason: result.reason,
+    });
+  } catch (error) {
+    console.error('CTR iap verify error:', error);
+    res.status(500).json({ error: 'verify failed' });
   }
 });
 

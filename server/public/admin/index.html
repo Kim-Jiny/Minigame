@@ -384,6 +384,7 @@
       <button class="active" onclick="ctrTab('stats', this)">통계</button>
       <button onclick="ctrTab('inquiries', this)">문의 <span class="badge pending" id="ctrPendingBadge" style="display:none">0</span></button>
       <button onclick="ctrTab('rankings', this)">랭킹</button>
+      <button onclick="ctrTab('purchases', this)">결제</button>
     </div>
 
     <!-- 통계 탭 -->
@@ -423,6 +424,17 @@
           <tr><th>#</th><th>닉네임</th><th>국가</th><th>점수</th><th>수정일</th><th>관리</th></tr>
         </thead>
         <tbody id="ctrRankingsBody"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- 결제 탭 -->
+    <div class="ctr-tab-content" id="ctr-tab-purchases" style="display:none">
+      <div class="stats-grid" id="ctrPurchaseSummary"></div>
+      <table class="data-table" style="margin-top:16px">
+        <thead>
+          <tr><th>ID</th><th>플랫폼</th><th>상품</th><th>종류</th><th>검증</th><th>환경</th><th>일시</th></tr>
+        </thead>
+        <tbody id="ctrPurchasesBody"><tr><td colspan="7" class="empty">Loading...</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -1337,7 +1349,34 @@
       document.getElementById('ctr-tab-stats').style.display = name === 'stats' ? 'block' : 'none';
       document.getElementById('ctr-tab-inquiries').style.display = name === 'inquiries' ? 'block' : 'none';
       document.getElementById('ctr-tab-rankings').style.display = name === 'rankings' ? 'block' : 'none';
+      document.getElementById('ctr-tab-purchases').style.display = name === 'purchases' ? 'block' : 'none';
       if (name === 'rankings') loadCtrRankings();
+      if (name === 'purchases') loadCtrPurchases();
+    }
+
+    async function loadCtrPurchases() {
+      const tbody = document.getElementById('ctrPurchasesBody');
+      tbody.innerHTML = '<tr><td colspan="7" class="empty">Loading...</td></tr>';
+      try {
+        const data = await api('/api/admin/ctr/purchases');
+        const s = data.summary || {};
+        document.getElementById('ctrPurchaseSummary').innerHTML =
+          `<div class="stat-card"><h3>총 결제</h3><div class="number">${s.total || 0}</div></div>`
+          + `<div class="stat-card success"><h3>검증됨</h3><div class="number">${s.verified || 0}</div></div>`
+          + `<div class="stat-card"><h3>실패</h3><div class="number">${s.failed || 0}</div></div>`;
+        const rows = data.purchases || [];
+        if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">결제 내역이 없습니다</td></tr>'; return; }
+        tbody.innerHTML = rows.map(p => {
+          const badge = p.verified
+            ? '<span class="badge replied">검증됨</span>'
+            : '<span class="badge pending">' + escapeHtml(p.status || 'failed') + '</span>';
+          return `<tr><td>${p.id}</td><td>${escapeHtml(p.platform)}</td><td>${escapeHtml(p.product_id)}</td>`
+            + `<td>${escapeHtml(p.kind || '-')}</td><td>${badge}</td><td>${escapeHtml(p.environment || '-')}</td>`
+            + `<td>${formatDateTime(p.created_at)}</td></tr>`;
+        }).join('');
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">불러오기 실패</td></tr>';
+      }
     }
 
     async function loadCtrRankings() {
