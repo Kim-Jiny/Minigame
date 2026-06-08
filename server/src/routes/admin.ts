@@ -3,6 +3,7 @@ import { getPool } from '../config/database';
 import * as jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { coinService } from '../services/coinService';
+import { parseAndValidate } from '../services/ctrPuzzleValidate';
 import { updateNickname } from '../services/userService';
 
 const router = Router();
@@ -906,6 +907,60 @@ router.get('/ctr/purchases', verifyAdminToken, async (req: Request, res: Respons
   } catch (error) {
     console.error('CTR admin list purchases error:', error);
     res.status(500).json({ error: 'Failed to load purchases' });
+  }
+});
+
+// ── 추가 스테이지(서버 퍼즐) 관리 ──
+// GET /api/admin/ctr/puzzles - 목록(편집용 data 포함)
+router.get('/ctr/puzzles', verifyAdminToken, async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const r = await pool.query(
+      `SELECT id, chapter, ord, enabled, data, updated_at FROM ctr_puzzles ORDER BY chapter, ord`
+    );
+    res.json({ puzzles: r.rows });
+  } catch (error) {
+    console.error('CTR admin list puzzles error:', error);
+    res.status(500).json({ error: 'Failed to load puzzles' });
+  }
+});
+
+// POST /api/admin/ctr/puzzles - JSON 붙여넣기(단일/배열) 검증 후 upsert
+router.post('/ctr/puzzles', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const text = typeof req.body?.text === 'string' ? req.body.text : JSON.stringify(req.body?.puzzles ?? req.body);
+    const { ok, puzzles, errors } = parseAndValidate(text);
+    if (!ok) { res.status(400).json({ error: 'validation_failed', errors }); return; }
+    for (const p of puzzles) {
+      await pool.query(
+        `INSERT INTO ctr_puzzles (id, chapter, ord, data, enabled, updated_at)
+         VALUES ($1,$2,$3,$4,TRUE,CURRENT_TIMESTAMP)
+         ON CONFLICT (id) DO UPDATE SET
+           chapter=EXCLUDED.chapter, ord=EXCLUDED.ord, data=EXCLUDED.data,
+           enabled=TRUE, updated_at=CURRENT_TIMESTAMP`,
+        [p.id, p.chapter, p.order, JSON.stringify(p)]
+      );
+    }
+    res.json({ success: true, saved: puzzles.length });
+  } catch (error) {
+    console.error('CTR admin save puzzles error:', error);
+    res.status(500).json({ error: 'Failed to save' });
+  }
+});
+
+// DELETE /api/admin/ctr/puzzles/:id
+router.delete('/ctr/puzzles/:id', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    await pool.query('DELETE FROM ctr_puzzles WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('CTR admin delete puzzle error:', error);
+    res.status(500).json({ error: 'Failed to delete' });
   }
 });
 
