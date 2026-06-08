@@ -330,4 +330,23 @@ router.post('/iap/verify', async (req: Request, res: Response): Promise<void> =>
   }
 });
 
+// GET /api/catchtherule/puzzles - 서버 제공 추가 스테이지 (앱이 번들 11챕터에 합쳐 사용)
+//   resp: { version, puzzles: [<퍼즐 JSON>...] }
+router.get('/puzzles', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const r = await pool.query(
+      `SELECT data, updated_at FROM ctr_puzzles WHERE enabled = TRUE ORDER BY chapter, ord`
+    );
+    const version = r.rows.reduce(
+      (m: number, x: any) => Math.max(m, new Date(x.updated_at).getTime()), 0
+    );
+    res.json({ version, puzzles: r.rows.map((x: any) => x.data) });
+  } catch (error) {
+    console.error('CTR puzzles error:', error);
+    res.status(500).json({ error: 'Failed to load puzzles' });
+  }
+});
+
 export default router;

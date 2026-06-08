@@ -444,6 +444,18 @@ export async function setupDatabase() {
       );
       CREATE UNIQUE INDEX IF NOT EXISTS uq_ctr_purchases_txn ON ctr_purchases(platform, transaction_id);
       CREATE INDEX IF NOT EXISTS idx_ctr_purchases_created ON ctr_purchases(created_at DESC);
+
+      -- 서버 제공 추가 스테이지(앱 내장 11챕터 외). data = 퍼즐 JSON 전체(번들과 동일 스키마).
+      CREATE TABLE IF NOT EXISTS ctr_puzzles (
+        id VARCHAR(64) PRIMARY KEY,
+        chapter INT NOT NULL,
+        ord INT NOT NULL,
+        data JSONB NOT NULL,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_ctr_puzzles_order ON ctr_puzzles(chapter, ord);
     `);
 
     console.log('✅ Database tables ready');
