@@ -188,7 +188,8 @@ class GameResultMatchupRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final useVerticalLayout = constraints.maxWidth < 340;
+        // 아주 좁은 화면에서만 세로로 쌓는다(대부분 기기는 가로 유지).
+        final useVerticalLayout = constraints.maxWidth < 250;
 
         final leftCard = _MetricCard(
           label: leftLabel,
@@ -215,24 +216,29 @@ class GameResultMatchupRow extends StatelessWidget {
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              leftCard,
+              SizedBox(width: 180, child: leftCard),
               const SizedBox(height: 12),
               separator,
               const SizedBox(height: 12),
-              rightCard,
+              SizedBox(width: 180, child: rightCard),
             ],
           );
         }
 
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Flexible(child: leftCard),
-            const SizedBox(width: 18),
-            separator,
-            const SizedBox(width: 18),
-            Flexible(child: rightCard),
-          ],
+        // 카드가 남는 폭을 균등 분배(Expanded)해 작은 기기에서도 한 줄에 들어간다.
+        return Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: Row(
+              children: [
+                Expanded(child: leftCard),
+                const SizedBox(width: 12),
+                separator,
+                const SizedBox(width: 12),
+                Expanded(child: rightCard),
+              ],
+            ),
+          ),
         );
       },
     );
@@ -255,8 +261,7 @@ class _MetricCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 124,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
       decoration: BoxDecoration(
         color: highlighted ? accentColor.withValues(alpha: 0.08) : Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -286,12 +291,16 @@ class _MetricCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.w900,
-              color: highlighted ? accentColor : const Color(0xFF1A1D23),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              maxLines: 1,
+              style: TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.w900,
+                color: highlighted ? accentColor : const Color(0xFF1A1D23),
+              ),
             ),
           ),
         ],
