@@ -263,17 +263,22 @@ class _MetricCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
       decoration: BoxDecoration(
-        color: highlighted ? accentColor.withValues(alpha: 0.08) : Colors.white,
+        // 둘 다 흰 배경(틴트 채움이 딤하게 보이는 문제 제거).
+        // 내 카드는 accent 테두리·글자색으로 또렷하게 강조한다.
+        color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: highlighted
-              ? accentColor.withValues(alpha: 0.22)
+              ? accentColor.withValues(alpha: 0.55)
               : const Color(0xFFECEDF1),
+          width: highlighted ? 1.6 : 1,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 14,
+            color: highlighted
+                ? accentColor.withValues(alpha: 0.14)
+                : Colors.black.withValues(alpha: 0.03),
+            blurRadius: highlighted ? 16 : 14,
             offset: const Offset(0, 6),
           ),
         ],
@@ -284,10 +289,10 @@ class _MetricCard extends StatelessWidget {
             label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF9AA1AC),
+              fontWeight: FontWeight.w700,
+              color: highlighted ? accentColor : const Color(0xFF9AA1AC),
             ),
           ),
           const SizedBox(height: 8),

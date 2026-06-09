@@ -2,7 +2,7 @@ name: minigame_app
 description: "Minigame collection app with online multiplayer"
 publish_to: 'none'
 
-version: 1.0.7+16
+version: 1.1.0+17
 
 environment:
   sdk: ^3.10.7
