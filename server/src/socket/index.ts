@@ -3290,8 +3290,11 @@ export function setupSocketHandlers(io: Server) {
     let currentPlayer: Player | null = null;
     let currentRoomId: string | null = null;
 
-    // 로비 입장
-    socket.on('join_lobby', async (data: {
+    // 로비 입장 / 인증
+    // 신규 클라이언트는 핸드셰이크(socket.handshake.auth)로, 구버전 클라이언트는
+    // join_lobby 이벤트로 인증 정보를 보낸다. 두 경로 모두 handleAuth 로 처리한다.
+    let authenticated = false;
+    const handleAuth = async (data: {
       nickname: string;
       userId?: number;
       avatarUrl?: string;
@@ -3304,7 +3307,9 @@ export function setupSocketHandlers(io: Server) {
         buildNumber?: string;
       };
     }) => {
-      console.log(`📥 join_lobby received:`, { nickname: data.nickname, userId: data.userId });
+      if (authenticated) return;
+      authenticated = true;
+      console.log(`📥 auth received:`, { nickname: data.nickname, userId: data.userId });
 
       let verifiedUserId: number | undefined;
       let verifiedNickname = data.nickname;
@@ -3429,7 +3434,28 @@ export function setupSocketHandlers(io: Server) {
 
       socket.emit('lobby_joined', { success: true });
       console.log(`🎮 ${verifiedNickname} joined lobby`);
-    });
+    };
+
+    // 신규 클라이언트: 핸드셰이크 auth 로 connection 시점에 즉시 인증.
+    const handshakeAuth = socket.handshake.auth as {
+      nickname?: string;
+      userId?: number;
+      avatarUrl?: string;
+      token?: string;
+      deviceInfo?: {
+        platform?: string;
+        osVersion?: string;
+        deviceModel?: string;
+        appVersion?: string;
+        buildNumber?: string;
+      };
+    };
+    if (handshakeAuth && (handshakeAuth.nickname || handshakeAuth.token)) {
+      void handleAuth(handshakeAuth as { nickname: string });
+    }
+
+    // 구버전 클라이언트 호환: join_lobby 이벤트로도 인증 가능.
+    socket.on('join_lobby', handleAuth);
 
     // 방 ID 설정 (초대 게임에서 초대자용)
     socket.on('set_room_id', (data: { roomId: string }) => {

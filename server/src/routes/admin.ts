@@ -764,6 +764,7 @@ router.put('/ad-config/:key', verifyAdminToken, async (req: Request, res: Respon
 });
 
 // ==================================================================
+// [CTR] CatchTheRule 소유 — /api/admin/ctr/* 엔드포인트 삭제·리팩터링 금지 (리포 루트 CLAUDE.md).
 // 규칙찾기(CatchTheRule) 관리 — 게임별 admin 모듈. 확장 시 게임별로 추가.
 // ==================================================================
 

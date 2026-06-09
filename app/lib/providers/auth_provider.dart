@@ -23,7 +23,6 @@ class AuthProvider extends ChangeNotifier with ProviderFeedback {
   String? _email;
   String? _avatarUrl;
   String? _socketId;
-  String? _joinRequestedSocketId;
   bool _isLoggedIn = false;
 
   int? get userId => _userId;
@@ -39,7 +38,7 @@ class AuthProvider extends ChangeNotifier with ProviderFeedback {
       try {
         final user = await _apiService.getCurrentUser();
         await _saveUserInfo(user);
-        _connectSocket();
+        await _connectSocket();
       } catch (_) {
         await _invalidateSession();
       }
@@ -48,24 +47,19 @@ class AuthProvider extends ChangeNotifier with ProviderFeedback {
     notifyListeners();
   }
 
-  Future<void> _handleConnect(dynamic _) async {
-    await _emitJoinLobby();
+  void _handleConnect(dynamic _) {
     _socketId = _socketService.socket?.id;
     notifyListeners();
   }
 
   void _handleSocketDisconnected(dynamic _) {
-    if (_socketId == null && _joinRequestedSocketId == null) {
-      return;
-    }
+    if (_socketId == null) return;
     _socketId = null;
-    _joinRequestedSocketId = null;
     notifyListeners();
   }
 
   void _handleLobbyJoined(dynamic _) {
     _socketId = _socketService.socket?.id;
-    _joinRequestedSocketId = _socketId;
     notifyListeners();
   }
 
@@ -78,19 +72,34 @@ class AuthProvider extends ChangeNotifier with ProviderFeedback {
     _socketListeners.on('auth_error', _handleAuthError);
   }
 
-  void _connectSocket() {
-    _socketService.connect();
-
+  /// 핸드셰이크 인증 정보로 소켓을 연결한다. 토큰/닉네임 등은 connection 시점에
+  /// 서버로 전달되고, 서버가 인증을 마치면 lobby_joined / auth_error 로 응답한다.
+  Future<void> _connectSocket() async {
+    if (_nickname == null) return;
     _ensureSocketListeners();
+    _socketService.setAuth(await _buildAuthPayload());
+    _socketService.connect();
+  }
 
-    if (_socketService.isConnected) {
-      _emitJoinLobby();
+  Future<Map<String, dynamic>> _buildAuthPayload() async {
+    final deviceInfo = await DeviceInfoService().getDeviceInfo();
+    final payload = <String, dynamic>{
+      'nickname': _nickname,
+      'avatarUrl': _avatarUrl,
+      'deviceInfo': deviceInfo,
+    };
+    if (_userId != null) {
+      payload['userId'] = _userId;
     }
+    if (_apiService.jwtToken != null) {
+      payload['token'] = _apiService.jwtToken;
+    }
+    return payload;
   }
 
   Future<void> _completeLogin(UserInfo user) async {
     await _saveUserInfo(user);
-    _connectSocket();
+    await _connectSocket();
   }
 
   Future<void> _runLoginFlow({
@@ -111,28 +120,6 @@ class AuthProvider extends ChangeNotifier with ProviderFeedback {
       setLoading(false);
       notifyListeners();
     }
-  }
-
-  Future<void> _emitJoinLobby() async {
-    final socketId = _socketService.socket?.id;
-    if (socketId == null || _nickname == null) return;
-    if (_joinRequestedSocketId == socketId && _socketService.isLobbyJoined) return;
-
-    _joinRequestedSocketId = socketId;
-    final deviceInfo = await DeviceInfoService().getDeviceInfo();
-    final payload = <String, dynamic>{
-      'nickname': _nickname,
-      'avatarUrl': _avatarUrl,
-      'deviceInfo': deviceInfo,
-    };
-    if (_userId != null) {
-      payload['userId'] = _userId;
-    }
-    if (_apiService.jwtToken != null) {
-      payload['token'] = _apiService.jwtToken;
-    }
-    _socketService.emit('join_lobby', payload, requireLobbyJoined: false);
-    _socketId = socketId;
   }
 
   Future<void> _invalidateSession() async {
@@ -170,7 +157,6 @@ class AuthProvider extends ChangeNotifier with ProviderFeedback {
     _email = null;
     _avatarUrl = null;
     _socketId = null;
-    _joinRequestedSocketId = null;
     _isLoggedIn = false;
 
     _socketService.disconnect();
@@ -306,7 +292,7 @@ class AuthProvider extends ChangeNotifier with ProviderFeedback {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('nickname', nickname);
 
-    _connectSocket();
+    await _connectSocket();
     notifyListeners();
   }
 

@@ -1,3 +1,5 @@
+// [CTR] CatchTheRule(규칙찾기) 전용 라우트 — 파일 전체가 CTR 소유. 삭제·리팩터링 금지.
+//       앱 소스는 별도 리포 ~/Documents/Jiny/CatchTheRule. 자세한 건 리포 루트 CLAUDE.md 참고.
 import { Router, Request, Response } from 'express';
 import { getPool } from '../config/database';
 import { verifyApple, verifyAndroid, CTR_PRODUCTS, type VerifyResult } from '../services/ctrIap';

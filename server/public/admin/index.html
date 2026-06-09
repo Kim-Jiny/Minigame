@@ -370,6 +370,7 @@
     </div>
   </div>
 
+  <!-- [CTR] CatchTheRule 소유 — #ctrDashboard 섹션 삭제·리팩터링 금지 (리포 루트 CLAUDE.md) -->
   <!-- Dashboard (규칙찾기) -->
   <div class="dashboard" id="ctrDashboard" style="display:none">
     <div class="header">
@@ -590,7 +591,7 @@
     let editingNoticeId = null;
 
     // 등록된 게임 목록 (확장 시 여기에 추가). privacy/terms 는 같은 서버의 상대 경로.
-    const GAMES = [
+    const GAMES = [ // [CTR] 'ctr' 카드 항목은 CatchTheRule 소유 — 삭제 금지
       { id: 'duo', name: '듀오 아레나', desc: '유저 · 문의 · 공지 · 통계', icon: '🎮',
         privacy: '/duo/privacy', terms: '/duo/terms' },
       { id: 'ctr', name: '규칙찾기', desc: '문의 관리', icon: '🧩',

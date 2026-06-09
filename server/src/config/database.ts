@@ -366,6 +366,7 @@ export async function setupDatabase() {
       ON CONFLICT (config_key) DO NOTHING;
 
       -- ================================================================
+      -- [CTR] CatchTheRule 소유 — ctr_ 테이블 전체 삭제·리팩터링 금지 (리포 루트 CLAUDE.md).
       -- CatchTheRule (규칙찾기) — 로그인 없는 닉네임 기반 솔로 랭킹.
       -- 프리픽스 ctr_ 로 다른 앱(dm_) 데이터와 분리. dm_users FK 없음.
       -- device_id 로 기기당 1행 upsert(최고점 유지), 없으면 단순 insert.
