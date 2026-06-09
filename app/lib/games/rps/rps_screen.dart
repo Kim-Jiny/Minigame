@@ -1257,12 +1257,6 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
                 accentColor: resultColor,
               ),
               const SizedBox(height: 24),
-            if (_opponentLeft)
-              const GameResultStatusPill(
-                icon: Icons.exit_to_app_rounded,
-                text: '상대방이 나가서 경기 종료',
-                color: Color(0xFF6B7280),
-              ),
             if (_opponentWantsRematch && !_opponentLeft)
               GameResultStatusPill(
                 icon: Icons.hourglass_top_rounded,

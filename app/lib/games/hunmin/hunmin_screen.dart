@@ -82,6 +82,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
   String? _winnerId;
   bool _isDraw = false;
   bool _opponentLeft = false;
+  bool _wonByForfeit = false; // 상대 mid-game 이탈로 인한 몰수승(결과 표시용)
   String? _roundEndReason;
   String? _roundEndWord;
   int? _roundWinnerIndex;
@@ -277,6 +278,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
         _winnerId = null;
         _isDraw = false;
         _opponentLeft = false;
+        _wonByForfeit = false;
       });
     });
 
@@ -395,6 +397,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
       _turnTimer?.cancel();
       setState(() {
         _opponentLeft = true;
+        _wonByForfeit = true;
         _status = HunminGameStatus.finished;
         _rematchWaiting = false;
         _opponentWantsRematch = false;
@@ -1190,7 +1193,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
     Color resultColor;
     IconData resultIcon;
 
-    if (_opponentLeft) {
+    if (_wonByForfeit) {
       resultText = '상대가 나갔습니다\n승리!';
       resultColor = const Color(0xFF4CAF50);
       resultIcon = Icons.emoji_events;

@@ -120,6 +120,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
   String? _winnerId;
   bool _isDraw = false;
   bool _opponentLeft = false;
+  bool _wonByForfeit = false; // 상대 mid-game 이탈로 인한 몰수승(결과 표시용)
 
   // 재연결
   bool _isReconnecting = false;
@@ -336,6 +337,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
         _scores = _isSolo ? [0] : [0, 0];
         _currentRound = 0;
         _opponentLeft = false;
+        _wonByForfeit = false;
         _rematchWaiting = false;
         _opponentWantsRematch = false;
         _winnerId = null;
@@ -540,6 +542,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
         _status = PyramidGameStatus.finished;
         _winnerId = _myId;
         _opponentLeft = true;
+        _wonByForfeit = true;
         _rematchWaiting = false;
         _opponentWantsRematch = false;
       });
@@ -1152,7 +1155,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
               Text('최종 점수', style: TextStyle(fontSize: 20, color: Colors.grey[700])),
               Text('${_scores.isNotEmpty ? _scores[0] : 0}점',
                 style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: _accent)),
-            ] else if (_opponentLeft) ...[
+            ] else if (_wonByForfeit) ...[
               const Icon(Icons.emoji_events, size: 64, color: Colors.amber),
               const SizedBox(height: 16),
               Text('승리!', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: _accent)),
