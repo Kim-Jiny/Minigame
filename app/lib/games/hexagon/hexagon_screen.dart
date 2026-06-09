@@ -13,6 +13,7 @@ import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
 import '../../utils/game_registry.dart';
 import '../../widgets/game_player_profile.dart';
+import '../common/game_rematch_preparing_view.dart';
 import '../common/game_end_action_panel.dart';
 import '../common/game_scaffold.dart';
 import '../common/match_status_views.dart';
@@ -1201,6 +1202,13 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
 
   // ==================== FINISHED ====================
   Widget _buildFinishedView(GameTheme theme) {
+    if (_rematchWaiting) {
+      return GameRematchPreparingView(
+        backgroundGradient: theme.backgroundGradient,
+        accentColor: theme.primary,
+        onCancel: _cancelRematch,
+      );
+    }
     final isWinner = _winnerId == _myId;
     final isSoloDone = _isSolo;
 

@@ -10,6 +10,7 @@ import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
+import '../common/game_rematch_preparing_view.dart';
 import '../common/game_hardcore_toggle.dart';
 import '../common/game_intro_view.dart';
 import '../common/game_duel_header.dart';
@@ -1353,6 +1354,13 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   Widget _buildFinishedView() {
+    if (_rematchWaiting) {
+      return GameRematchPreparingView(
+        backgroundGradient: _theme.backgroundGradient,
+        accentColor: _theme.primary,
+        onCancel: _cancelRematch,
+      );
+    }
     final isWinner = _winnerId == _myId;
 
     // 랭크전에서는 결과만 표시하고 자동으로 돌아가기

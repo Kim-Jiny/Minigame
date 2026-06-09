@@ -10,6 +10,7 @@ import '../../services/socket_service.dart';
 import '../../services/socket_listener_registry.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
+import '../common/game_rematch_preparing_view.dart';
 import '../common/game_intro_view.dart';
 import '../common/game_scaffold.dart';
 import '../common/game_end_action_panel.dart';
@@ -1178,6 +1179,13 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
 
   // ====== 게임 종료 ======
   Widget _buildFinishedView() {
+    if (_rematchWaiting) {
+      return GameRematchPreparingView(
+        backgroundGradient: _theme.backgroundGradient,
+        accentColor: _theme.primary,
+        onCancel: _cancelRematch,
+      );
+    }
     String resultText;
     Color resultColor;
     IconData resultIcon;
