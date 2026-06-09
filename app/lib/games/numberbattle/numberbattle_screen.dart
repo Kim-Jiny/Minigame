@@ -387,8 +387,16 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
 
     _socketListeners.on('opponent_left', (data) {
       if (_status == NumberBattleGameStatus.idle ||
-          _status == NumberBattleGameStatus.searching ||
-          _status == NumberBattleGameStatus.finished) {
+          _status == NumberBattleGameStatus.searching) {
+        return;
+      }
+      // 결과 화면에서 상대가 나간 경우: 결과는 유지하고 재대결만 불가 처리
+      if (_status == NumberBattleGameStatus.finished) {
+        setState(() {
+          _opponentLeft = true;
+          _rematchWaiting = false;
+          _opponentWantsRematch = false;
+        });
         return;
       }
       if (_isExitDialogOpen && mounted) {

@@ -575,8 +575,16 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
 
     _socketListeners.on('opponent_left', (_) {
       if (_status == HexagonGameStatus.idle ||
-          _status == HexagonGameStatus.searching ||
-          _status == HexagonGameStatus.finished) {
+          _status == HexagonGameStatus.searching) {
+        return;
+      }
+      // 결과 화면에서 상대가 나간 경우: 결과는 유지하고 재대결만 불가 처리
+      if (_status == HexagonGameStatus.finished) {
+        setState(() {
+          _opponentLeft = true;
+          _rematchWaiting = false;
+          _opponentWantsRematch = false;
+        });
         return;
       }
       _memorizeTimer?.cancel();

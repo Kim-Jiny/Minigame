@@ -470,8 +470,16 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
 
     _socketListeners.on('opponent_left', (data) {
       if (_status == CardFlipGameStatus.idle ||
-          _status == CardFlipGameStatus.searching ||
-          _status == CardFlipGameStatus.finished) {
+          _status == CardFlipGameStatus.searching) {
+        return;
+      }
+      // 결과 화면에서 상대가 나간 경우: 결과는 유지하고 재대결만 불가 처리
+      if (_status == CardFlipGameStatus.finished) {
+        setState(() {
+          _opponentLeft = true;
+          _rematchWaiting = false;
+          _opponentWantsRematch = false;
+        });
         return;
       }
       if (_isExitDialogOpen && mounted) {

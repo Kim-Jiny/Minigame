@@ -379,8 +379,16 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
     // 상대 퇴장
     _socketListeners.on('opponent_left', (_) {
       if (_status == HunminGameStatus.idle ||
-          _status == HunminGameStatus.searching ||
-          _status == HunminGameStatus.finished) {
+          _status == HunminGameStatus.searching) {
+        return;
+      }
+      // 결과 화면에서 상대가 나간 경우: 결과는 유지하고 재대결만 불가 처리
+      if (_status == HunminGameStatus.finished) {
+        setState(() {
+          _opponentLeft = true;
+          _rematchWaiting = false;
+          _opponentWantsRematch = false;
+        });
         return;
       }
       _turnTimer?.cancel();

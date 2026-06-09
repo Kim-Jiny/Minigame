@@ -527,8 +527,16 @@ class _SequenceScreenState extends State<SequenceScreen>
 
     _socketListeners.on('opponent_left', (data) {
       if (_status == SequenceGameStatus.idle ||
-          _status == SequenceGameStatus.searching ||
-          _status == SequenceGameStatus.finished) {
+          _status == SequenceGameStatus.searching) {
+        return;
+      }
+      // 결과 화면에서 상대가 나간 경우: 결과는 유지하고 재대결만 불가 처리
+      if (_status == SequenceGameStatus.finished) {
+        setState(() {
+          _opponentLeft = true;
+          _rematchWaiting = false;
+          _opponentWantsRematch = false;
+        });
         return;
       }
       // 나가기 다이얼로그가 열려있으면 먼저 닫기
