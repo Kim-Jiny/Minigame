@@ -31,7 +31,8 @@ class ModeGamesScreen extends StatelessWidget {
                 child: CustomScrollView(
                   slivers: [
                     SliverToBoxAdapter(child: _buildHeader(context, games.length)),
-                    SliverToBoxAdapter(child: _buildRankedHighlight(context)),
+                    if (mode == PlayMode.duo)
+                      SliverToBoxAdapter(child: _buildRankedHighlight(context)),
                     for (final section in sections) ...[
                       SliverToBoxAdapter(
                         child: _buildSectionLabel(section.tempo),
@@ -130,126 +131,73 @@ class ModeGamesScreen extends StatelessWidget {
   /// 모드별 랭크전 강조 카드.
   /// 둘이하기 → 2인전 랭크전(ELO Bo3, RankedScreen)으로 이동.
   /// 혼자하기 → 1인전 랭크전 안내(게임을 골라 기록에 도전). 솔로에서만 노출.
+  /// 2인전 랭크전 강조 카드 (둘이하기에서만 노출).
   Widget _buildRankedHighlight(BuildContext context) {
-    if (mode == PlayMode.duo) {
-      const color = Color(0xFFEA580C);
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
-        child: Material(
-          color: color,
-          borderRadius: BorderRadius.circular(22),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(22),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const RankedScreen()),
-            ),
-            child: Ink(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: BorderRadius.circular(22),
-                boxShadow: [
-                  BoxShadow(
-                    color: color.withValues(alpha: 0.28),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: const Icon(Icons.emoji_events_rounded, color: Colors.white),
-                  ),
-                  const SizedBox(width: 14),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '랭크전 · 2인전',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                          ),
-                        ),
-                        SizedBox(height: 3),
-                        Text(
-                          'Bo3 · ELO 기반 매칭',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.white70,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Icon(Icons.arrow_forward_rounded, color: Colors.white),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    // 혼자하기: 1인전 랭크전 안내 (게임 자체가 랭킹 도전 진입점)
-    const color = Color(0xFF0EA5A6);
+    const color = Color(0xFFEA580C);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
-      child: Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
+      child: Material(
+        color: color,
+        borderRadius: BorderRadius.circular(22),
+        child: InkWell(
           borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: color.withValues(alpha: 0.16)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const Icon(Icons.military_tech_rounded, color: color),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const RankedScreen()),
+          ),
+          child: Ink(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(22),
+              boxShadow: [
+                BoxShadow(
+                  color: color.withValues(alpha: 0.28),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    '랭크전 · 1인전',
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF1F2430),
-                    ),
+            child: Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    '게임을 골라 기록에 도전하고 순위를 올리세요',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.grey.shade600,
-                    ),
+                  child: const Icon(Icons.emoji_events_rounded, color: Colors.white),
+                ),
+                const SizedBox(width: 14),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '랭크전 · 2인전',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                      SizedBox(height: 3),
+                      Text(
+                        'Bo3 · ELO 기반 매칭',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.white70,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+                const Icon(Icons.arrow_forward_rounded, color: Colors.white),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
