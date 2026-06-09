@@ -8,6 +8,8 @@ import '../../providers/ranked_provider.dart';
 import '../../services/socket_service.dart';
 import '../../config/app_config.dart';
 import '../../utils/game_theme.dart';
+import '../common/game_hardcore_toggle.dart';
+import '../common/game_intro_view.dart';
 import '../common/game_scaffold.dart';
 import '../common/game_result_summary.dart';
 import '../common/match_status_views.dart';
@@ -274,170 +276,60 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
   }
 
   Widget _buildIdleView(GameProvider game, GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // 하트 아이콘
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: theme.primary.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.grid_3x3,
-                size: 80,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              game.isInfiniteMode ? '무한 틱택토' : '틱택토',
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: game.isInfiniteMode ? Colors.purple : theme.primary,
+    final accent = game.isHardcore
+        ? Colors.red
+        : (game.isInfiniteMode ? Colors.purple : theme.primary);
+    return GameIntroView(
+      backgroundGradient: theme.backgroundGradient,
+      accentColor: accent,
+      icon: game.isInfiniteMode ? Icons.all_inclusive : Icons.grid_3x3,
+      title: game.isInfiniteMode ? '무한 틱택토' : '틱택토',
+      descriptions: [
+        game.isInfiniteMode
+            ? '각 플레이어는 최대 3개의 말만!\n가장 오래된 말이 사라집니다'
+            : '3개를 연속으로 놓으면 승리!',
+      ],
+      findMatchLabel: _getMatchButtonLabel(game),
+      onFindMatch: () => game.findMatch(AppConfig.gameTypeTicTacToe),
+      onInviteFriend: () => _showFriendInviteDialog(context, game),
+      extra: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: game.isInfiniteMode ? Colors.purple.shade50 : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: game.isInfiniteMode ? Colors.purple : Colors.grey.shade300,
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              game.isInfiniteMode
-                  ? '각 플레이어는 최대 3개의 말만!\n가장 오래된 말이 사라집니다'
-                  : '3개를 연속으로 놓으면 승리!',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-              ),
-            ),
-            const SizedBox(height: 32),
-            // 무한 모드 토글
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: game.isInfiniteMode ? Colors.purple.shade50 : Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: game.isInfiniteMode ? Colors.purple : Colors.grey.shade300,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.all_inclusive,
-                    color: game.isInfiniteMode ? Colors.purple : Colors.grey,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '무한모드',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: game.isInfiniteMode ? Colors.purple : Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Switch(
-                    value: game.isInfiniteMode,
-                    onChanged: (value) => game.setInfiniteMode(value),
-                    activeThumbColor: Colors.purple,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            // 하드코어 모드 토글
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: game.isHardcore ? Colors.red.shade50 : Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: game.isHardcore ? Colors.red : Colors.grey.shade300,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.local_fire_department,
-                    color: game.isHardcore ? Colors.red : Colors.grey,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '하드코어',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: game.isHardcore ? Colors.red : Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '(10초)',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: game.isHardcore ? Colors.red.shade400 : Colors.grey,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Switch(
-                    value: game.isHardcore,
-                    onChanged: (value) => game.setHardcoreMode(value),
-                    activeThumbColor: Colors.red,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                ElevatedButton.icon(
-                  onPressed: () {
-                    game.findMatch(AppConfig.gameTypeTicTacToe);
-                  },
-                  icon: const Icon(Icons.search),
-                  label: Text(_getMatchButtonLabel(game)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: game.isHardcore ? Colors.red : (game.isInfiniteMode ? Colors.purple : theme.primary),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 16,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: () => _showFriendInviteDialog(context, game),
-                  icon: const Icon(Icons.person_add),
-                  label: const Text('친구 초대'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: game.isHardcore ? Colors.red : (game.isInfiniteMode ? Colors.purple : theme.primary),
-                    side: BorderSide(
-                      color: game.isHardcore ? Colors.red : (game.isInfiniteMode ? Colors.purple : theme.primary),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
+                Icon(Icons.all_inclusive,
+                    color: game.isInfiniteMode ? Colors.purple : Colors.grey),
+                const SizedBox(width: 8),
+                Text('무한모드',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: game.isInfiniteMode ? Colors.purple : Colors.grey.shade600)),
+                const SizedBox(width: 8),
+                Switch(
+                  value: game.isInfiniteMode,
+                  onChanged: (value) => game.setInfiniteMode(value),
+                  activeThumbColor: Colors.purple,
                 ),
               ],
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 12),
+          GameHardcoreToggle(
+            value: game.isHardcore,
+            onChanged: (v) => game.setHardcoreMode(v),
+            durationLabel: '(10초)',
+          ),
+        ],
       ),
     );
   }

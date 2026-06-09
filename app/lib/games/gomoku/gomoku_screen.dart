@@ -9,6 +9,8 @@ import '../../providers/ranked_provider.dart';
 import '../../services/socket_service.dart';
 import '../../config/app_config.dart';
 import '../../utils/game_theme.dart';
+import '../common/game_hardcore_toggle.dart';
+import '../common/game_intro_view.dart';
 import '../common/game_scaffold.dart';
 import '../common/game_result_summary.dart';
 import '../common/match_status_views.dart';
@@ -260,134 +262,20 @@ class _GomokuScreenState extends State<GomokuScreen> {
   }
 
   Widget _buildIdleView(GameProvider game, GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // 오목 아이콘
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: theme.primary.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.circle_outlined,
-                size: 80,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              '오목',
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '5개를 연속으로 놓으면 승리!',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-              ),
-            ),
-            const SizedBox(height: 32),
-            // 하드코어 모드 토글
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: game.isHardcore ? Colors.red.shade50 : Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: game.isHardcore ? Colors.red : Colors.grey.shade300,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.local_fire_department,
-                    color: game.isHardcore ? Colors.red : Colors.grey,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '하드코어',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: game.isHardcore ? Colors.red : Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '(10초)',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: game.isHardcore ? Colors.red.shade400 : Colors.grey,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Switch(
-                    value: game.isHardcore,
-                    onChanged: (value) => game.setHardcoreMode(value),
-                    activeThumbColor: Colors.red,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: () {
-                    debugPrint('🎯 [Gomoku] 상대 찾기 버튼 클릭');
-                    debugPrint('🎯 [Gomoku] 현재 상태: ${game.status}');
-                    game.findMatch(AppConfig.gameTypeGomoku);
-                  },
-                  icon: const Icon(Icons.search),
-                  label: Text(game.isHardcore ? '하드코어 상대 찾기' : '상대 찾기'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: game.isHardcore ? Colors.red : theme.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 16,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: () => _showFriendInviteDialog(context, game),
-                  icon: const Icon(Icons.person_add),
-                  label: const Text('친구 초대'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: game.isHardcore ? Colors.red : theme.primary,
-                    side: BorderSide(
-                      color: game.isHardcore ? Colors.red : theme.primary,
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
+    final accent = game.isHardcore ? Colors.red : theme.primary;
+    return GameIntroView(
+      backgroundGradient: theme.backgroundGradient,
+      accentColor: accent,
+      icon: Icons.circle_outlined,
+      title: '오목',
+      descriptions: const ['5개를 연속으로 놓으면 승리!'],
+      findMatchLabel: game.isHardcore ? '하드코어 상대 찾기' : '상대 찾기',
+      onFindMatch: () => game.findMatch(AppConfig.gameTypeGomoku),
+      onInviteFriend: () => _showFriendInviteDialog(context, game),
+      extra: GameHardcoreToggle(
+        value: game.isHardcore,
+        onChanged: (v) => game.setHardcoreMode(v),
+        durationLabel: '(10초)',
       ),
     );
   }

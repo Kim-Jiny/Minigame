@@ -9,6 +9,8 @@ import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
+import '../common/game_hardcore_toggle.dart';
+import '../common/game_intro_view.dart';
 import '../common/game_duel_header.dart';
 import '../common/game_event_helper.dart';
 import '../common/game_scaffold.dart';
@@ -991,150 +993,20 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   Widget _buildIdleView() {
-    final theme = _theme;
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: theme.primary.withValues(alpha: 0.3),
-                    blurRadius: 20,
-                  ),
-                ],
-              ),
-              child: Icon(
-                Icons.psychology,
-                size: 64,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 32),
-            Text(
-              '순서 기억하기',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '깜빡이는 순서를 기억하세요!',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '더 많이 기억한 사람이 승리!',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade500,
-              ),
-            ),
-            const SizedBox(height: 32),
-            // 하드코어 모드 토글
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: _isHardcore
-                    ? Colors.red.shade50
-                    : Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: _isHardcore ? Colors.red.shade300 : Colors.grey.shade300,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.local_fire_department,
-                    color: _isHardcore ? Colors.red : Colors.grey,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '하드코어',
-                    style: TextStyle(
-                      color: _isHardcore ? Colors.red : Colors.grey.shade700,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Switch(
-                    value: _isHardcore,
-                    onChanged: (value) => setState(() => _isHardcore = value),
-                    activeThumbColor: Colors.red,
-                    activeTrackColor: Colors.red.shade200,
-                  ),
-                ],
-              ),
-            ),
-            if (_isHardcore)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  '2배 빠른 속도!',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.red.shade400,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: _findMatch,
-                  icon: const Icon(Icons.search),
-                  label: Text(_isHardcore ? '하드코어 상대 찾기' : '상대 찾기'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _isHardcore ? Colors.red : theme.primary,
-                    foregroundColor: Colors.white,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: () => _showFriendInviteDialog(context),
-                  icon: const Icon(Icons.person_add),
-                  label: const Text('친구 초대'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _isHardcore ? Colors.red : theme.primary,
-                    side: BorderSide(
-                      color: _isHardcore ? Colors.red : theme.primary,
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
+    final accent = _isHardcore ? Colors.red : _theme.primary;
+    return GameIntroView(
+      backgroundGradient: _theme.backgroundGradient,
+      accentColor: accent,
+      icon: Icons.psychology,
+      title: '순서 기억하기',
+      descriptions: const ['깜빡이는 순서를 기억하세요!', '더 많이 기억한 사람이 승리!'],
+      findMatchLabel: _isHardcore ? '하드코어 상대 찾기' : '상대 찾기',
+      onFindMatch: _findMatch,
+      onInviteFriend: () => _showFriendInviteDialog(context),
+      extra: GameHardcoreToggle(
+        value: _isHardcore,
+        onChanged: (v) => setState(() => _isHardcore = v),
+        activeHint: '2배 빠른 속도!',
       ),
     );
   }

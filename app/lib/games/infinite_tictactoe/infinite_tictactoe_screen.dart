@@ -7,6 +7,8 @@ import '../../providers/shop_provider.dart';
 import '../../services/socket_service.dart';
 import '../../config/app_config.dart';
 import '../../utils/game_theme.dart';
+import '../common/game_hardcore_toggle.dart';
+import '../common/game_intro_view.dart';
 import '../common/game_scaffold.dart';
 import '../common/game_result_summary.dart';
 import '../common/match_status_views.dart';
@@ -77,131 +79,40 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
   }
 
   Widget _buildIdleView(GameProvider game, GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: theme.primary.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.all_inclusive,
-                size: 80,
-                color: theme.primary,
-              ),
+    final accent = game.isHardcore ? Colors.red : theme.primary;
+    return GameIntroView(
+      backgroundGradient: theme.backgroundGradient,
+      accentColor: accent,
+      icon: Icons.all_inclusive,
+      title: '무한 틱택토',
+      descriptions: const ['각자 3개까지! 4번째부터 가장 오래된 돌이 사라져요'],
+      findMatchLabel: game.isHardcore ? '하드코어 상대 찾기' : '상대 찾기',
+      onFindMatch: () => game.findMatch(AppConfig.gameTypeInfiniteTicTacToe),
+      extra: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: theme.background1,
+              borderRadius: BorderRadius.circular(20),
             ),
-            const SizedBox(height: 24),
-            Text(
-              '무한 틱택토',
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: theme.primary,
-              ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.all_inclusive, size: 16, color: theme.primary),
+                const SizedBox(width: 4),
+                Text('무승부 없음!', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: theme.primary)),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              '각자 3개까지! 4번째부터 가장 오래된 돌이 사라져요',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade600,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: theme.background1,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.all_inclusive, size: 16, color: theme.primary),
-                  const SizedBox(width: 4),
-                  Text(
-                    '무승부 없음!',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: theme.primary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 32),
-            // 하드코어 모드 토글
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: game.isHardcore ? Colors.red.shade50 : Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: game.isHardcore ? Colors.red : Colors.grey.shade300,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.local_fire_department,
-                    color: game.isHardcore ? Colors.red : Colors.grey,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '하드코어',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: game.isHardcore ? Colors.red : Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '(10초)',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: game.isHardcore ? Colors.red.shade400 : Colors.grey,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Switch(
-                    value: game.isHardcore,
-                    onChanged: (value) => game.setHardcoreMode(value),
-                    activeThumbColor: Colors.red,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () {
-                game.findMatch(AppConfig.gameTypeInfiniteTicTacToe);
-              },
-              icon: const Icon(Icons.search),
-              label: Text(game.isHardcore ? '하드코어 상대 찾기' : '상대 찾기'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: game.isHardcore ? Colors.red : theme.primary,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 32,
-                  vertical: 16,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 16),
+          GameHardcoreToggle(
+            value: game.isHardcore,
+            onChanged: (v) => game.setHardcoreMode(v),
+            durationLabel: '(10초)',
+          ),
+        ],
       ),
     );
   }

@@ -17,7 +17,9 @@ class GameIntroView extends StatelessWidget {
   final List<String> descriptions;
 
   final VoidCallback onFindMatch;
-  final VoidCallback onInviteFriend;
+
+  /// 친구 초대 콜백. null 이면 친구 초대 버튼을 숨긴다.
+  final VoidCallback? onInviteFriend;
   final String findMatchLabel;
 
   /// 버튼 위에 끼워 넣을 추가 위젯(예: 하드코어 토글).
@@ -32,7 +34,7 @@ class GameIntroView extends StatelessWidget {
     required this.title,
     required this.descriptions,
     required this.onFindMatch,
-    required this.onInviteFriend,
+    this.onInviteFriend,
     this.findMatchLabel = '상대 찾기',
     this.extra,
   });
@@ -123,37 +125,39 @@ class GameIntroView extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  // 보조 — 친구 초대 (토널)
-                  SizedBox(
-                    width: double.infinity,
-                    child: Material(
-                      color: accentColor.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(18),
-                      child: InkWell(
+                  if (onInviteFriend != null) ...[
+                    const SizedBox(height: 12),
+                    // 보조 — 친구 초대 (토널)
+                    SizedBox(
+                      width: double.infinity,
+                      child: Material(
+                        color: accentColor.withValues(alpha: 0.10),
                         borderRadius: BorderRadius.circular(18),
-                        onTap: onInviteFriend,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 15),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.person_add_rounded, size: 20, color: accentColor),
-                              const SizedBox(width: 8),
-                              Text(
-                                '친구 초대',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w700,
-                                  color: accentColor,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(18),
+                          onTap: onInviteFriend,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 15),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.person_add_rounded, size: 20, color: accentColor),
+                                const SizedBox(width: 8),
+                                Text(
+                                  '친구 초대',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                    color: accentColor,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
