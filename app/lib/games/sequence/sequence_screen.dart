@@ -11,6 +11,7 @@ import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
 import '../common/game_duel_header.dart';
 import '../common/game_event_helper.dart';
+import '../common/game_scaffold.dart';
 import '../common/game_exit_helper.dart';
 import '../common/game_reconnect_helper.dart';
 import '../common/game_result_action_buttons.dart';
@@ -763,14 +764,11 @@ class _SequenceScreenState extends State<SequenceScreen>
         _showExitDialog();
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('순서 기억하기'),
+        appBar: gameAppBar(
+          title: '순서 기억하기',
           backgroundColor: theme.primary,
           foregroundColor: theme.textOnPrimary,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: _showExitDialog,
-          ),
+          onBack: _showExitDialog,
         ),
         body: Stack(
           children: [
@@ -1484,31 +1482,11 @@ class _SequenceScreenState extends State<SequenceScreen>
         hasScheduledPop: _hasScheduledPop,
         markScheduledPop: () => _hasScheduledPop = true,
       );
-      return Container(
-        decoration: BoxDecoration(gradient: _theme.backgroundGradient),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                _isDraw ? Icons.handshake : (isWinner ? Icons.emoji_events : Icons.sentiment_dissatisfied),
-                size: 80,
-                color: _isDraw ? Colors.orange : (isWinner ? Colors.amber : Colors.grey),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                _isDraw ? '무승부!' : (isWinner ? '승리!' : '패배'),
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: _isDraw ? Colors.orange : (isWinner ? _theme.primary : Colors.grey),
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text('잠시 후 다음 게임...', style: TextStyle(color: Colors.grey)),
-            ],
-          ),
-        ),
+      return GameRankedResultView(
+        backgroundGradient: _theme.backgroundGradient,
+        accentColor: _theme.primary,
+        isWinner: isWinner,
+        isDraw: _isDraw,
       );
     }
 

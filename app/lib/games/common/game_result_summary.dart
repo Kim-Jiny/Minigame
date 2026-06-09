@@ -1,5 +1,66 @@
 import 'package:flutter/material.dart';
 
+/// 랭크전 종료 시 잠깐 보여주는 결과 화면(승/패/무 + 자동 복귀 안내).
+/// 모든 랭크 지원 게임이 동일하게 사용한다. (자동 복귀 예약은 각 게임에서 호출)
+class GameRankedResultView extends StatelessWidget {
+  final Gradient backgroundGradient;
+  final Color accentColor;
+  final bool isWinner;
+  final bool isDraw;
+
+  /// 결과 문구 아래 추가로 표시할 위젯(예: 점수). 없으면 생략.
+  final Widget? extra;
+
+  const GameRankedResultView({
+    super.key,
+    required this.backgroundGradient,
+    required this.accentColor,
+    required this.isWinner,
+    required this.isDraw,
+    this.extra,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(gradient: backgroundGradient),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              isDraw
+                  ? Icons.handshake
+                  : (isWinner ? Icons.emoji_events : Icons.sentiment_dissatisfied),
+              size: 80,
+              color: isDraw
+                  ? Colors.orange
+                  : (isWinner ? Colors.amber : Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              isDraw ? '무승부!' : (isWinner ? '승리!' : '패배'),
+              style: TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                color: isDraw
+                    ? Colors.orange
+                    : (isWinner ? accentColor : Colors.grey),
+              ),
+            ),
+            if (extra != null) ...[
+              const SizedBox(height: 8),
+              extra!,
+            ],
+            const SizedBox(height: 24),
+            const Text('잠시 후 다음 게임...', style: TextStyle(color: Colors.grey)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class GameResultHero extends StatelessWidget {
   final IconData icon;
   final Color color;

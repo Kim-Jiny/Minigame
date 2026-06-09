@@ -11,6 +11,7 @@ import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
+import '../common/game_scaffold.dart';
 import '../common/game_duel_header.dart';
 import '../common/game_event_helper.dart';
 import '../common/game_exit_helper.dart';
@@ -584,14 +585,10 @@ class _ArrowdashScreenState extends State<ArrowdashScreen>
             _showExitDialog(theme);
           },
           child: Scaffold(
-            appBar: AppBar(
-              title: const Text('방향 맞추기'),
+            appBar: gameAppBar(
+              title: '방향 맞추기',
               backgroundColor: theme.primary,
-              foregroundColor: Colors.white,
-              leading: IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => _showExitDialog(theme),
-              ),
+              onBack: () => _showExitDialog(theme),
             ),
             body: Stack(
               children: [
@@ -599,24 +596,12 @@ class _ArrowdashScreenState extends State<ArrowdashScreen>
                   transitionKey: _status.name,
                   child: _buildBody(theme),
                 ),
-                if (_isReconnecting)
-                  GameReconnectHelper.buildReconnectOverlay(
-                    title: '재연결 중...',
-                    message: '네트워크 연결을 다시 붙이는 중입니다.',
-                    resultMessage: '20초 안에 돌아오지 못하면 이 게임은 패배로 종료됩니다.',
-                    secondsRemaining: _reconnectSecondsRemaining,
-                    countdownLabel: '패배 처리까지',
-                    accentColor: theme.primary,
-                  ),
-                if (_isWaitingForReconnect)
-                  GameReconnectHelper.buildReconnectOverlay(
-                    title: '상대 재연결 대기 중',
-                    message: '상대 연결이 끊겨 게임을 잠시 멈췄습니다.',
-                    resultMessage: '20초 안에 돌아오지 않으면 자동 승리로 처리됩니다.',
-                    secondsRemaining: _reconnectSecondsRemaining,
-                    countdownLabel: '자동 승리까지',
-                    accentColor: theme.primary,
-                  ),
+                ...GameReconnectHelper.buildStandardOverlays(
+                  isReconnecting: _isReconnecting,
+                  isWaitingForReconnect: _isWaitingForReconnect,
+                  secondsRemaining: _reconnectSecondsRemaining,
+                  accentColor: theme.primary,
+                ),
               ],
             ),
           ),
@@ -1280,40 +1265,11 @@ class _ArrowdashScreenState extends State<ArrowdashScreen>
         hasScheduledPop: _hasScheduledPop,
         markScheduledPop: () => _hasScheduledPop = true,
       );
-      return Container(
-        decoration: BoxDecoration(gradient: theme.backgroundGradient),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                _isDraw
-                    ? Icons.handshake
-                    : (isWinner
-                        ? Icons.emoji_events
-                        : Icons.sentiment_dissatisfied),
-                size: 80,
-                color: _isDraw
-                    ? Colors.orange
-                    : (isWinner ? Colors.amber : Colors.grey),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                _isDraw ? '무승부!' : (isWinner ? '승리!' : '패배'),
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: _isDraw
-                      ? Colors.orange
-                      : (isWinner ? theme.primary : Colors.grey),
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text('잠시 후 다음 게임...',
-                  style: TextStyle(color: Colors.grey)),
-            ],
-          ),
-        ),
+      return GameRankedResultView(
+      backgroundGradient: theme.backgroundGradient,
+      accentColor: theme.primary,
+      isWinner: isWinner,
+      isDraw: _isDraw,
       );
     }
 

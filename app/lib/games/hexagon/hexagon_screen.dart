@@ -11,8 +11,11 @@ import '../../services/socket_service.dart';
 import '../../services/socket_listener_registry.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
+import '../../utils/game_registry.dart';
 import '../../widgets/game_player_profile.dart';
 import '../common/game_end_action_panel.dart';
+import '../common/game_scaffold.dart';
+import '../common/match_status_views.dart';
 import '../common/game_reconnect_helper.dart';
 
 enum HexagonGameStatus {
@@ -87,7 +90,10 @@ class HexagonCellPainter extends CustomPainter {
 }
 
 class HexagonScreen extends StatefulWidget {
-  const HexagonScreen({super.key});
+  /// 진입 맥락. 혼자하기 → 랭킹 도전/보기만, 둘이하기 → 대전/친구초대만.
+  final GameEntryMode entryMode;
+
+  const HexagonScreen({super.key, this.entryMode = GameEntryMode.versus});
 
   @override
   State<HexagonScreen> createState() => _HexagonScreenState();
@@ -770,11 +776,11 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
           },
           child: Scaffold(
             backgroundColor: theme.background2,
-            appBar: AppBar(
-              title: const Text('헥사곤', style: TextStyle(fontWeight: FontWeight.bold)),
+            appBar: gameAppBar(
+              title: '헥사곤',
               backgroundColor: theme.primary,
               foregroundColor: theme.textOnPrimary,
-              elevation: 0,
+              boldTitle: true,
             ),
             body: Container(
               decoration: BoxDecoration(gradient: theme.backgroundGradient),
@@ -860,66 +866,67 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
             ),
           ),
           const SizedBox(height: 24),
-          // 솔로 모드
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _startSolo,
-              icon: const Icon(Icons.person),
-              label: const Text('랭킹 도전 (솔로)', style: TextStyle(fontSize: 18)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2D3436),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          // 대전 모드
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: _findMatch,
-                  icon: const Icon(Icons.people),
-                  label: const Text('대전 (2인)', style: TextStyle(fontSize: 18)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: theme.primary,
-                    foregroundColor: theme.textOnPrimary,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              OutlinedButton.icon(
-                onPressed: () => _showFriendInviteDialog(context),
-                icon: const Icon(Icons.person_add, size: 20),
-                label: const Text('친구 초대'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: theme.primary,
-                  side: BorderSide(color: theme.primary),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          // 혼자하기로 진입 → 랭킹 도전 + 솔로 랭킹 보기
+          if (widget.entryMode == GameEntryMode.solo) ...[
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _startSolo,
+                icon: const Icon(Icons.person),
+                label: const Text('랭킹 도전 (솔로)', style: TextStyle(fontSize: 18)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2D3436),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          // 랭킹 보기 버튼
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: () => _showRankingSheet(theme),
-              icon: const Icon(Icons.leaderboard),
-              label: const Text('솔로 랭킹 보기', style: TextStyle(fontSize: 16)),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _showRankingSheet(theme),
+                icon: const Icon(Icons.leaderboard),
+                label: const Text('솔로 랭킹 보기', style: TextStyle(fontSize: 16)),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
               ),
             ),
-          ),
+          ],
+          // 둘이하기로 진입 → 대전 + 친구 초대
+          if (widget.entryMode == GameEntryMode.versus)
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _findMatch,
+                    icon: const Icon(Icons.people),
+                    label: const Text('대전 (2인)', style: TextStyle(fontSize: 18)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: theme.primary,
+                      foregroundColor: theme.textOnPrimary,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: () => _showFriendInviteDialog(context),
+                  icon: const Icon(Icons.person_add, size: 20),
+                  label: const Text('친구 초대'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: theme.primary,
+                    side: BorderSide(color: theme.primary),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
     );
@@ -940,42 +947,12 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
 
   // ==================== SEARCHING ====================
   Widget _buildSearchingView(GameTheme theme) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          CircularProgressIndicator(color: theme.primary),
-          const SizedBox(height: 24),
-          Text('상대를 찾는 중...', style: TextStyle(fontSize: 18, color: theme.primary)),
-          const SizedBox(height: 24),
-          TextButton(
-            onPressed: _cancelMatch,
-            child: const Text('취소', style: TextStyle(fontSize: 16)),
-          ),
-        ],
-      ),
-    );
+    return GameSoloSearchingView(accentColor: theme.primary, onCancel: _cancelMatch);
   }
 
   // ==================== MATCHED ====================
   Widget _buildMatchedView(GameTheme theme) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          if (_opponentNickname != null) ...[
-            Text(_opponentNickname!, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: theme.primary)),
-            const SizedBox(height: 8),
-          ],
-          if (_isSolo)
-            Text('랭킹 도전 준비 중...', style: TextStyle(fontSize: 18, color: theme.primary))
-          else
-            Text('게임 시작 준비 중...', style: TextStyle(fontSize: 18, color: theme.primary)),
-          const SizedBox(height: 16),
-          CircularProgressIndicator(color: theme.primary),
-        ],
-      ),
-    );
+    return GameSoloMatchedView(accentColor: theme.primary, opponentNickname: _opponentNickname, isSolo: _isSolo);
   }
 
   // ==================== MEMORIZING ====================

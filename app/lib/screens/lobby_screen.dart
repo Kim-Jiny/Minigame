@@ -7,29 +7,12 @@ import '../services/remote_config_service.dart';
 import '../services/socket_service.dart';
 import '../games/common/game_screen_transition.dart';
 import '../utils/game_catalog.dart';
+import '../utils/game_registry.dart';
 import '../widgets/invitation_dialog.dart';
 import 'friends_screen.dart';
 import 'profile_screen.dart';
 import 'maintenance_screen.dart';
-import 'ranked_screen.dart';
-
-class _LobbyGameEntry {
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final Color color;
-  final String route;
-  final String? badge;
-
-  const _LobbyGameEntry({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.color,
-    required this.route,
-    this.badge,
-  });
-}
+import 'mode_games_screen.dart';
 
 class _LobbyNoticeStyle {
   final Color color;
@@ -46,119 +29,6 @@ class LobbyScreen extends StatefulWidget {
 }
 
 class _LobbyScreenState extends State<LobbyScreen> {
-  static const List<_LobbyGameEntry> _quickGames = [
-    _LobbyGameEntry(
-      title: '틱택토',
-      subtitle: '3연속',
-      icon: Icons.grid_3x3,
-      color: Color(0xFF6C5CE7),
-      route: '/game/tictactoe',
-    ),
-    _LobbyGameEntry(
-      title: '반응속도',
-      subtitle: '터치!',
-      icon: Icons.flash_on,
-      color: Color(0xFFE17055),
-      route: '/game/reaction',
-    ),
-    _LobbyGameEntry(
-      title: '가위바위보',
-      subtitle: '3판2선',
-      icon: Icons.front_hand,
-      color: Color(0xFF9B59B6),
-      route: '/game/rps',
-    ),
-    _LobbyGameEntry(
-      title: '스피드탭',
-      subtitle: '빠르게!',
-      icon: Icons.touch_app,
-      color: Color(0xFF00CEC9),
-      route: '/game/speedtap',
-    ),
-    _LobbyGameEntry(
-      title: '순서 기억',
-      subtitle: '기억력!',
-      icon: Icons.psychology,
-      color: Color(0xFFE056FD),
-      route: '/game/sequence',
-    ),
-    _LobbyGameEntry(
-      title: '스트룹',
-      subtitle: '색깔!',
-      icon: Icons.palette,
-      color: Color(0xFF00CEC9),
-      route: '/game/stroop',
-    ),
-    _LobbyGameEntry(
-      title: '숫자배틀',
-      subtitle: '1→25!',
-      icon: Icons.grid_on,
-      color: Color(0xFFFF6B6B),
-      route: '/game/numberbattle',
-    ),
-    _LobbyGameEntry(
-      title: '사칙연산',
-      subtitle: '스피드!',
-      icon: Icons.calculate,
-      color: Color(0xFFE74C3C),
-      route: '/game/mathrace',
-    ),
-    _LobbyGameEntry(
-      title: '방향 맞추기',
-      subtitle: '스와이프!',
-      icon: Icons.swipe,
-      color: Color(0xFF00B894),
-      route: '/game/arrowdash',
-    ),
-    _LobbyGameEntry(
-      title: '타이밍 맞추기',
-      subtitle: '집중!',
-      icon: Icons.timer,
-      color: Color(0xFF6C5CE7),
-      route: '/game/timing',
-    ),
-  ];
-
-  static const List<_LobbyGameEntry> _featuredGames = [
-    _LobbyGameEntry(
-      title: '오목',
-      subtitle: '5개를 연속으로 놓으면 승리',
-      icon: Icons.circle_outlined,
-      color: Color(0xFF636E72),
-      route: '/game/gomoku',
-    ),
-    _LobbyGameEntry(
-      title: '헥사곤',
-      subtitle: '숫자를 외우고 합을 맞춰라!',
-      icon: Icons.hexagon_outlined,
-      color: Color(0xFF2D3436),
-      route: '/game/hexagon',
-      badge: '1인 가능',
-    ),
-    _LobbyGameEntry(
-      title: '수식피라미드',
-      subtitle: '카드를 골라 목표 숫자를 맞춰라!',
-      icon: Icons.change_history,
-      color: Color(0xFFE67E22),
-      route: '/game/pyramid',
-      badge: '1인 가능',
-    ),
-    _LobbyGameEntry(
-      title: '훈민정음',
-      subtitle: '초성 단어 배틀! 3판 2선승',
-      icon: Icons.translate,
-      color: Color(0xFF1E88E5),
-      route: '/game/hunmin',
-    ),
-    _LobbyGameEntry(
-      title: '카드 뒤집기',
-      subtitle: '짝 맞추기! 기억력 대결',
-      icon: Icons.style,
-      color: Color(0xFF6C5CE7),
-      route: '/game/cardflip',
-    ),
-  ];
-
   int _currentIndex = 0;
   String? _lastProcessedInvitationRoomId; // 중복 초대 게임 처리 방지
   int? _openInvitationDialogId;
@@ -419,23 +289,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
   Widget _buildGamesTab() {
     final auth = context.watch<AuthProvider>();
     return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Theme.of(context).primaryColor.withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
-      ),
+      color: const Color(0xFFF7F7FB),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final width = constraints.maxWidth;
-          final horizontalPadding = width >= 900 ? 24.0 : 16.0;
-          final contentMaxWidth = width >= 1300 ? 1180.0 : double.infinity;
-          final quickColumns = _getQuickGameColumns(width);
-          final quickGameAspectRatio = _getQuickGameAspectRatio(width);
+          final horizontalPadding = width >= 720 ? 24.0 : 20.0;
+          final contentMaxWidth = width >= 720 ? 640.0 : double.infinity;
 
           return Align(
             alignment: Alignment.topCenter,
@@ -444,116 +303,229 @@ class _LobbyScreenState extends State<LobbyScreen> {
               child: SingleChildScrollView(
                 padding: EdgeInsets.fromLTRB(
                   horizontalPadding,
-                  16,
+                  20,
                   horizontalPadding,
-                  24 + MediaQuery.of(context).padding.bottom,
+                  28 + MediaQuery.of(context).padding.bottom,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildHeroCard(context, auth.nickname ?? '플레이어'),
-                    const SizedBox(height: 18),
-                    _buildRankedCard(context),
-                    const SizedBox(height: 20),
-                    _buildSectionHeader(
-                      icon: Icons.bolt,
-                      title: '빠른 게임',
-                      subtitle: '1~3분',
-                      color: Colors.orange,
-                    ),
-                    const SizedBox(height: 8),
-                    GridView.count(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      crossAxisCount: quickColumns,
-                      crossAxisSpacing: 10,
-                      mainAxisSpacing: 10,
-                      childAspectRatio: quickGameAspectRatio,
-                      children: _quickGames
-                          .map((game) => _buildGameCard(
-                                context,
-                                title: game.title,
-                                subtitle: game.subtitle,
-                                icon: game.icon,
-                                color: game.color,
-                                route: game.route,
-                              ))
-                          .toList(),
-                    ),
-                    const SizedBox(height: 20),
-                    _buildSectionHeader(
-                      icon: Icons.psychology_alt,
-                      title: '전략 게임',
-                      subtitle: '10~20분',
-                      color: const Color(0xFF636E72),
-                    ),
-                    const SizedBox(height: 8),
-                    _buildLargeGameCard(
-                      context,
-                      title: _featuredGames[0].title,
-                      subtitle: _featuredGames[0].subtitle,
-                      icon: _featuredGames[0].icon,
-                      color: _featuredGames[0].color,
-                      route: _featuredGames[0].route,
-                    ),
-                    const SizedBox(height: 20),
-                    _buildSectionHeader(
-                      icon: Icons.extension,
-                      title: '두뇌 게임',
-                      subtitle: '5~15분',
-                      color: const Color(0xFF2D3436),
-                    ),
-                    const SizedBox(height: 8),
-                    _buildLargeGameCard(
-                      context,
-                      title: _featuredGames[1].title,
-                      subtitle: _featuredGames[1].subtitle,
-                      icon: _featuredGames[1].icon,
-                      color: _featuredGames[1].color,
-                      route: _featuredGames[1].route,
-                      badge: _featuredGames[1].badge,
-                    ),
-                    const SizedBox(height: 8),
-                    _buildLargeGameCard(
-                      context,
-                      title: _featuredGames[2].title,
-                      subtitle: _featuredGames[2].subtitle,
-                      icon: _featuredGames[2].icon,
-                      color: _featuredGames[2].color,
-                      route: _featuredGames[2].route,
-                      badge: _featuredGames[2].badge,
-                    ),
-                    const SizedBox(height: 8),
-                    _buildLargeGameCard(
-                      context,
-                      title: _featuredGames[4].title,
-                      subtitle: _featuredGames[4].subtitle,
-                      icon: _featuredGames[4].icon,
-                      color: _featuredGames[4].color,
-                      route: _featuredGames[4].route,
-                    ),
-                    const SizedBox(height: 20),
-                    _buildSectionHeader(
-                      icon: Icons.translate,
-                      title: '단어 게임',
-                      subtitle: '3~5분',
-                      color: const Color(0xFF1E88E5),
-                    ),
-                    const SizedBox(height: 8),
-                    _buildLargeGameCard(
-                      context,
-                      title: _featuredGames[3].title,
-                      subtitle: _featuredGames[3].subtitle,
-                      icon: _featuredGames[3].icon,
-                      color: _featuredGames[3].color,
-                      route: _featuredGames[3].route,
-                    ),
+                    _buildGreeting(auth.nickname ?? '플레이어'),
+                    const SizedBox(height: 28),
+                    _buildModeCard(PlayMode.duo, emphasized: true),
+                    const SizedBox(height: 14),
+                    _buildModeCard(PlayMode.solo),
+                    const SizedBox(height: 14),
+                    _buildModeCard(PlayMode.multi, locked: true),
                   ],
                 ),
               ),
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildGreeting(String nickname) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '안녕하세요,',
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w500,
+            color: Colors.grey.shade500,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          '$nickname님',
+          style: const TextStyle(
+            fontSize: 30,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF1F2430),
+            letterSpacing: -0.6,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '오늘은 어떤 방식으로 즐겨볼까요?',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w500,
+            color: Colors.grey.shade600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildModeCard(
+    PlayMode mode, {
+    bool emphasized = false,
+    bool locked = false,
+  }) {
+    final count = GameRegistry.countForMode(mode);
+    final meta = locked ? '준비 중' : '$count개 게임 · ${mode.tagline}';
+
+    if (locked) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F1F5),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: const Color(0xFFE7E7EC)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Icon(mode.icon, color: Colors.grey.shade500, size: 28),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    mode.title,
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    meta,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.grey.shade400,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.lock_rounded, size: 13, color: Colors.grey.shade500),
+                  const SizedBox(width: 4),
+                  Text(
+                    '준비 중',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final color = mode.color;
+    return Material(
+      color: emphasized ? color : Colors.white,
+      borderRadius: BorderRadius.circular(24),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => ModeGamesScreen(mode: mode)),
+          );
+        },
+        child: Ink(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: emphasized ? color : Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            border: emphasized
+                ? null
+                : Border.all(color: const Color(0xFFEDEDF2)),
+            boxShadow: [
+              BoxShadow(
+                color: emphasized
+                    ? color.withValues(alpha: 0.28)
+                    : Colors.black.withValues(alpha: 0.03),
+                blurRadius: emphasized ? 22 : 12,
+                offset: Offset(0, emphasized ? 10 : 4),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: emphasized
+                      ? Colors.white.withValues(alpha: 0.2)
+                      : color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Icon(
+                  mode.icon,
+                  color: emphasized ? Colors.white : color,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      mode.title,
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: emphasized ? Colors.white : const Color(0xFF1F2430),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      meta,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: emphasized
+                            ? Colors.white.withValues(alpha: 0.85)
+                            : Colors.grey.shade500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: emphasized
+                    ? Colors.white.withValues(alpha: 0.9)
+                    : Colors.grey.shade300,
+                size: 26,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -662,588 +634,4 @@ class _LobbyScreenState extends State<LobbyScreen> {
     );
   }
 
-  int _getQuickGameColumns(double width) {
-    if (width >= 1200) return 5;
-    if (width >= 900) return 4;
-    if (width >= 700) return 3;
-    return 2;
-  }
-
-  double _getQuickGameAspectRatio(double width) {
-    if (width >= 1200) return 1.08;
-    if (width >= 900) return 1.0;
-    if (width >= 700) return 0.92;
-    return 1.02;
-  }
-
-  Widget _buildHeroCard(BuildContext context, String nickname) {
-    final primary = Theme.of(context).primaryColor;
-    return Container(
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            primary,
-            primary.withValues(alpha: 0.84),
-            const Color(0xFF111827),
-          ],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: primary.withValues(alpha: 0.22),
-            blurRadius: 28,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.bolt_rounded, color: Colors.white, size: 16),
-                    SizedBox(width: 6),
-                    Text(
-                      '실시간 듀얼 아레나',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-                ),
-                child: Text(
-                  '빠른 게임 ${_quickGames.length}개',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          Text(
-            '$nickname님, 바로 한 판 어때요?',
-            style: const TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.w800,
-              color: Colors.white,
-              height: 1.15,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            '짧고 강한 실시간 대결부터 천천히 생각하는 전략 게임까지, 지금 분위기에 맞는 모드를 골라 시작할 수 있어요.',
-            style: TextStyle(
-              fontSize: 14,
-              height: 1.6,
-              color: Colors.white.withValues(alpha: 0.82),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: const [
-              _HeroMetric(label: '빠른 게임', value: '1~3분'),
-              _HeroMetric(label: '전략 게임', value: '10~20분'),
-              _HeroMetric(label: '1인 플레이', value: '2개 지원'),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRankedCard(BuildContext context) {
-    return _buildPromoCard(
-      title: '랭크전',
-      subtitle: 'Bo3 | ELO 기반 매칭',
-      icon: Icons.emoji_events_rounded,
-      color: const Color(0xFFEA580C),
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const RankedScreen()),
-        );
-      },
-    );
-  }
-
-  Widget _buildPromoCard({
-    required String title,
-    required String subtitle,
-    required IconData icon,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(24),
-        child: Ink(
-          height: 110,
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                color,
-                color.withValues(alpha: 0.86),
-              ],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: color.withValues(alpha: 0.22),
-                blurRadius: 18,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Icon(icon, color: Colors.white),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.white.withValues(alpha: 0.78),
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.arrow_forward_rounded, color: Colors.white),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGameCard(
-    BuildContext context, {
-    required String title,
-    required String subtitle,
-    required IconData icon,
-    required Color color,
-    String? route,
-    bool enabled = true,
-  }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: enabled && route != null ? () => _openRoute(route) : null,
-        borderRadius: BorderRadius.circular(22),
-        child: Ink(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(22),
-            gradient: enabled
-                ? LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      color,
-                      color.withValues(alpha: 0.86),
-                    ],
-                  )
-                : null,
-            color: enabled ? null : const Color(0xFFF3F4F6),
-            boxShadow: enabled
-                ? [
-                    BoxShadow(
-                      color: color.withValues(alpha: 0.2),
-                      blurRadius: 18,
-                      offset: const Offset(0, 8),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Stack(
-            children: [
-              if (enabled) ...[
-                Positioned(
-                  right: -12,
-                  top: -12,
-                  child: Container(
-                    width: 68,
-                    height: 68,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.08),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 14,
-                  bottom: 14,
-                  child: Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      color: Colors.white.withValues(alpha: 0.08),
-                    ),
-                  ),
-                ),
-              ],
-              Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: enabled
-                            ? Colors.white.withValues(alpha: 0.18)
-                            : Colors.grey.shade200,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Icon(
-                        icon,
-                        size: 24,
-                        color: enabled ? Colors.white : Colors.grey,
-                      ),
-                    ),
-                    const Spacer(),
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        color: enabled ? Colors.white : Colors.grey.shade700,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: enabled
-                            ? Colors.white.withValues(alpha: 0.8)
-                            : Colors.grey.shade500,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Text(
-                          enabled ? '바로 시작' : '준비 중',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: enabled
-                                ? Colors.white.withValues(alpha: 0.9)
-                                : Colors.grey.shade500,
-                          ),
-                        ),
-                        const Spacer(),
-                        Icon(
-                          Icons.arrow_outward_rounded,
-                          size: 16,
-                          color: enabled
-                              ? Colors.white.withValues(alpha: 0.9)
-                              : Colors.grey.shade500,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _openRoute(String route) {
-    Navigator.pushNamed(context, route);
-  }
-
-  Widget _buildSectionHeader({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required Color color,
-  }) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(icon, color: color, size: 18),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.grey.shade900,
-                ),
-              ),
-              Text(
-                subtitle,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade500,
-                ),
-              ),
-            ],
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: Colors.grey.shade200),
-          ),
-          child: Text(
-            '추천',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: color,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildLargeGameCard(
-    BuildContext context, {
-    required String title,
-    required String subtitle,
-    required IconData icon,
-    required Color color,
-    String? route,
-    String? badge,
-  }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: route != null ? () => _openRoute(route) : null,
-        borderRadius: BorderRadius.circular(24),
-        child: Ink(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                color,
-                color.withValues(alpha: 0.88),
-              ],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: color.withValues(alpha: 0.2),
-                blurRadius: 22,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 58,
-                height: 58,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Icon(
-                  icon,
-                  size: 30,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Text(
-                          title,
-                          style: const TextStyle(
-                            fontSize: 19,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                          ),
-                        ),
-                        if (badge != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.16),
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-                            ),
-                            child: Text(
-                              badge,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        fontSize: 14,
-                        height: 1.45,
-                        color: Colors.white.withValues(alpha: 0.82),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(
-                  Icons.arrow_forward_rounded,
-                  color: Colors.white,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _HeroMetric extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _HeroMetric({
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: Colors.white.withValues(alpha: 0.72),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: Colors.white,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }

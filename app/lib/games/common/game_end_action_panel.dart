@@ -63,7 +63,7 @@ class GameEndActionPanel extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
                     color: (acceptColor ?? Colors.green).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(16),
                   ),
                   child: Text(
                     opponentRequestMessage!,
@@ -83,9 +83,10 @@ class GameEndActionPanel extends StatelessWidget {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: acceptColor ?? Colors.green,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(16),
                     ),
                   ),
                 ),
@@ -109,9 +110,10 @@ class GameEndActionPanel extends StatelessWidget {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: primaryColor,
                     foregroundColor: primaryForegroundColor,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(16),
                     ),
                   ),
                 ),
@@ -130,7 +132,7 @@ class GameEndActionPanel extends StatelessWidget {
                 side: leaveBorderSide,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(16),
                 ),
               ),
             ),

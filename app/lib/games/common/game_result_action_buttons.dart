@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+/// 결과 화면 하단 액션. 가장 우선되는 1개를 풀폭 1차 CTA로,
+/// 나머지는 토널 보조 버튼으로 묶어 시선 위계를 만든다.
 class GameResultActionButtons extends StatelessWidget {
   final Color accentColor;
   final bool opponentLeft;
@@ -28,74 +30,136 @@ class GameResultActionButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final primaryStyle = ElevatedButton.styleFrom(
-      backgroundColor: rematchWaiting
-          ? (rematchWaitingColor ?? Colors.orange)
-          : accentColor,
-      foregroundColor: Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
+    // 우선순위 순으로 가능한 액션을 모은다. 첫 번째가 1차 CTA.
+    final actions = <_ResultAction>[
+      if (!opponentLeft)
+        _ResultAction(
+          label: rematchWaiting ? '대기 중...' : '재경기',
+          icon: rematchWaiting ? Icons.hourglass_top_rounded : Icons.replay_rounded,
+          onPressed: onRematchPressed,
+          color: rematchWaiting ? (rematchWaitingColor ?? Colors.orange) : accentColor,
+        ),
+      if (!isInvitationGame)
+        _ResultAction(
+          label: '다시 찾기',
+          icon: Icons.search_rounded,
+          onPressed: onSearchAgainPressed,
+          color: accentColor,
+        ),
+      if (canSendFriendRequest && onFriendRequestPressed != null)
+        _ResultAction(
+          label: '친구 요청',
+          icon: Icons.person_add_rounded,
+          onPressed: onFriendRequestPressed!,
+          color: const Color(0xFF16A34A),
+        ),
+      _ResultAction(
+        label: '로비',
+        icon: Icons.home_rounded,
+        onPressed: onLobbyPressed,
+        color: const Color(0xFF64748B),
       ),
-      elevation: 0,
-    );
-    final outlineStyle = OutlinedButton.styleFrom(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-      ),
-    );
+    ];
+
+    final primary = actions.first;
+    final secondary = actions.skip(1).toList();
 
     return SafeArea(
       top: false,
       left: false,
       right: false,
       minimum: const EdgeInsets.only(bottom: 8),
-      child: Wrap(
-        alignment: WrapAlignment.center,
-        spacing: 10,
-        runSpacing: 10,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          if (!opponentLeft)
-            ElevatedButton.icon(
-              onPressed: onRematchPressed,
-              icon: Icon(rematchWaiting ? Icons.hourglass_top : Icons.replay),
-              label: Text(rematchWaiting ? '대기 중...' : '재경기'),
-              style: primaryStyle,
-            ),
-          if (!isInvitationGame)
-            OutlinedButton.icon(
-              onPressed: onSearchAgainPressed,
-              icon: const Icon(Icons.search),
-              label: const Text('다시 찾기'),
-              style: outlineStyle.copyWith(
-                foregroundColor: WidgetStatePropertyAll(accentColor),
-                side: WidgetStatePropertyAll(BorderSide(color: accentColor.withValues(alpha: 0.55))),
-                backgroundColor: const WidgetStatePropertyAll(Colors.white),
+          // 1차 CTA — 풀폭 필드 버튼
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: primary.onPressed,
+              icon: Icon(primary.icon),
+              label: Text(
+                primary.label,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
               ),
-            ),
-          if (canSendFriendRequest && onFriendRequestPressed != null)
-            OutlinedButton.icon(
-              onPressed: onFriendRequestPressed,
-              icon: const Icon(Icons.person_add),
-              label: const Text('친구 요청'),
-              style: outlineStyle.copyWith(
-                foregroundColor: const WidgetStatePropertyAll(Color(0xFF15803D)),
-                side: const WidgetStatePropertyAll(BorderSide(color: Color(0xFF86EFAC))),
-                backgroundColor: const WidgetStatePropertyAll(Color(0xFFF0FDF4)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primary.color,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                elevation: 0,
               ),
-            ),
-          OutlinedButton.icon(
-            onPressed: onLobbyPressed,
-            icon: const Icon(Icons.home),
-            label: const Text('로비'),
-            style: outlineStyle.copyWith(
-              foregroundColor: const WidgetStatePropertyAll(Color(0xFF4B5563)),
-              side: const WidgetStatePropertyAll(BorderSide(color: Color(0xFFD1D5DB))),
-              backgroundColor: const WidgetStatePropertyAll(Color(0xFFF9FAFB)),
             ),
           ),
+          if (secondary.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                for (var i = 0; i < secondary.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 10),
+                  Expanded(child: _TonalButton(action: secondary[i])),
+                ],
+              ],
+            ),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+class _ResultAction {
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+  final Color color;
+
+  const _ResultAction({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+    required this.color,
+  });
+}
+
+/// 보조 액션 — 색을 옅게 깐 토널 버튼(테두리 없음)으로 부드럽게.
+class _TonalButton extends StatelessWidget {
+  final _ResultAction action;
+
+  const _TonalButton({required this.action});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: action.color.withValues(alpha: 0.10),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: action.onPressed,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 13),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(action.icon, size: 18, color: action.color),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  action.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: action.color,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

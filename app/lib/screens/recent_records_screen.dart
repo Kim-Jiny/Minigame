@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/stats_provider.dart';
+import '../utils/game_registry.dart';
 
 class RecentRecordsScreen extends StatefulWidget {
   const RecentRecordsScreen({super.key});
@@ -251,20 +252,7 @@ class _RecentRecordsScreenState extends State<RecentRecordsScreen> {
     final isDraw = game.result == 'draw';
     final resultColor = isDraw ? Colors.grey : (isWin ? Colors.green : Colors.red);
 
-    final gameColor = switch (game.gameType) {
-      'tictactoe' => const Color(0xFF6C5CE7),
-      'infinite_tictactoe' => const Color(0xFF74B9FF),
-      'gomoku' => const Color(0xFF2D3436),
-      'reaction' => const Color(0xFFE17055),
-      'rps' => const Color(0xFF9B59B6),
-      'speedtap' => const Color(0xFF00CEC9),
-      'sequence' => const Color(0xFFE056FD),
-      'stroop' => const Color(0xFF00CEC9),
-      'hexagon' => const Color(0xFF0984E3),
-      'pyramid' => const Color(0xFFE67E22),
-      'hunmin' => const Color(0xFF1E88E5),
-      _ => const Color(0xFF74B9FF),
-    };
+    final gameColor = GameRegistry.colorOf(game.gameType);
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
@@ -295,20 +283,7 @@ class _RecentRecordsScreenState extends State<RecentRecordsScreen> {
           const SizedBox(width: 12),
           // 게임 아이콘
           Icon(
-            switch (game.gameType) {
-              'tictactoe' => Icons.grid_3x3,
-              'infinite_tictactoe' => Icons.all_inclusive,
-              'gomoku' => Icons.circle_outlined,
-              'reaction' => Icons.flash_on,
-              'rps' => Icons.front_hand,
-              'speedtap' => Icons.touch_app,
-              'sequence' => Icons.psychology,
-              'stroop' => Icons.palette,
-              'hexagon' => Icons.hexagon,
-              'pyramid' => Icons.change_history,
-              'hunmin' => Icons.translate,
-              _ => Icons.sports_esports,
-            },
+            GameRegistry.iconOf(game.gameType),
             color: gameColor,
             size: 20,
           ),
@@ -363,20 +338,7 @@ class _RecentRecordsScreenState extends State<RecentRecordsScreen> {
         resultBgColor = Colors.grey.shade100;
     }
 
-    final gameColor = switch (record.gameType) {
-      'tictactoe' => const Color(0xFF6C5CE7),
-      'infinite_tictactoe' => const Color(0xFF74B9FF),
-      'gomoku' => const Color(0xFF2D3436),
-      'reaction' => const Color(0xFFE17055),
-      'rps' => const Color(0xFF9B59B6),
-      'speedtap' => const Color(0xFF00CEC9),
-      'sequence' => const Color(0xFFE056FD),
-      'stroop' => const Color(0xFF00CEC9),
-      'hexagon' => const Color(0xFF0984E3),
-      'pyramid' => const Color(0xFFE67E22),
-      'hunmin' => const Color(0xFF1E88E5),
-      _ => const Color(0xFF74B9FF),
-    };
+    final gameColor = GameRegistry.colorOf(record.gameType);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -400,20 +362,7 @@ class _RecentRecordsScreenState extends State<RecentRecordsScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
-                  switch (record.gameType) {
-                    'tictactoe' => Icons.grid_3x3,
-                    'infinite_tictactoe' => Icons.all_inclusive,
-                    'gomoku' => Icons.circle_outlined,
-                    'reaction' => Icons.flash_on,
-                    'rps' => Icons.front_hand,
-                    'speedtap' => Icons.touch_app,
-                    'sequence' => Icons.psychology,
-                    'stroop' => Icons.palette,
-                    'hexagon' => Icons.hexagon,
-                    'pyramid' => Icons.change_history,
-                    'hunmin' => Icons.translate,
-                    _ => Icons.sports_esports,
-                  },
+                  GameRegistry.iconOf(record.gameType),
                   color: gameColor,
                   size: 28,
                 ),

@@ -232,4 +232,34 @@ class GameReconnectHelper {
       ),
     );
   }
+
+  /// 인게임 표준 재연결 오버레이 2종(내 재연결 / 상대 재연결 대기)을 묶어 반환.
+  /// 게임 body의 Stack children 에 `...buildStandardOverlays(...)` 로 펼쳐 쓴다.
+  static List<Widget> buildStandardOverlays({
+    required bool isReconnecting,
+    required bool isWaitingForReconnect,
+    required int secondsRemaining,
+    required Color accentColor,
+  }) {
+    return [
+      if (isReconnecting)
+        buildReconnectOverlay(
+          title: '재연결 중...',
+          message: '네트워크 연결을 다시 붙이는 중입니다.',
+          resultMessage: '20초 안에 돌아오지 못하면 이 게임은 패배로 종료됩니다.',
+          secondsRemaining: secondsRemaining,
+          countdownLabel: '패배 처리까지',
+          accentColor: accentColor,
+        ),
+      if (isWaitingForReconnect)
+        buildReconnectOverlay(
+          title: '상대 재연결 대기 중',
+          message: '상대 연결이 끊겨 게임을 잠시 멈췄습니다.',
+          resultMessage: '20초 안에 돌아오지 않으면 자동 승리로 처리됩니다.',
+          secondsRemaining: secondsRemaining,
+          countdownLabel: '자동 승리까지',
+          accentColor: accentColor,
+        ),
+    ];
+  }
 }
