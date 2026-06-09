@@ -840,7 +840,7 @@ class _ReactionScreenState extends State<ReactionScreen> {
             child: Container(
               width: double.infinity,
               decoration: BoxDecoration(
-                color: _getBackgroundColor(),
+                gradient: _getBackgroundGradient(),
               ),
               child: GameScreenTransition(
                 transitionKey: '${_roundState.name}-${_lastReactionTime ?? -1}-${_lastRoundFalseStart ?? false}-${_lastRoundWinnerNickname ?? 'none'}',
@@ -867,69 +867,90 @@ class _ReactionScreenState extends State<ReactionScreen> {
     );
   }
 
-  Color _getBackgroundColor() {
-    return switch (_roundState) {
-      RoundState.waiting => Colors.grey.shade300,
-      RoundState.ready => const Color(0xFFE74C3C), // 빨간색
-      RoundState.go => const Color(0xFF27AE60), // 초록색
-      RoundState.result => Colors.grey.shade200,
+  LinearGradient _getBackgroundGradient() {
+    final colors = switch (_roundState) {
+      RoundState.waiting => const [Color(0xFFF3F4F6), Color(0xFFE7EAEF)],
+      RoundState.ready => const [Color(0xFFFF6B6B), Color(0xFFE53935)], // 빨강
+      RoundState.go => const [Color(0xFF34D399), Color(0xFF1FA85A)], // 초록
+      RoundState.result => const [Color(0xFFFAFBFC), Color(0xFFEFF1F4)],
     };
+    return LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: colors,
+    );
+  }
+
+  /// 상태 메시지(원형 아이콘 칩 + 제목 + 보조문구) 공통 레이아웃.
+  Widget _stateMessage({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    required Color fg,
+    bool onColor = false,
+    double titleSize = 34,
+  }) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(
+          width: 116,
+          height: 116,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: onColor
+                ? Colors.white.withValues(alpha: 0.18)
+                : fg.withValues(alpha: 0.10),
+          ),
+          child: Icon(icon, size: 58, color: fg),
+        ),
+        const SizedBox(height: 24),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: titleSize,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.5,
+            color: fg,
+          ),
+        ),
+        if (subtitle != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            subtitle,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: onColor ? Colors.white.withValues(alpha: 0.85) : Colors.grey.shade600,
+            ),
+          ),
+        ],
+      ],
+    );
   }
 
   Widget _buildRoundContent() {
     return switch (_roundState) {
-      RoundState.waiting => Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.hourglass_empty, size: 80, color: Colors.grey.shade600),
-            const SizedBox(height: 16),
-            Text(
-              '준비...',
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey.shade700,
-              ),
-            ),
-          ],
+      RoundState.waiting => _stateMessage(
+          icon: Icons.hourglass_bottom_rounded,
+          title: '준비...',
+          fg: const Color(0xFF6B7280),
+          titleSize: 30,
         ),
-      RoundState.ready => const Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.pan_tool, size: 80, color: Colors.white),
-            SizedBox(height: 16),
-            Text(
-              '기다려!',
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-            SizedBox(height: 8),
-            Text(
-              '초록불이 켜지면 터치',
-              style: TextStyle(
-                fontSize: 18,
-                color: Colors.white70,
-              ),
-            ),
-          ],
+      RoundState.ready => _stateMessage(
+          icon: Icons.pan_tool_rounded,
+          title: '기다려!',
+          subtitle: '초록불이 켜지면 터치',
+          fg: Colors.white,
+          onColor: true,
+          titleSize: 38,
         ),
-      RoundState.go => const Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.touch_app, size: 80, color: Colors.white),
-            SizedBox(height: 16),
-            Text(
-              '터치!',
-              style: TextStyle(
-                fontSize: 48,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-          ],
+      RoundState.go => _stateMessage(
+          icon: Icons.touch_app_rounded,
+          title: '터치!',
+          fg: Colors.white,
+          onColor: true,
+          titleSize: 56,
         ),
       RoundState.result => _buildResultContent(),
     };
@@ -938,80 +959,83 @@ class _ReactionScreenState extends State<ReactionScreen> {
   Widget _buildResultContent() {
     if (_lastRoundFalseStart == true) {
       final isMeFalseStart = _pressedPlayerNickname != _opponentNickname;
-      return Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.warning,
-            size: 80,
-            color: isMeFalseStart ? Colors.red : Colors.green,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            isMeFalseStart ? '부정출발!' : '상대 부정출발!',
-            style: TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-              color: isMeFalseStart ? Colors.red : Colors.green,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            isMeFalseStart ? '상대방 +1점' : '나 +1점',
-            style: TextStyle(
-              fontSize: 18,
-              color: Colors.grey.shade700,
-            ),
-          ),
-        ],
+      final c = isMeFalseStart ? const Color(0xFFE53935) : const Color(0xFF1FA85A);
+      return _stateMessage(
+        icon: Icons.warning_amber_rounded,
+        title: isMeFalseStart ? '부정출발!' : '상대 부정출발!',
+        subtitle: isMeFalseStart ? '상대방 +1점' : '나 +1점',
+        fg: c,
+        titleSize: 30,
       );
     }
 
     if (_lastReactionTime != null) {
       final isMyWin = _lastRoundWinnerNickname != _opponentNickname;
+      final c = isMyWin ? const Color(0xFFF5A623) : Colors.grey.shade500;
       return Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            isMyWin ? Icons.emoji_events : Icons.sentiment_dissatisfied,
-            size: 80,
-            color: isMyWin ? Colors.amber : Colors.grey,
+          _stateMessage(
+            icon: isMyWin ? Icons.emoji_events_rounded : Icons.sentiment_dissatisfied_rounded,
+            title: isMyWin ? '승리!' : '아쉬워요',
+            fg: c,
+            titleSize: 30,
           ),
-          const SizedBox(height: 16),
-          Text(
-            isMyWin ? '승리!' : '아쉬워요',
-            style: TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-              color: isMyWin ? Colors.amber.shade700 : Colors.grey,
+          const SizedBox(height: 20),
+          // 반응속도 히어로 표시
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFECEDF1)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '${_lastReactionTime}ms',
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Icon(Icons.bolt_rounded, size: 24, color: Colors.amber.shade600),
+                const SizedBox(width: 6),
+                Text(
+                  '$_lastReactionTime',
+                  style: const TextStyle(
+                    fontSize: 40,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF1A1D23),
+                    letterSpacing: -1,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    'ms',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
       );
     }
 
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(Icons.timer_off, size: 80, color: Colors.grey.shade600),
-        const SizedBox(height: 16),
-        Text(
-          '시간 초과',
-          style: TextStyle(
-            fontSize: 32,
-            fontWeight: FontWeight.bold,
-            color: Colors.grey.shade700,
-          ),
-        ),
-      ],
+    return _stateMessage(
+      icon: Icons.timer_off_rounded,
+      title: '시간 초과',
+      fg: const Color(0xFF6B7280),
+      titleSize: 30,
     );
   }
 
