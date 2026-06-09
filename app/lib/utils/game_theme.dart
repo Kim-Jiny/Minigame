@@ -58,12 +58,16 @@ class GameTheme {
     return luminance > 0.5 ? Colors.black87 : Colors.white;
   }
 
-  /// 그라데이션 배경
+  /// 배경 — 절제된 중립 서피스(브랜드 컬러는 아주 옅은 틴트로만).
+  /// 프리미엄 앱 느낌을 위해 게임마다 배경을 강하게 물들이지 않는다.
   LinearGradient get backgroundGradient => LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
-    colors: [primary.withValues(alpha: 0.1), Colors.white],
+    colors: [primary.withValues(alpha: 0.045), const Color(0xFFFAFBFC)],
   );
+
+  /// 페이지 기본 서피스 색(스캐폴드 배경 등).
+  static const Color surface = Color(0xFFF5F6F8);
 
   /// 카드 그라데이션
   LinearGradient get cardGradient => LinearGradient(

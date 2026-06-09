@@ -1,3 +1,4 @@
+// [CTR] CatchTheRule 전용 — 파일 전체가 CTR 소유. 삭제·리팩터링 금지 (리포 루트 CLAUDE.md 참고).
 // CatchTheRule 인앱결제 영수증 검증.
 //  - iOS  : StoreKit2 의 서명된 트랜잭션(JWS) 서명·인증서 체인 검증 (Apple 자체 서명, 외부 API 불필요)
 //  - Android: Play 결제 서명(SHA1withRSA)을 앱 공개키로 검증 (env CTR_PLAY_PUBLIC_KEY)

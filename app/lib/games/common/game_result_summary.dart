@@ -1,5 +1,66 @@
 import 'package:flutter/material.dart';
 
+/// 랭크전 종료 시 잠깐 보여주는 결과 화면(승/패/무 + 자동 복귀 안내).
+/// 모든 랭크 지원 게임이 동일하게 사용한다. (자동 복귀 예약은 각 게임에서 호출)
+class GameRankedResultView extends StatelessWidget {
+  final Gradient backgroundGradient;
+  final Color accentColor;
+  final bool isWinner;
+  final bool isDraw;
+
+  /// 결과 문구 아래 추가로 표시할 위젯(예: 점수). 없으면 생략.
+  final Widget? extra;
+
+  const GameRankedResultView({
+    super.key,
+    required this.backgroundGradient,
+    required this.accentColor,
+    required this.isWinner,
+    required this.isDraw,
+    this.extra,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(gradient: backgroundGradient),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              isDraw
+                  ? Icons.handshake
+                  : (isWinner ? Icons.emoji_events : Icons.sentiment_dissatisfied),
+              size: 80,
+              color: isDraw
+                  ? Colors.orange
+                  : (isWinner ? Colors.amber : Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              isDraw ? '무승부!' : (isWinner ? '승리!' : '패배'),
+              style: TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                color: isDraw
+                    ? Colors.orange
+                    : (isWinner ? accentColor : Colors.grey),
+              ),
+            ),
+            if (extra != null) ...[
+              const SizedBox(height: 8),
+              extra!,
+            ],
+            const SizedBox(height: 24),
+            const Text('잠시 후 다음 게임...', style: TextStyle(color: Colors.grey)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class GameResultHero extends StatelessWidget {
   final IconData icon;
   final Color color;
@@ -19,27 +80,28 @@ class GameResultHero extends StatelessWidget {
     return Column(
       children: [
         Container(
-          width: 118,
-          height: 118,
+          width: 112,
+          height: 112,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: color.withValues(alpha: 0.14),
+            color: color.withValues(alpha: 0.10),
             boxShadow: [
               BoxShadow(
-                color: color.withValues(alpha: 0.2),
-                blurRadius: 24,
-                offset: const Offset(0, 10),
+                color: color.withValues(alpha: 0.12),
+                blurRadius: 28,
+                offset: const Offset(0, 12),
               ),
             ],
           ),
-          child: Icon(icon, size: 60, color: color),
+          child: Icon(icon, size: 56, color: color),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 22),
         Text(
           title,
           style: TextStyle(
-            fontSize: 34,
+            fontSize: 32,
             fontWeight: FontWeight.w800,
+            letterSpacing: -0.5,
             color: color,
           ),
         ),
@@ -126,26 +188,27 @@ class GameResultMatchupRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final useVerticalLayout = constraints.maxWidth < 340;
+        // 아주 좁은 화면에서만 세로로 쌓는다(대부분 기기는 가로 유지).
+        final useVerticalLayout = constraints.maxWidth < 250;
 
         final leftCard = _MetricCard(
           label: leftLabel,
           value: leftValue,
-          backgroundColor: accentColor,
-          foregroundColor: Colors.white,
+          accentColor: accentColor,
+          highlighted: true,
         );
         final rightCard = _MetricCard(
           label: rightLabel,
           value: rightValue,
-          backgroundColor: const Color(0xFFF3F4F6),
-          foregroundColor: const Color(0xFF111827),
+          accentColor: accentColor,
+          highlighted: false,
         );
         final separator = Text(
           useVerticalLayout ? 'VS' : ':',
-          style: TextStyle(
-            fontSize: useVerticalLayout ? 18 : 32,
-            fontWeight: FontWeight.w900,
-            color: accentColor.withValues(alpha: 0.8),
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFFC2C7CF),
           ),
         );
 
@@ -153,24 +216,29 @@ class GameResultMatchupRow extends StatelessWidget {
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              leftCard,
+              SizedBox(width: 180, child: leftCard),
               const SizedBox(height: 12),
               separator,
               const SizedBox(height: 12),
-              rightCard,
+              SizedBox(width: 180, child: rightCard),
             ],
           );
         }
 
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Flexible(child: leftCard),
-            const SizedBox(width: 18),
-            separator,
-            const SizedBox(width: 18),
-            Flexible(child: rightCard),
-          ],
+        // 카드가 남는 폭을 균등 분배(Expanded)해 작은 기기에서도 한 줄에 들어간다.
+        return Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: Row(
+              children: [
+                Expanded(child: leftCard),
+                const SizedBox(width: 12),
+                separator,
+                const SizedBox(width: 12),
+                Expanded(child: rightCard),
+              ],
+            ),
+          ),
         );
       },
     );
@@ -180,29 +248,38 @@ class GameResultMatchupRow extends StatelessWidget {
 class _MetricCard extends StatelessWidget {
   final String label;
   final String value;
-  final Color backgroundColor;
-  final Color foregroundColor;
+  final Color accentColor;
+  final bool highlighted;
 
   const _MetricCard({
     required this.label,
     required this.value,
-    required this.backgroundColor,
-    required this.foregroundColor,
+    required this.accentColor,
+    required this.highlighted,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 116,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
       decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(24),
+        // 둘 다 흰 배경(틴트 채움이 딤하게 보이는 문제 제거).
+        // 내 카드는 accent 테두리·글자색으로 또렷하게 강조한다.
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: highlighted
+              ? accentColor.withValues(alpha: 0.55)
+              : const Color(0xFFECEDF1),
+          width: highlighted ? 1.6 : 1,
+        ),
         boxShadow: [
           BoxShadow(
-            color: backgroundColor.withValues(alpha: 0.18),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
+            color: highlighted
+                ? accentColor.withValues(alpha: 0.14)
+                : Colors.black.withValues(alpha: 0.03),
+            blurRadius: highlighted ? 16 : 14,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
@@ -213,18 +290,22 @@ class _MetricCard extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: FontWeight.w700,
-              color: foregroundColor.withValues(alpha: 0.82),
+              color: highlighted ? accentColor : const Color(0xFF9AA1AC),
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w900,
-              color: foregroundColor,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              maxLines: 1,
+              style: TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.w900,
+                color: highlighted ? accentColor : const Color(0xFF1A1D23),
+              ),
             ),
           ),
         ],

@@ -9,6 +9,11 @@ import '../../providers/ranked_provider.dart';
 import '../../services/socket_service.dart';
 import '../../config/app_config.dart';
 import '../../utils/game_theme.dart';
+import '../common/game_hardcore_toggle.dart';
+import '../common/game_intro_view.dart';
+import '../common/game_scaffold.dart';
+import '../common/game_result_summary.dart';
+import '../common/match_status_views.dart';
 import '../common/game_duel_header.dart';
 import '../common/game_result_action_buttons.dart';
 import '../common/game_session_helper.dart';
@@ -23,6 +28,9 @@ class GomokuScreen extends StatefulWidget {
 }
 
 class _GomokuScreenState extends State<GomokuScreen> {
+  // 게임 고유색 대신 사용자 테마 컬러를 accent로 사용.
+  Color get _accent =>
+      GameTheme.fromProfileSettings(context.read<ShopProvider>().profileSettings).primary;
   // 보드 크기
   static const int boardSize = 15;
   static const int totalCells = boardSize * boardSize;
@@ -87,14 +95,10 @@ class _GomokuScreenState extends State<GomokuScreen> {
             _showExitDialog(context);
           },
           child: Scaffold(
-            appBar: AppBar(
-              title: const Text('오목'),
+            appBar: gameAppBar(
+              title: '오목',
               backgroundColor: theme.primary,
-              foregroundColor: Colors.white,
-              leading: IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => _showExitDialog(context),
-              ),
+              onBack: () => _showExitDialog(context),
             ),
             body: switch (game.status) {
               GameStatus.idle => widget.isRanked ? _buildRankedWaitingView(theme) : _buildIdleView(game, theme),
@@ -261,263 +265,34 @@ class _GomokuScreenState extends State<GomokuScreen> {
   }
 
   Widget _buildIdleView(GameProvider game, GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // 오목 아이콘
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: theme.primary.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.circle_outlined,
-                size: 80,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              '오목',
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '5개를 연속으로 놓으면 승리!',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-              ),
-            ),
-            const SizedBox(height: 32),
-            // 하드코어 모드 토글
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: game.isHardcore ? Colors.red.shade50 : Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: game.isHardcore ? Colors.red : Colors.grey.shade300,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.local_fire_department,
-                    color: game.isHardcore ? Colors.red : Colors.grey,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '하드코어',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: game.isHardcore ? Colors.red : Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '(10초)',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: game.isHardcore ? Colors.red.shade400 : Colors.grey,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Switch(
-                    value: game.isHardcore,
-                    onChanged: (value) => game.setHardcoreMode(value),
-                    activeThumbColor: Colors.red,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: () {
-                    debugPrint('🎯 [Gomoku] 상대 찾기 버튼 클릭');
-                    debugPrint('🎯 [Gomoku] 현재 상태: ${game.status}');
-                    game.findMatch(AppConfig.gameTypeGomoku);
-                  },
-                  icon: const Icon(Icons.search),
-                  label: Text(game.isHardcore ? '하드코어 상대 찾기' : '상대 찾기'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: game.isHardcore ? Colors.red : theme.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 16,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: () => _showFriendInviteDialog(context, game),
-                  icon: const Icon(Icons.person_add),
-                  label: const Text('친구 초대'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: game.isHardcore ? Colors.red : theme.primary,
-                    side: BorderSide(
-                      color: game.isHardcore ? Colors.red : theme.primary,
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
+    final accent = game.isHardcore ? Colors.red : theme.primary;
+    return GameIntroView(
+      backgroundGradient: theme.backgroundGradient,
+      accentColor: accent,
+      icon: Icons.circle_outlined,
+      title: '오목',
+      descriptions: const ['5개를 연속으로 놓으면 승리!'],
+      findMatchLabel: game.isHardcore ? '하드코어 상대 찾기' : '상대 찾기',
+      onFindMatch: () => game.findMatch(AppConfig.gameTypeGomoku),
+      onInviteFriend: () => _showFriendInviteDialog(context, game),
+      extra: GameHardcoreToggle(
+        value: game.isHardcore,
+        onChanged: (v) => game.setHardcoreMode(v),
+        durationLabel: '(10초)',
       ),
     );
   }
 
   Widget _buildSearchingView(GameProvider game, GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: 60,
-              height: 60,
-              child: CircularProgressIndicator(
-                color: theme.primary,
-                strokeWidth: 4,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              game.isHardcore ? '하드코어 상대를 찾는 중...' : '상대를 찾는 중...',
-              style: TextStyle(
-                fontSize: 18,
-                color: game.isHardcore ? Colors.red.shade700 : Colors.grey.shade700,
-              ),
-            ),
-            const SizedBox(height: 8),
-            if (game.isHardcore)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.local_fire_department, size: 16, color: Colors.red),
-                    const SizedBox(width: 4),
-                    Text(
-                      '하드코어 모드 (10초)',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.red.shade700,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.auto_awesome, size: 16, color: const Color(0xFFFDCB6E)),
-                  const SizedBox(width: 4),
-                  Text(
-                    '상대를 기다리는 중',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade500,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Icon(Icons.auto_awesome, size: 16, color: const Color(0xFFFDCB6E)),
-                ],
-              ),
-            const SizedBox(height: 48),
-            OutlinedButton(
-              onPressed: () {
-                game.cancelMatch(AppConfig.gameTypeGomoku);
-              },
-              style: OutlinedButton.styleFrom(
-                foregroundColor: theme.primary,
-                side: BorderSide(color: theme.primary),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                ),
-              ),
-              child: const Text('취소'),
-            ),
-          ],
-        ),
-      ),
+    return GameSearchingView(
+      theme: theme,
+      isHardcore: game.isHardcore,
+      onCancel: () => game.cancelMatch(AppConfig.gameTypeGomoku),
     );
   }
 
   Widget _buildMatchedView(GameProvider game, GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: theme.background1,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.sports_esports,
-                size: 64,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '${game.opponentNickname}님과 매칭!',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '게임이 곧 시작됩니다...',
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
-          ],
-        ),
-      ),
-    );
+    return GameMatchedView(theme: theme, opponentNickname: game.opponentNickname);
   }
 
   Widget _buildPlayingView(GameProvider game, GameTheme theme) {
@@ -534,7 +309,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            const Color(0xFF2D3436).withValues(alpha: 0.1),
+            _accent.withValues(alpha: 0.1),
             Colors.white,
           ],
         ),
@@ -545,14 +320,14 @@ class _GomokuScreenState extends State<GomokuScreen> {
           GameDuelHeader(
             backgroundColors: game.isMyTurn
                 ? [
-                    const Color(0xFF2D3436).withValues(alpha: 0.12),
-                    const Color(0xFF2D3436).withValues(alpha: 0.04),
+                    _accent.withValues(alpha: 0.12),
+                    _accent.withValues(alpha: 0.04),
                   ]
                 : const [
                     Color(0xFFDFE6E9),
                     Color(0xFFF0F0F0),
                   ],
-            accentColor: const Color(0xFF2D3436),
+            accentColor: _accent,
             centerLabel: '',
             myName: auth.nickname ?? '나',
             opponentName: game.opponentNickname ?? '상대',
@@ -571,7 +346,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: game.isMyTurn ? const Color(0xFF2D3436) : Colors.grey.shade300,
+                      color: game.isMyTurn ? _accent : Colors.grey.shade300,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -637,56 +412,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
   }
 
   Widget _buildTimer(GameProvider game) {
-    final remaining = game.remainingTime;
-    final isLow = remaining <= 10;
-    final isCritical = remaining <= 5;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: isCritical
-            ? Colors.red.shade100
-            : isLow
-                ? Colors.orange.shade100
-                : Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isCritical
-              ? Colors.red
-              : isLow
-                  ? Colors.orange
-                  : Colors.grey.shade300,
-          width: isCritical ? 2 : 1,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.timer,
-            size: 18,
-            color: isCritical
-                ? Colors.red
-                : isLow
-                    ? Colors.orange
-                    : Colors.grey.shade600,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            '$remaining초',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: isCritical
-                  ? Colors.red
-                  : isLow
-                      ? Colors.orange
-                      : Colors.grey.shade700,
-            ),
-          ),
-        ],
-      ),
-    );
+    return GameBoardTimer(remaining: game.remainingTime);
   }
 
   Widget _buildBoard(GameProvider game) {
@@ -851,7 +577,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
               icon: const Icon(Icons.check, size: 18),
               label: const Text('착수 확인'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2D3436),
+                backgroundColor: _accent,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
@@ -865,19 +591,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
   }
 
   Widget _buildRankedWaitingView(GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(gradient: theme.backgroundGradient),
-      child: const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('게임 준비 중...', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          ],
-        ),
-      ),
-    );
+    return GameRankedPreparingView(theme: theme);
   }
 
   Widget _buildFinishedView(GameProvider game, GameTheme theme) {
@@ -891,31 +605,11 @@ class _GomokuScreenState extends State<GomokuScreen> {
       );
       final isWinner = game.isWinner;
       final isDraw = game.isDraw;
-      return Container(
-        decoration: BoxDecoration(gradient: theme.backgroundGradient),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                isDraw ? Icons.handshake : (isWinner ? Icons.emoji_events : Icons.sentiment_dissatisfied),
-                size: 80,
-                color: isDraw ? Colors.orange : (isWinner ? Colors.amber : Colors.grey),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                isDraw ? '무승부!' : (isWinner ? '승리!' : '패배'),
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: isDraw ? Colors.orange : (isWinner ? theme.primary : Colors.grey),
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text('잠시 후 다음 게임...', style: TextStyle(color: Colors.grey)),
-            ],
-          ),
-        ),
+      return GameRankedResultView(
+      backgroundGradient: theme.backgroundGradient,
+      accentColor: theme.primary,
+      isWinner: isWinner,
+      isDraw: isDraw,
       );
     }
 
@@ -929,7 +623,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
       resultIcon = Icons.handshake;
     } else if (game.isWinner) {
       resultText = '승리!';
-      resultColor = const Color(0xFF2D3436);
+      resultColor = _accent;
       resultIcon = Icons.emoji_events;
     } else {
       resultText = '아쉬워요...';
@@ -1034,7 +728,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
                   ),
                 const SizedBox(height: 8),
                 GameResultActionButtons(
-                  accentColor: const Color(0xFF2D3436),
+                  accentColor: _accent,
                   opponentLeft: game.opponentLeft,
                   rematchWaiting: game.rematchWaiting,
                   isInvitationGame: game.isInvitationGame,
@@ -1121,9 +815,9 @@ class _GomokuScreenState extends State<GomokuScreen> {
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.exit_to_app, color: Color(0xFF2D3436)),
+            Icon(Icons.exit_to_app, color: _accent),
             SizedBox(width: 8),
             Text('게임 나가기'),
           ],
@@ -1143,7 +837,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
               Navigator.pop(context);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2D3436),
+              backgroundColor: _accent,
               foregroundColor: Colors.white,
             ),
             child: const Text('나가기'),

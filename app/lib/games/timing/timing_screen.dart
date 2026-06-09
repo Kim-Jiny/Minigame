@@ -10,6 +10,9 @@ import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
+import '../common/game_rematch_preparing_view.dart';
+import '../common/game_intro_view.dart';
+import '../common/game_scaffold.dart';
 import '../common/game_duel_header.dart';
 import '../common/game_event_helper.dart';
 import '../common/game_exit_helper.dart';
@@ -68,7 +71,8 @@ class _TimingScreenState extends State<TimingScreen>
   // 게임 상태
   int _currentRound = 0;
   List<int> _totalScores = [0, 0];
-  int _currentSpeed = 2000;
+  // ignore: unused_field
+  int _currentSpeed = 2000; // 서버 게이지 속도(향후 사용 대비 보관)
   bool _hasStopped = false;
   bool _opponentStopped = false;
   double? _stoppedPosition;
@@ -92,7 +96,9 @@ class _TimingScreenState extends State<TimingScreen>
   // 애니메이션
   late AnimationController _gaugeController;
 
-  static const _accentColor = Color(0xFF6C5CE7);
+  // 게임 고유색 대신 사용자 테마 컬러를 accent로 사용.
+  Color get _accentColor =>
+      GameTheme.fromProfileSettings(context.read<ShopProvider>().profileSettings).primary;
   static const _maxRounds = 5;
 
   @override
@@ -403,8 +409,16 @@ class _TimingScreenState extends State<TimingScreen>
 
     _socketListeners.on('opponent_left', (data) {
       if (_status == TimingGameStatus.idle ||
-          _status == TimingGameStatus.searching ||
-          _status == TimingGameStatus.finished) {
+          _status == TimingGameStatus.searching) {
+        return;
+      }
+      // 결과 화면에서 상대가 나간 경우: 결과는 유지하고 재대결만 불가 처리
+      if (_status == TimingGameStatus.finished) {
+        setState(() {
+          _opponentLeft = true;
+          _rematchWaiting = false;
+          _opponentWantsRematch = false;
+        });
         return;
       }
       _gaugeController.stop();
@@ -558,14 +572,10 @@ class _TimingScreenState extends State<TimingScreen>
             _showExitDialog(theme);
           },
           child: Scaffold(
-            appBar: AppBar(
-              title: const Text('타이밍 맞추기'),
+            appBar: gameAppBar(
+              title: '타이밍 맞추기',
               backgroundColor: theme.primary,
-              foregroundColor: Colors.white,
-              leading: IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => _showExitDialog(theme),
-              ),
+              onBack: () => _showExitDialog(theme),
             ),
             body: Stack(
               children: [
@@ -573,24 +583,12 @@ class _TimingScreenState extends State<TimingScreen>
                   transitionKey: _status.name,
                   child: _buildBody(theme),
                 ),
-                if (_isReconnecting)
-                  GameReconnectHelper.buildReconnectOverlay(
-                    title: '재연결 중...',
-                    message: '네트워크 연결을 다시 붙이는 중입니다.',
-                    resultMessage: '20초 안에 돌아오지 못하면 이 게임은 패배로 종료됩니다.',
-                    secondsRemaining: _reconnectSecondsRemaining,
-                    countdownLabel: '패배 처리까지',
-                    accentColor: theme.primary,
-                  ),
-                if (_isWaitingForReconnect)
-                  GameReconnectHelper.buildReconnectOverlay(
-                    title: '상대 재연결 대기 중',
-                    message: '상대 연결이 끊겨 게임을 잠시 멈췄습니다.',
-                    resultMessage: '20초 안에 돌아오지 않으면 자동 승리로 처리됩니다.',
-                    secondsRemaining: _reconnectSecondsRemaining,
-                    countdownLabel: '자동 승리까지',
-                    accentColor: theme.primary,
-                  ),
+                ...GameReconnectHelper.buildStandardOverlays(
+                  isReconnecting: _isReconnecting,
+                  isWaitingForReconnect: _isWaitingForReconnect,
+                  secondsRemaining: _reconnectSecondsRemaining,
+                  accentColor: theme.primary,
+                ),
               ],
             ),
           ),
@@ -818,97 +816,14 @@ class _TimingScreenState extends State<TimingScreen>
   }
 
   Widget _buildIdleView(GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: _accentColor.withValues(alpha: 0.3),
-                    blurRadius: 20,
-                  ),
-                ],
-              ),
-              child: const Icon(
-                Icons.timer,
-                size: 64,
-                color: _accentColor,
-              ),
-            ),
-            const SizedBox(height: 32),
-            const Text(
-              '타이밍 맞추기',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: _accentColor,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '게이지 중심을 정확히 멈춰라!',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '5라운드, 점점 빨라지는 게이지',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade500,
-              ),
-            ),
-            const SizedBox(height: 48),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: _findMatch,
-                  icon: const Icon(Icons.search),
-                  label: const Text('상대 찾기'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _accentColor,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 24, vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: () => _showFriendInviteDialog(context),
-                  icon: const Icon(Icons.person_add),
-                  label: const Text('친구 초대'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _accentColor,
-                    side: const BorderSide(color: _accentColor),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+    return GameIntroView(
+      backgroundGradient: theme.backgroundGradient,
+      accentColor: _accentColor,
+      icon: Icons.timer,
+      title: '타이밍 맞추기',
+      descriptions: const ['게이지 중심을 정확히 멈춰라!', '5라운드, 점점 빨라지는 게이지'],
+      onFindMatch: _findMatch,
+      onInviteFriend: () => _showFriendInviteDialog(context),
     );
   }
 
@@ -928,11 +843,11 @@ class _TimingScreenState extends State<TimingScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const CircularProgressIndicator(
+            CircularProgressIndicator(
               color: _accentColor,
             ),
             const SizedBox(height: 24),
-            const Text(
+            Text(
               '상대를 찾는 중...',
               style: TextStyle(
                 fontSize: 20,
@@ -977,7 +892,7 @@ class _TimingScreenState extends State<TimingScreen>
                 color: _accentColor.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.sports_esports,
                 size: 64,
                 color: _accentColor,
@@ -986,7 +901,7 @@ class _TimingScreenState extends State<TimingScreen>
             const SizedBox(height: 16),
             Text(
               '$_opponentNickname님과 매칭!',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
                 color: _accentColor,
@@ -1165,7 +1080,7 @@ class _TimingScreenState extends State<TimingScreen>
               ),
             ),
             if (_opponentStopped)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.only(top: 8),
                 child: Text(
                   '상대 완료!',
@@ -1201,7 +1116,7 @@ class _TimingScreenState extends State<TimingScreen>
               ),
             ),
             if (_opponentStopped)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.only(top: 16),
                 child: Text(
                   '상대 완료!',
@@ -1253,7 +1168,7 @@ class _TimingScreenState extends State<TimingScreen>
         children: [
           Text(
             'Round $_currentRound 결과',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
               color: _accentColor,
@@ -1286,7 +1201,7 @@ class _TimingScreenState extends State<TimingScreen>
             children: [
               Text(
                 '총점  $_myScore',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                   color: _accentColor,
@@ -1360,6 +1275,13 @@ class _TimingScreenState extends State<TimingScreen>
   }
 
   Widget _buildFinishedView(GameTheme theme) {
+    if (_rematchWaiting) {
+      return GameRematchPreparingView(
+        backgroundGradient: theme.backgroundGradient,
+        accentColor: theme.primary,
+        onCancel: _cancelRematch,
+      );
+    }
     final isWinner = _winnerId == _myId;
 
     if (widget.isRanked) {
@@ -1369,45 +1291,12 @@ class _TimingScreenState extends State<TimingScreen>
         hasScheduledPop: _hasScheduledPop,
         markScheduledPop: () => _hasScheduledPop = true,
       );
-      return Container(
-        decoration: BoxDecoration(gradient: theme.backgroundGradient),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                _isDraw
-                    ? Icons.handshake
-                    : (isWinner
-                        ? Icons.emoji_events
-                        : Icons.sentiment_dissatisfied),
-                size: 80,
-                color: _isDraw
-                    ? Colors.orange
-                    : (isWinner ? Colors.amber : Colors.grey),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                _isDraw ? '무승부!' : (isWinner ? '승리!' : '패배'),
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: _isDraw
-                      ? Colors.orange
-                      : (isWinner ? theme.primary : Colors.grey),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '$_myScore : $_opponentScore',
-                style: const TextStyle(fontSize: 20, color: Colors.grey),
-              ),
-              const SizedBox(height: 24),
-              const Text('잠시 후 다음 게임...',
-                  style: TextStyle(color: Colors.grey)),
-            ],
-          ),
-        ),
+      return GameRankedResultView(
+      backgroundGradient: theme.backgroundGradient,
+      accentColor: theme.primary,
+      isWinner: isWinner,
+      isDraw: _isDraw,
+      extra: Text('$_myScore : $_opponentScore', style: const TextStyle(fontSize: 20, color: Colors.grey)),
       );
     }
 
@@ -1465,12 +1354,6 @@ class _TimingScreenState extends State<TimingScreen>
                 accentColor: resultColor,
               ),
               const SizedBox(height: 24),
-              if (_opponentLeft)
-                const GameResultStatusPill(
-                  icon: Icons.exit_to_app_rounded,
-                  text: '상대방이 나가서 경기 종료',
-                  color: Color(0xFF6B7280),
-                ),
               if (_opponentWantsRematch && !_opponentLeft)
                 GameResultStatusPill(
                   icon: Icons.hourglass_top_rounded,

@@ -22,6 +22,9 @@ class GameEndActionPanel extends StatelessWidget {
   final Color? leaveForegroundColor;
   final BorderSide? leaveBorderSide;
 
+  /// 상대가 나가 재대결이 불가능한 경우 안내를 표시한다.
+  final bool opponentLeft;
+
   const GameEndActionPanel({
     super.key,
     required this.showRematchActions,
@@ -44,6 +47,7 @@ class GameEndActionPanel extends StatelessWidget {
     this.waitingTextColor,
     this.leaveForegroundColor,
     this.leaveBorderSide,
+    this.opponentLeft = false,
   });
 
   @override
@@ -55,6 +59,34 @@ class GameEndActionPanel extends StatelessWidget {
       minimum: const EdgeInsets.only(bottom: 8),
       child: Column(
         children: [
+          if (opponentLeft) ...[
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F2F4),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline_rounded,
+                      size: 18, color: Colors.grey.shade500),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '상대방이 떠났어요',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           if (showRematchActions) ...[
             if (opponentWantsRematch && !rematchWaiting) ...[
               if (opponentRequestMessage != null) ...[
@@ -63,7 +95,7 @@ class GameEndActionPanel extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
                     color: (acceptColor ?? Colors.green).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(16),
                   ),
                   child: Text(
                     opponentRequestMessage!,
@@ -83,9 +115,10 @@ class GameEndActionPanel extends StatelessWidget {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: acceptColor ?? Colors.green,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(16),
                     ),
                   ),
                 ),
@@ -109,9 +142,10 @@ class GameEndActionPanel extends StatelessWidget {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: primaryColor,
                     foregroundColor: primaryForegroundColor,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(16),
                     ),
                   ),
                 ),
@@ -130,7 +164,7 @@ class GameEndActionPanel extends StatelessWidget {
                 side: leaveBorderSide,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(16),
                 ),
               ),
             ),

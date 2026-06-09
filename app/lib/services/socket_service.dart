@@ -3,93 +3,210 @@ import '../config/app_config.dart';
 import 'remote_config_service.dart';
 import '../utils/app_logger.dart';
 
+/// ready(=서버 인증 완료) 이전에 emit 된 이벤트를 보관했다가 ready 시점에 flush.
 class _QueuedEmit {
   final String event;
   final dynamic data;
-  final bool requireLobbyJoined;
-
-  const _QueuedEmit({
-    required this.event,
-    required this.data,
-    required this.requireLobbyJoined,
-  });
+  const _QueuedEmit(this.event, this.data);
 }
 
+/// Socket.IO 연결을 감싸는 싱글톤.
+///
+/// - 인증은 핸드셰이크(`auth`)로 처리한다. 토큰/닉네임 등을 [setAuth] 로 넘기면
+///   연결/재연결 시 서버 connection 시점에 전달되고, 서버는 인증이 끝나면
+///   `lobby_joined`(성공) 또는 `auth_error`(실패) 를 보낸다.
+/// - `lobby_joined` 를 받은 시점부터 [isReady] 가 true 가 되며, 그 전에 호출된
+///   [emit] 은 큐에 쌓였다가 ready 가 되면 한 번에 전송된다.
 class SocketService {
   static final SocketService _instance = SocketService._internal();
   factory SocketService() => _instance;
   SocketService._internal();
 
+  /// 항상 소켓에 바인딩해 두는 시스템 이벤트. 사용자 리스너 등록 여부와 무관하게
+  /// ready 상태를 추적하려면 dispatch 경로를 거쳐야 한다.
+  static const Set<String> _systemEvents = {
+    'connect',
+    'disconnect',
+    'connect_error',
+    'error',
+    'reconnect',
+    'reconnect_attempt',
+    'reconnect_error',
+    'reconnect_failed',
+    'lobby_joined',
+    'auth_error',
+  };
+
   io.Socket? _socket;
-  String? _currentServerUrl;
+  String? _currentUrl;
+  Map<String, dynamic> _auth = const {};
+  bool _isReady = false;
   int _connectionErrorCount = 0;
-  bool _isLobbyJoined = false;
 
-  // 소켓 연결 전에 등록된 리스너들을 버퍼링
-  final Map<String, List<Function(dynamic)>> _pendingListeners = {};
+  /// event → 콜백 목록. 소켓이 재생성돼도(URL 변경) 이 맵을 기준으로 재바인딩한다.
+  final Map<String, List<Function(dynamic)>> _listeners = {};
 
-  // 연결된 리스너들 저장 (재연결 시 사용)
-  final Map<String, List<Function(dynamic)>> _activeListeners = {};
-
+  /// ready 이전에 쌓인 emit. `lobby_joined` 수신 시 flush.
   final List<_QueuedEmit> _pendingEmits = [];
 
   bool get isConnected => _socket?.connected ?? false;
-  bool get isLobbyJoined => _isLobbyJoined;
-  bool get isReady => isConnected && _isLobbyJoined;
+  bool get isReady => _isReady;
   io.Socket? get socket => _socket;
 
+  /// 핸드셰이크 인증 정보 설정. 이미 다른 auth 로 연결돼 있으면 새 auth 로 재연결한다.
+  void setAuth(Map<String, dynamic> auth) {
+    _auth = Map<String, dynamic>.from(auth);
+    final socket = _socket;
+    if (socket != null) {
+      socket.auth = _auth;
+      _isReady = false;
+      socket
+        ..disconnect()
+        ..connect();
+    }
+  }
+
   void connect() {
-    final serverUrl = AppConfig.serverUrl;
-    AppLogger.debug('🔌 SocketService.connect() called, serverUrl=$serverUrl');
+    final url = AppConfig.serverUrl;
 
-    // 이미 같은 URL로 연결되어 있고 실제로 연결된 상태면 스킵
-    if (_socket != null && _currentServerUrl == serverUrl && (_socket!.connected)) {
-      AppLogger.debug('🔌 Already connected to $serverUrl, skipping');
+    // 같은 URL 의 소켓이 이미 있으면 재사용. 끊겨 있으면 재연결만.
+    if (_socket != null && _currentUrl == url) {
+      if (!_socket!.connected) {
+        _isReady = false;
+        _socket!.connect();
+      }
       return;
     }
 
-    // 소켓은 있지만 연결이 끊어진 경우 재연결 시도
-    if (_socket != null && _currentServerUrl == serverUrl && !(_socket!.connected)) {
-      AppLogger.debug('🔌 Socket exists but disconnected, reconnecting...');
-      _isLobbyJoined = false;
-      _socket!.connect();
-      return;
-    }
-
-    // URL이 변경되었으면 기존 연결 종료
-    if (_socket != null && _currentServerUrl != serverUrl) {
-      AppLogger.debug('🔄 Server URL changed, reconnecting...');
-      _reconnectWithNewUrl(serverUrl);
-      return;
-    }
-
-    _isLobbyJoined = false;
-    _currentServerUrl = serverUrl;
-    // HTTPS URL에 포트가 없으면 :443 명시 (socket_io_client 포트 파싱 버그 방지)
-    var socketUrl = serverUrl;
-    if (socketUrl.startsWith('https://') && !RegExp(r':\d+').hasMatch(socketUrl.replaceFirst('https://', ''))) {
-      socketUrl = socketUrl.replaceFirst('https://', 'https://').replaceFirst(RegExp(r'/?$'), ':443');
-    }
+    AppLogger.debug('🔌 SocketService.connect() → $url');
+    _teardownSocket();
+    _currentUrl = url;
 
     _socket = io.io(
-      socketUrl,
+      _normalizeUrl(url),
       io.OptionBuilder()
           .setTransports(['websocket'])
-          .enableAutoConnect()
           .enableReconnection()
+          .setAuth(_auth)
           .build(),
     );
 
-    // 대기 중이던 리스너들 등록
-    _registerPendingListeners();
-
-    _registerConnectionHandlers(_socket!);
+    // 시스템 이벤트 + 등록돼 있던 사용자 리스너를 모두 바인딩.
+    for (final event in {..._systemEvents, ..._listeners.keys}) {
+      _bindEvent(event);
+    }
+    _socket!.connect();
   }
 
-  /// 연결 오류 발생 시 처리
+  /// 서버 URL 변경 감지 후 필요 시 재연결. (connect 가 URL 변경을 직접 처리한다.)
+  void checkAndReconnect() => connect();
+
+  void disconnect() {
+    _teardownSocket();
+    _currentUrl = null;
+    _pendingEmits.clear();
+  }
+
+  void _teardownSocket() {
+    final socket = _socket;
+    _socket = null;
+    _isReady = false;
+    // dispose() 가 disconnect + 모든 리스너 제거를 함께 처리한다.
+    socket?.dispose();
+  }
+
+  void emit(String event, [dynamic data]) {
+    if (_socket != null && _isReady) {
+      AppLogger.debug('📤 emit: $event');
+      _socket!.emit(event, data);
+      return;
+    }
+
+    AppLogger.debug('📤 queue emit: $event (ready=$_isReady)');
+    _pendingEmits.add(_QueuedEmit(event, data));
+    // 소켓이 없거나 끊겨 있으면 연결을 보장한다.
+    connect();
+  }
+
+  void on(String event, Function(dynamic) callback) {
+    final callbacks = _listeners[event] ??= [];
+    if (callbacks.contains(callback)) return;
+    callbacks.add(callback);
+
+    // 첫 콜백이면 dispatcher 를 바인딩 (시스템 이벤트는 이미 바인딩돼 있음).
+    if (_socket != null && callbacks.length == 1) {
+      _bindEvent(event);
+    }
+  }
+
+  /// 특정 이벤트의 특정 콜백만 제거.
+  void offCallback(String event, Function(dynamic) callback) {
+    final callbacks = _listeners[event];
+    if (callbacks == null) return;
+    callbacks.remove(callback);
+    if (callbacks.isEmpty && !_systemEvents.contains(event)) {
+      _listeners.remove(event);
+      _socket?.off(event);
+    }
+  }
+
+  /// 특정 이벤트의 모든 리스너 제거. (시스템 이벤트는 dispatcher 를 유지한다.)
+  void off(String event) {
+    _listeners.remove(event);
+    if (!_systemEvents.contains(event)) {
+      _socket?.off(event);
+    }
+  }
+
+  void _bindEvent(String event) {
+    final socket = _socket;
+    if (socket == null) return;
+    socket.off(event);
+    socket.on(event, (data) => _dispatch(event, data));
+  }
+
+  void _dispatch(String event, dynamic data) {
+    switch (event) {
+      case 'lobby_joined':
+        _isReady = true;
+        _connectionErrorCount = 0;
+        _flushPendingEmits();
+        break;
+      case 'disconnect':
+      case 'auth_error':
+        _isReady = false;
+        break;
+      case 'connect_error':
+      case 'reconnect_error':
+        _isReady = false;
+        _handleConnectionError();
+        break;
+    }
+
+    final callbacks = _listeners[event];
+    if (callbacks == null || callbacks.isEmpty) return;
+    for (final cb in List<Function(dynamic)>.from(callbacks)) {
+      try {
+        cb(data);
+      } catch (e) {
+        AppLogger.debug('📡 listener error for $event: $e');
+      }
+    }
+  }
+
+  void _flushPendingEmits() {
+    if (_socket == null || !_isReady || _pendingEmits.isEmpty) return;
+    final queued = List<_QueuedEmit>.from(_pendingEmits);
+    _pendingEmits.clear();
+    for (final e in queued) {
+      AppLogger.debug('📤 flush queued emit: ${e.event}');
+      _socket!.emit(e.event, e.data);
+    }
+  }
+
+  /// 연결 오류가 반복되면 원격 설정을 갱신해 점검 모드인지 확인한다.
   void _handleConnectionError() {
     _connectionErrorCount++;
-    // 연결 오류가 발생하면 원격 설정 다시 확인 (점검 모드인지)
     if (_connectionErrorCount >= 2) {
       AppLogger.debug('🔄 Multiple connection errors, refreshing remote config...');
       RemoteConfigService().refresh();
@@ -97,241 +214,13 @@ class SocketService {
     }
   }
 
-  void _registerPendingListeners() {
-    if (_socket == null) return;
-
-    for (final entry in _pendingListeners.entries) {
-      final event = entry.key;
-      final pendingCallbacks = entry.value;
-      if (pendingCallbacks.isEmpty) continue;
-
-      AppLogger.debug(
-        '📡 Registering ${pendingCallbacks.length} pending listener(s) for: $event',
-      );
-
-      // pending 리스너들을 active로 이동
-      _activeListeners[event] ??= [];
-      for (final cb in pendingCallbacks) {
-        if (!_activeListeners[event]!.contains(cb)) {
-          _activeListeners[event]!.add(cb);
-        }
-      }
-
-      _bindSocketEvent(event);
+  /// HTTPS URL 에 포트가 없으면 `:443` 을 명시한다.
+  /// (socket_io_client 의 포트 파싱 버그 회피)
+  String _normalizeUrl(String url) {
+    if (url.startsWith('https://') &&
+        !RegExp(r':\d+').hasMatch(url.replaceFirst('https://', ''))) {
+      return url.replaceFirst(RegExp(r'/?$'), ':443');
     }
-    _pendingListeners.clear();
-  }
-
-  void disconnect() {
-    _socket?.disconnect();
-    _socket = null;
-    _currentServerUrl = null;
-    _isLobbyJoined = false;
-    _pendingEmits.clear();
-  }
-
-  /// URL이 변경되었을 때 재연결
-  void _reconnectWithNewUrl(String newUrl) {
-    // 기존 소켓 연결 종료
-    _socket?.disconnect();
-    _socket = null;
-    _isLobbyJoined = false;
-
-    // 새 URL로 연결
-    _currentServerUrl = newUrl;
-
-    // HTTPS URL에 포트가 없으면 :443 명시 (socket_io_client 포트 파싱 버그 방지)
-    var socketUrl = newUrl;
-    if (socketUrl.startsWith('https://') && !RegExp(r':\d+').hasMatch(socketUrl.replaceFirst('https://', ''))) {
-      socketUrl = socketUrl.replaceFirst(RegExp(r'/?$'), ':443');
-    }
-
-    _socket = io.io(
-      socketUrl,
-      io.OptionBuilder()
-          .setTransports(['websocket'])
-          .enableAutoConnect()
-          .enableReconnection()
-          .build(),
-    );
-
-    // 기존 리스너들 다시 등록
-    _reregisterActiveListeners();
-
-    _registerConnectionHandlers(_socket!);
-  }
-
-  void _registerConnectionHandlers(io.Socket socket) {
-    socket.onConnect((_) {
-      _isLobbyJoined = false;
-      AppLogger.debug('🔌 Connected to server! isConnected=${socket.connected}');
-      _dispatchEvent('connect', null);
-    });
-
-    socket.onDisconnect((reason) {
-      _isLobbyJoined = false;
-      AppLogger.debug('Disconnected from server');
-      _dispatchEvent('disconnect', reason);
-    });
-
-    socket.onConnectError((error) {
-      AppLogger.debug('🔌 Connection error: $error');
-      _handleConnectionError();
-      _dispatchEvent('connect_error', error);
-    });
-
-    socket.on('reconnect_attempt', (attempt) {
-      AppLogger.debug('🔁 Reconnect attempt: $attempt');
-      _dispatchEvent('reconnect_attempt', attempt);
-    });
-
-    socket.on('reconnect', (attempt) {
-      AppLogger.debug('🔁 Reconnected after $attempt attempt(s)');
-      _dispatchEvent('reconnect', attempt);
-    });
-
-    socket.on('reconnect_error', (error) {
-      AppLogger.debug('🔁 Reconnect error: $error');
-      _dispatchEvent('reconnect_error', error);
-    });
-
-    socket.on('reconnect_failed', (data) {
-      AppLogger.debug('🔁 Reconnect failed');
-      _dispatchEvent('reconnect_failed', data);
-    });
-  }
-
-  /// 저장된 활성 리스너들 다시 등록
-  void _reregisterActiveListeners() {
-    if (_socket == null) return;
-
-    for (final entry in _activeListeners.entries) {
-      final event = entry.key;
-      final callbacks = entry.value;
-      if (callbacks.isEmpty) continue;
-
-      _bindSocketEvent(event);
-    }
-  }
-
-  /// 서버 URL 변경 감지하여 필요시 재연결
-  void checkAndReconnect() {
-    final newUrl = AppConfig.serverUrl;
-    if (_currentServerUrl != null && _currentServerUrl != newUrl) {
-      AppLogger.debug('🔄 Detected server URL change: $_currentServerUrl -> $newUrl');
-      _reconnectWithNewUrl(newUrl);
-    }
-  }
-
-  void emit(String event, dynamic data, {bool requireLobbyJoined = true}) {
-    final shouldRequireLobbyJoined = requireLobbyJoined && event != 'join_lobby';
-
-    if (_socket == null || !_socket!.connected || (shouldRequireLobbyJoined && !_isLobbyJoined)) {
-      AppLogger.debug(
-        '📤 Queueing emit: $event (connected=${_socket?.connected ?? false}, lobbyJoined=$_isLobbyJoined)',
-      );
-      _pendingEmits.add(
-        _QueuedEmit(
-          event: event,
-          data: data,
-          requireLobbyJoined: shouldRequireLobbyJoined,
-        ),
-      );
-      if (_socket == null || !_socket!.connected) {
-        connect();
-      }
-      return;
-    }
-
-    AppLogger.debug('📤 Emitting: $event');
-    _socket?.emit(event, data);
-  }
-
-  void on(String event, Function(dynamic) callback) {
-    AppLogger.debug('📡 Setting up listener for: $event');
-
-    // 기존 리스너 목록에 추가 (여러 컴포넌트가 동시에 리스닝 가능)
-    _activeListeners[event] ??= [];
-
-    // 이미 같은 콜백이 있으면 중복 추가 방지
-    if (!_activeListeners[event]!.contains(callback)) {
-      _activeListeners[event]!.add(callback);
-    }
-
-    if (_socket != null) {
-      _bindSocketEvent(event);
-    } else {
-      // 소켓이 없으면 버퍼링
-      AppLogger.debug('📡 Buffering listener for: $event (socket not ready)');
-      _pendingListeners[event] ??= [];
-      if (!_pendingListeners[event]!.contains(callback)) {
-        _pendingListeners[event]!.add(callback);
-      }
-    }
-  }
-
-  /// 특정 이벤트의 특정 콜백만 제거
-  void offCallback(String event, Function(dynamic) callback) {
-    _activeListeners[event]?.remove(callback);
-    _pendingListeners[event]?.remove(callback);
-
-    // 소켓 리스너 재등록 (남은 콜백들을 위해)
-    if (_socket != null && (_activeListeners[event]?.isNotEmpty ?? false)) {
-      _bindSocketEvent(event);
-    } else if (_socket != null) {
-      // 남은 콜백이 없으면 리스너 제거
-      _socket!.off(event);
-    }
-  }
-
-  /// 특정 이벤트의 모든 리스너 제거 (주의: 다른 컴포넌트의 리스너도 제거됨)
-  void off(String event) {
-    _socket?.off(event);
-    _pendingListeners.remove(event);
-    _activeListeners.remove(event);
-  }
-
-  void _bindSocketEvent(String event) {
-    if (_socket == null) return;
-
-    _socket!.off(event);
-    _socket!.on(event, (data) {
-      AppLogger.debug('📡 Received event: $event');
-      _dispatchEvent(event, data);
-    });
-  }
-
-  void _dispatchEvent(String event, dynamic data) {
-    if (event == 'lobby_joined') {
-      _isLobbyJoined = true;
-      _flushPendingEmits();
-    }
-
-    final callbacks = List<Function(dynamic)>.from(_activeListeners[event] ?? []);
-    for (final cb in callbacks) {
-      try {
-        cb(data);
-      } catch (e) {
-        AppLogger.debug('📡 Error in listener for $event: $e');
-      }
-    }
-  }
-
-  void _flushPendingEmits() {
-    if (_socket == null || !_socket!.connected) return;
-    if (_pendingEmits.isEmpty) return;
-
-    final queuedEmits = List<_QueuedEmit>.from(_pendingEmits);
-    _pendingEmits.clear();
-
-    for (final pendingEmit in queuedEmits) {
-      if (pendingEmit.requireLobbyJoined && !_isLobbyJoined) {
-        _pendingEmits.add(pendingEmit);
-        continue;
-      }
-
-      AppLogger.debug('📤 Flushing queued emit: ${pendingEmit.event}');
-      _socket!.emit(pendingEmit.event, pendingEmit.data);
-    }
+    return url;
   }
 }

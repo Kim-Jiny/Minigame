@@ -10,6 +10,10 @@ import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
+import '../common/game_rematch_preparing_view.dart';
+import '../common/game_hardcore_toggle.dart';
+import '../common/game_intro_view.dart';
+import '../common/game_scaffold.dart';
 import '../common/game_duel_header.dart';
 import '../common/game_event_helper.dart';
 import '../common/game_exit_helper.dart';
@@ -43,6 +47,9 @@ class StroopScreen extends StatefulWidget {
 class _StroopScreenState extends State<StroopScreen>
     with SingleTickerProviderStateMixin {
   final SocketService _socketService = SocketService();
+  // 게임 고유색 대신 사용자 테마 컬러를 accent로 사용.
+  Color get _accent =>
+      GameTheme.fromProfileSettings(context.read<ShopProvider>().profileSettings).primary;
   late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
   bool _hasScheduledPop = false;  // 중복 pop 방지
   bool _isExitDialogOpen = false;  // 나가기 다이얼로그 열림 상태
@@ -459,8 +466,16 @@ class _StroopScreenState extends State<StroopScreen>
 
     _socketListeners.on('opponent_left', (data) {
       if (_status == StroopGameStatus.idle ||
-          _status == StroopGameStatus.searching ||
-          _status == StroopGameStatus.finished) {
+          _status == StroopGameStatus.searching) {
+        return;
+      }
+      // 결과 화면에서 상대가 나간 경우: 결과는 유지하고 재대결만 불가 처리
+      if (_status == StroopGameStatus.finished) {
+        setState(() {
+          _opponentLeft = true;
+          _rematchWaiting = false;
+          _opponentWantsRematch = false;
+        });
         return;
       }
       // 나가기 다이얼로그가 열려있으면 먼저 닫기
@@ -615,14 +630,10 @@ class _StroopScreenState extends State<StroopScreen>
             _showExitDialog(theme);
           },
           child: Scaffold(
-            appBar: AppBar(
-              title: const Text('스트룹 테스트'),
+            appBar: gameAppBar(
+              title: '스트룹 테스트',
               backgroundColor: theme.primary,
-              foregroundColor: Colors.white,
-              leading: IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => _showExitDialog(theme),
-              ),
+              onBack: () => _showExitDialog(theme),
             ),
             body: Stack(
               children: [
@@ -630,24 +641,12 @@ class _StroopScreenState extends State<StroopScreen>
                   transitionKey: '${_status.name}-$_currentRound-$_currentWord-$_currentColor-${_winnerId ?? 'none'}-$_isDraw',
                   child: _buildBody(theme),
                 ),
-                if (_isReconnecting)
-                  GameReconnectHelper.buildReconnectOverlay(
-                    title: '재연결 중...',
-                    message: '네트워크 연결을 다시 붙이는 중입니다.',
-                    resultMessage: '20초 안에 돌아오지 못하면 이 게임은 패배로 종료됩니다.',
-                    secondsRemaining: _reconnectSecondsRemaining,
-                    countdownLabel: '패배 처리까지',
-                    accentColor: theme.primary,
-                  ),
-                if (_isWaitingForReconnect)
-                  GameReconnectHelper.buildReconnectOverlay(
-                    title: '상대 재연결 대기 중',
-                    message: '상대 연결이 끊겨 게임을 잠시 멈췄습니다.',
-                    resultMessage: '20초 안에 돌아오지 않으면 자동 승리로 처리됩니다.',
-                    secondsRemaining: _reconnectSecondsRemaining,
-                    countdownLabel: '자동 승리까지',
-                    accentColor: theme.primary,
-                  ),
+                ...GameReconnectHelper.buildStandardOverlays(
+                  isReconnecting: _isReconnecting,
+                  isWaitingForReconnect: _isWaitingForReconnect,
+                  secondsRemaining: _reconnectSecondsRemaining,
+                  accentColor: theme.primary,
+                ),
               ],
             ),
           ),
@@ -843,175 +842,40 @@ class _StroopScreenState extends State<StroopScreen>
   }
 
   Widget _buildIdleView(GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: theme.primary.withValues(alpha: 0.3),
-                    blurRadius: 20,
-                  ),
-                ],
-              ),
-              child: Icon(
-                Icons.palette,
-                size: 64,
-                color: theme.primary,
-              ),
+    final accent = _isHardcore ? Colors.red : theme.primary;
+    return GameIntroView(
+      backgroundGradient: theme.backgroundGradient,
+      accentColor: accent,
+      icon: Icons.palette,
+      title: '스트룹 테스트',
+      descriptions: const ['글자가 아닌 색깔을 맞추세요!', '예: "빨강"이 파란색이면 → 파랑 선택'],
+      findMatchLabel: _isHardcore ? '하드코어 상대 찾기' : '상대 찾기',
+      onFindMatch: _findMatch,
+      onInviteFriend: () => _showFriendInviteDialog(context),
+      extra: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(12),
             ),
-            const SizedBox(height: 32),
-            Text(
-              '스트룹 테스트',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '글자가 아닌 색깔을 맞추세요!',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '예: "빨강"이 파란색이면 → 파랑 선택',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade500,
-              ),
-            ),
-            const SizedBox(height: 32),
-            // 예시 보여주기
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                children: [
-                  Text(
-                    '빨강',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: colorValues['blue'],
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '정답: 파랑 (글자색)',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 32),
-            // 하드코어 모드 토글
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: _isHardcore ? Colors.red.shade50 : Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: _isHardcore ? Colors.red.shade300 : Colors.grey.shade300,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.local_fire_department,
-                    color: _isHardcore ? Colors.red : Colors.grey,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '하드코어',
-                    style: TextStyle(
-                      color: _isHardcore ? Colors.red : Colors.grey.shade700,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Switch(
-                    value: _isHardcore,
-                    onChanged: (value) => setState(() => _isHardcore = value),
-                    activeThumbColor: Colors.red,
-                    activeTrackColor: Colors.red.shade200,
-                  ),
-                ],
-              ),
-            ),
-            if (_isHardcore)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  '6색 + 2초 제한!',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.red.shade400,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            child: Column(
               children: [
-                ElevatedButton.icon(
-                  onPressed: _findMatch,
-                  icon: const Icon(Icons.search),
-                  label: Text(_isHardcore ? '하드코어 상대 찾기' : '상대 찾기'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _isHardcore ? Colors.red : theme.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: () => _showFriendInviteDialog(context),
-                  icon: const Icon(Icons.person_add),
-                  label: const Text('친구 초대'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _isHardcore ? Colors.red : theme.primary,
-                    side: BorderSide(
-                      color: _isHardcore ? Colors.red : theme.primary,
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
+                Text('빨강', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: colorValues['blue'])),
+                const SizedBox(height: 4),
+                Text('정답: 파랑 (글자색)', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
               ],
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 20),
+          GameHardcoreToggle(
+            value: _isHardcore,
+            onChanged: (v) => setState(() => _isHardcore = v),
+            activeHint: '6색 + 2초 제한!',
+          ),
+        ],
       ),
     );
   }
@@ -1023,7 +887,7 @@ class _StroopScreenState extends State<StroopScreen>
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            const Color(0xFF00CEC9).withValues(alpha: 0.1),
+            _accent.withValues(alpha: 0.1),
             Colors.white,
           ],
         ),
@@ -1032,16 +896,16 @@ class _StroopScreenState extends State<StroopScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const CircularProgressIndicator(
-              color: Color(0xFF00CEC9),
+            CircularProgressIndicator(
+              color: _accent,
             ),
             const SizedBox(height: 24),
-            const Text(
+            Text(
               '상대를 찾는 중...',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF00CEC9),
+                color: _accent,
               ),
             ),
             const SizedBox(height: 48),
@@ -1066,7 +930,7 @@ class _StroopScreenState extends State<StroopScreen>
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            const Color(0xFF00CEC9).withValues(alpha: 0.1),
+            _accent.withValues(alpha: 0.1),
             Colors.white,
           ],
         ),
@@ -1081,19 +945,19 @@ class _StroopScreenState extends State<StroopScreen>
                 color: Color(0xFFE0F7FA),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.sports_esports,
                 size: 64,
-                color: Color(0xFF00CEC9),
+                color: _accent,
               ),
             ),
             const SizedBox(height: 16),
             Text(
               '$_opponentNickname님과 매칭!',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF00CEC9),
+                color: _accent,
               ),
             ),
             const SizedBox(height: 16),
@@ -1127,7 +991,7 @@ class _StroopScreenState extends State<StroopScreen>
   }
 
   Widget _buildStreakBadge(String name, int streak, bool isMe) {
-    final color = isMe ? const Color(0xFF00CEC9) : Colors.orange;
+    final color = isMe ? _accent : Colors.orange;
     return Column(
       children: [
         Text(
@@ -1196,7 +1060,7 @@ class _StroopScreenState extends State<StroopScreen>
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  const Color(0xFF00CEC9).withValues(alpha: 0.1),
+                  _accent.withValues(alpha: 0.1),
                   Colors.white,
                 ],
               ),
@@ -1211,7 +1075,7 @@ class _StroopScreenState extends State<StroopScreen>
                     child: GameTimerBadge(
                       seconds: _remainingTime,
                       label: '정답 입력 시간',
-                      accentColor: const Color(0xFF00CEC9),
+                      accentColor: _accent,
                       compact: true,
                       warningThreshold: 1,
                     ),
@@ -1326,22 +1190,22 @@ class _StroopScreenState extends State<StroopScreen>
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  const Color(0xFF00CEC9).withValues(alpha: 0.1),
+                  _accent.withValues(alpha: 0.1),
                   Colors.white,
                 ],
               ),
             ),
-            child: const Center(
+            child: Center(
               child: GameStagePanel(
                 icon: Icons.palette_outlined,
                 title: '다음 라운드 대기 중...',
                 subtitle: '상대 입력과 결과를 정리한 뒤 바로 이어서 시작합니다.',
-                accentColor: Color(0xFF00CEC9),
+                accentColor: _accent,
                 content: SizedBox(
                   width: 30,
                   height: 30,
                   child: CircularProgressIndicator(
-                    color: Color(0xFF00CEC9),
+                    color: _accent,
                     strokeWidth: 3,
                   ),
                 ),
@@ -1356,7 +1220,7 @@ class _StroopScreenState extends State<StroopScreen>
   Widget _buildHeader() {
     return GameDuelHeader(
       backgroundColors: const [Color(0xFFE0F7FA), Color(0xFFB2EBF2)],
-      accentColor: const Color(0xFF00CEC9),
+      accentColor: _accent,
       centerLabel: 'R$_currentRound',
       centerSubtitle: _isHardcore ? '하드코어' : '색깔 대결',
       myName: _myNickname ?? '나',
@@ -1375,12 +1239,19 @@ class _StroopScreenState extends State<StroopScreen>
   Widget _buildScoreWidget(int score, bool isMe) {
     return GameHeaderScorePill(
       score: score,
-      color: isMe ? const Color(0xFF00CEC9) : Colors.grey,
+      color: isMe ? _accent : Colors.grey,
       margin: const EdgeInsets.only(top: 4),
     );
   }
 
   Widget _buildFinishedView(GameTheme theme) {
+    if (_rematchWaiting) {
+      return GameRematchPreparingView(
+        backgroundGradient: theme.backgroundGradient,
+        accentColor: theme.primary,
+        onCancel: _cancelRematch,
+      );
+    }
     final isWinner = _winnerId == _myId;
 
     // 랭크전에서는 결과만 표시하고 자동으로 돌아가기
@@ -1391,31 +1262,11 @@ class _StroopScreenState extends State<StroopScreen>
         hasScheduledPop: _hasScheduledPop,
         markScheduledPop: () => _hasScheduledPop = true,
       );
-      return Container(
-        decoration: BoxDecoration(gradient: theme.backgroundGradient),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                _isDraw ? Icons.handshake : (isWinner ? Icons.emoji_events : Icons.sentiment_dissatisfied),
-                size: 80,
-                color: _isDraw ? Colors.orange : (isWinner ? Colors.amber : Colors.grey),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                _isDraw ? '무승부!' : (isWinner ? '승리!' : '패배'),
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: _isDraw ? Colors.orange : (isWinner ? theme.primary : Colors.grey),
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text('잠시 후 다음 게임...', style: TextStyle(color: Colors.grey)),
-            ],
-          ),
-        ),
+      return GameRankedResultView(
+      backgroundGradient: theme.backgroundGradient,
+      accentColor: theme.primary,
+      isWinner: isWinner,
+      isDraw: _isDraw,
       );
     }
 
@@ -1429,7 +1280,7 @@ class _StroopScreenState extends State<StroopScreen>
       resultIcon = Icons.handshake;
     } else if (isWinner) {
       resultText = '승리!';
-      resultColor = const Color(0xFF00CEC9);
+      resultColor = _accent;
       resultIcon = Icons.emoji_events;
     } else {
       resultText = '아쉬워요...';
@@ -1471,12 +1322,6 @@ class _StroopScreenState extends State<StroopScreen>
               accentColor: resultColor,
             ),
             const SizedBox(height: 24),
-            if (_opponentLeft)
-              const GameResultStatusPill(
-                icon: Icons.exit_to_app_rounded,
-                text: '상대방이 나가서 경기 종료',
-                color: Color(0xFF6B7280),
-              ),
             if (_opponentWantsRematch && !_opponentLeft)
               GameResultStatusPill(
                 icon: Icons.hourglass_top_rounded,
@@ -1484,7 +1329,7 @@ class _StroopScreenState extends State<StroopScreen>
                 color: const Color(0xFF15803D),
               ),
             GameResultActionButtons(
-              accentColor: const Color(0xFF00CEC9),
+              accentColor: _accent,
               opponentLeft: _opponentLeft,
               rematchWaiting: _rematchWaiting,
               isInvitationGame: _isInvitationGame,
@@ -1555,7 +1400,7 @@ class _StroopScreenState extends State<StroopScreen>
     _isExitDialogOpen = true;
     showGameExitDialog(
       context: context,
-      accentColor: const Color(0xFF00CEC9),
+      accentColor: _accent,
       message: isRankedWaiting
           ? '랭크전 진행 중입니다.\n나가시겠습니까?'
           : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',

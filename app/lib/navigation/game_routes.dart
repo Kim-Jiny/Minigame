@@ -16,9 +16,24 @@ import '../games/mathrace/mathrace_screen.dart';
 import '../games/arrowdash/arrowdash_screen.dart';
 import '../games/timing/timing_screen.dart';
 import '../utils/game_catalog.dart';
+import '../utils/game_registry.dart';
 
 class GameRoutes {
   const GameRoutes._();
+
+  /// 모드 페이지(혼자/둘이)에서 진입 시, 진입 맥락을 받는 게임 화면.
+  /// 솔로·대전을 한 화면에서 고르는 게임(헥사곤·수식피라미드)만 해당.
+  /// 그 외 게임은 null → 호출부에서 기존 네임드 라우트를 사용한다.
+  static Widget? buildModeEntry(String gameType, GameEntryMode mode) {
+    switch (gameType) {
+      case 'hexagon':
+        return HexagonScreen(entryMode: mode);
+      case 'pyramid':
+        return PyramidScreen(entryMode: mode);
+      default:
+        return null;
+    }
+  }
 
   static Map<String, WidgetBuilder> buildNamedRoutes() {
     return {

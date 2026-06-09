@@ -9,6 +9,10 @@ import '../../providers/shop_provider.dart';
 import '../../services/socket_service.dart';
 import '../../services/socket_listener_registry.dart';
 import '../../models/shop_item.dart';
+import '../../utils/game_theme.dart';
+import '../common/game_rematch_preparing_view.dart';
+import '../common/game_intro_view.dart';
+import '../common/game_scaffold.dart';
 import '../common/game_end_action_panel.dart';
 import '../common/game_reconnect_helper.dart';
 
@@ -31,6 +35,9 @@ class HunminScreen extends StatefulWidget {
 class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMixin {
   final SocketService _socketService = SocketService();
   late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
+  // 게임 고유 다크테마 대신 사용자 테마(라이트)를 사용.
+  GameTheme get _theme =>
+      GameTheme.fromProfileSettings(context.read<ShopProvider>().profileSettings);
 
   // 게임 상태
   HunminGameStatus _status = HunminGameStatus.idle;
@@ -75,6 +82,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
   String? _winnerId;
   bool _isDraw = false;
   bool _opponentLeft = false;
+  bool _wonByForfeit = false; // 상대 mid-game 이탈로 인한 몰수승(결과 표시용)
   String? _roundEndReason;
   String? _roundEndWord;
   int? _roundWinnerIndex;
@@ -270,6 +278,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
         _winnerId = null;
         _isDraw = false;
         _opponentLeft = false;
+        _wonByForfeit = false;
       });
     });
 
@@ -373,13 +382,22 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
     // 상대 퇴장
     _socketListeners.on('opponent_left', (_) {
       if (_status == HunminGameStatus.idle ||
-          _status == HunminGameStatus.searching ||
-          _status == HunminGameStatus.finished) {
+          _status == HunminGameStatus.searching) {
+        return;
+      }
+      // 결과 화면에서 상대가 나간 경우: 결과는 유지하고 재대결만 불가 처리
+      if (_status == HunminGameStatus.finished) {
+        setState(() {
+          _opponentLeft = true;
+          _rematchWaiting = false;
+          _opponentWantsRematch = false;
+        });
         return;
       }
       _turnTimer?.cancel();
       setState(() {
         _opponentLeft = true;
+        _wonByForfeit = true;
         _status = HunminGameStatus.finished;
         _rematchWaiting = false;
         _opponentWantsRematch = false;
@@ -519,7 +537,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
                 Padding(
                   padding: const EdgeInsets.all(20),
                   child: Row(children: [
-                    const Icon(Icons.person_add, color: Color(0xFF1E88E5)),
+                    Icon(Icons.person_add, color: _theme.primary),
                     const SizedBox(width: 12),
                     const Text('친구 초대', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                   ]),
@@ -545,10 +563,10 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
                             return ListTile(
                               leading: Stack(children: [
                                 CircleAvatar(
-                                  backgroundColor: const Color(0xFF1E88E5).withValues(alpha: 0.2),
+                                  backgroundColor: _theme.primary.withValues(alpha: 0.2),
                                   child: Text(
                                     friend.nickname.isNotEmpty ? friend.nickname[0].toUpperCase() : '?',
-                                    style: const TextStyle(color: Color(0xFF1E88E5)),
+                                    style: TextStyle(color: _theme.primary),
                                   ),
                                 ),
                                 Positioned(
@@ -576,7 +594,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
                                   );
                                 },
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF1E88E5), foregroundColor: Colors.white,
+                                  backgroundColor: _theme.primary, foregroundColor: Colors.white,
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                                 ),
                                 child: const Text('초대'),
@@ -618,12 +636,28 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
         }
       },
       child: Scaffold(
-        backgroundColor: const Color(0xFF1A1A2E),
-        body: SafeArea(
-          child: _buildBody(),
+        appBar: gameAppBar(
+          title: '훈민정음',
+          backgroundColor: _theme.primary,
+          onBack: _handleBack,
+        ),
+        body: Container(
+          decoration: BoxDecoration(gradient: _theme.backgroundGradient),
+          child: SafeArea(
+            child: _buildBody(),
+          ),
         ),
       ),
     );
+  }
+
+  void _handleBack() {
+    if (_status == HunminGameStatus.idle ||
+        _status == HunminGameStatus.finished) {
+      Navigator.pop(context);
+    } else {
+      _showLeaveConfirmDialog();
+    }
   }
 
   Widget _buildBody() {
@@ -647,87 +681,14 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
 
   // ====== 대기 화면 ======
   Widget _buildIdleView() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.translate, size: 80, color: Color(0xFF1E88E5)),
-          const SizedBox(height: 24),
-          const Text(
-            '훈민정음',
-            style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '초성 단어 배틀',
-            style: TextStyle(fontSize: 16, color: Colors.grey.shade400),
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(16),
-            margin: const EdgeInsets.symmetric(horizontal: 32),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              children: [
-                _ruleRow(Icons.text_fields, '서버가 2글자 초성을 출제'),
-                const SizedBox(height: 8),
-                _ruleRow(Icons.swap_horiz, '번갈아 단어 입력 (15초 제한)'),
-                const SizedBox(height: 8),
-                _ruleRow(Icons.emoji_events, '3판 2선승제'),
-                const SizedBox(height: 8),
-                _ruleRow(Icons.dangerous, '시간초과/중복/미등록 = 패배'),
-              ],
-            ),
-          ),
-          const SizedBox(height: 32),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              ElevatedButton.icon(
-                onPressed: _findMatch,
-                icon: const Icon(Icons.search),
-                label: const Text('대전 상대 찾기', style: TextStyle(fontSize: 18)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1E88E5),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                ),
-              ),
-              const SizedBox(width: 12),
-              OutlinedButton.icon(
-                onPressed: () => _showFriendInviteDialog(context),
-                icon: const Icon(Icons.person_add, size: 20),
-                label: const Text('친구 초대'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF1E88E5),
-                  side: const BorderSide(color: Color(0xFF1E88E5)),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('돌아가기', style: TextStyle(color: Colors.grey.shade400)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _ruleRow(IconData icon, String text) {
-    return Row(
-      children: [
-        Icon(icon, size: 20, color: const Color(0xFF1E88E5)),
-        const SizedBox(width: 8),
-        Text(text, style: const TextStyle(color: Colors.white70, fontSize: 14)),
-      ],
+    return GameIntroView(
+      backgroundGradient: _theme.backgroundGradient,
+      accentColor: _theme.primary,
+      icon: Icons.translate_rounded,
+      title: '훈민정음',
+      descriptions: const ['서버가 낸 초성으로 단어 배틀', '3판 2선승 · 한 턴 15초'],
+      onFindMatch: _findMatch,
+      onInviteFriend: () => _showFriendInviteDialog(context),
     );
   }
 
@@ -737,24 +698,24 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const SizedBox(
+          SizedBox(
             width: 60, height: 60,
             child: CircularProgressIndicator(
-              color: Color(0xFF1E88E5),
+              color: _theme.primary,
               strokeWidth: 4,
             ),
           ),
           const SizedBox(height: 24),
           const Text(
             '상대를 찾고 있습니다...',
-            style: TextStyle(fontSize: 18, color: Colors.white),
+            style: TextStyle(fontSize: 18, color: Color(0xFF1A1D23)),
           ),
           const SizedBox(height: 32),
           OutlinedButton(
             onPressed: _cancelMatch,
             style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white70,
-              side: const BorderSide(color: Colors.white38),
+              foregroundColor: Colors.grey.shade600,
+              side: BorderSide(color: Colors.grey.shade400),
             ),
             child: const Text('취소'),
           ),
@@ -773,15 +734,15 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
           const SizedBox(height: 16),
           const Text(
             '매칭 완료!',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF1A1D23)),
           ),
           const SizedBox(height: 8),
           Text(
             'vs $_opponentNickname',
-            style: TextStyle(fontSize: 18, color: Colors.grey.shade300),
+            style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 16),
-          const CircularProgressIndicator(color: Color(0xFF1E88E5)),
+          CircularProgressIndicator(color: _theme.primary),
         ],
       ),
     );
@@ -797,7 +758,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
           SizedBox(height: 16),
           Text(
             '재연결 중...',
-            style: TextStyle(fontSize: 18, color: Colors.white),
+            style: TextStyle(fontSize: 18, color: Color(0xFF1A1D23)),
           ),
         ],
       ),
@@ -836,29 +797,23 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white70),
-            onPressed: _showLeaveConfirmDialog,
-          ),
-          const Spacer(),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.1),
+              color: const Color(0xFFEFF1F4),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
               'Round $_currentRound/3    ${_scores[0]} : ${_scores[1]}',
               style: const TextStyle(
-                color: Colors.white,
+                color: Color(0xFF1A1D23),
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
               ),
             ),
           ),
-          const Spacer(),
-          const SizedBox(width: 48), // 대칭
         ],
       ),
     );
@@ -880,9 +835,9 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
               isMe: isPlayer0,
             ),
           ),
-          const Padding(
+          Padding(
             padding: EdgeInsets.symmetric(horizontal: 8),
-            child: Text('VS', style: TextStyle(color: Colors.white38, fontSize: 14, fontWeight: FontWeight.bold)),
+            child: Text('VS', style: TextStyle(color: Colors.grey.shade400, fontSize: 14, fontWeight: FontWeight.bold)),
           ),
           Expanded(
             child: _buildPlayerChip(
@@ -901,11 +856,11 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: isActive
-            ? const Color(0xFF1E88E5).withValues(alpha: 0.3)
-            : Colors.white.withValues(alpha: 0.05),
+            ? _theme.primary.withValues(alpha: 0.3)
+            : const Color(0xFFF5F6F8),
         borderRadius: BorderRadius.circular(12),
         border: isActive
-            ? Border.all(color: const Color(0xFF1E88E5), width: 2)
+            ? Border.all(color: _theme.primary, width: 2)
             : null,
       ),
       child: Row(
@@ -924,7 +879,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
             child: Text(
               isMe ? '$name (나)' : name,
               style: TextStyle(
-                color: isActive ? Colors.white : Colors.white54,
+                color: isActive ? const Color(0xFF1A1D23) : Colors.grey.shade500,
                 fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
                 fontSize: 14,
               ),
@@ -948,9 +903,9 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
             height: 64,
             margin: const EdgeInsets.symmetric(horizontal: 8),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E88E5).withValues(alpha: 0.2),
+              color: _theme.primary.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFF1E88E5), width: 2),
+              border: Border.all(color: _theme.primary, width: 2),
             ),
             child: Center(
               child: Text(
@@ -958,7 +913,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
                 style: const TextStyle(
                   fontSize: 32,
                   fontWeight: FontWeight.bold,
-                  color: Colors.white,
+                  color: Color(0xFF1A1D23),
                 ),
               ),
             ),
@@ -994,13 +949,13 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
             color: isMyWord
-                ? const Color(0xFF1E88E5).withValues(alpha: 0.15)
-                : Colors.white.withValues(alpha: 0.08),
+                ? _theme.primary.withValues(alpha: 0.15)
+                : const Color(0xFFF1F2F4),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: isMyWord
-                  ? const Color(0xFF1E88E5).withValues(alpha: 0.3)
-                  : Colors.white.withValues(alpha: 0.1),
+                  ? _theme.primary.withValues(alpha: 0.3)
+                  : const Color(0xFFEFF1F4),
             ),
           ),
           child: Row(
@@ -1009,15 +964,15 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
                 width: 24, height: 24,
                 decoration: BoxDecoration(
                   color: isMyWord
-                      ? const Color(0xFF1E88E5).withValues(alpha: 0.3)
-                      : Colors.white.withValues(alpha: 0.1),
+                      ? _theme.primary.withValues(alpha: 0.3)
+                      : const Color(0xFFEFF1F4),
                   shape: BoxShape.circle,
                 ),
                 child: Center(
                   child: Text(
                     '${reversedIndex + 1}',
                     style: TextStyle(
-                      color: isMyWord ? const Color(0xFF1E88E5) : Colors.white54,
+                      color: isMyWord ? _theme.primary : Colors.grey.shade500,
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                     ),
@@ -1028,7 +983,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
               Text(
                 word,
                 style: const TextStyle(
-                  color: Colors.white,
+                  color: Color(0xFF1A1D23),
                   fontSize: 18,
                   fontWeight: FontWeight.w500,
                 ),
@@ -1039,7 +994,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
                     ? (_myNickname ?? '나')
                     : (_opponentNickname ?? '상대'),
                 style: TextStyle(
-                  color: isMyWord ? const Color(0xFF1E88E5) : Colors.white38,
+                  color: isMyWord ? _theme.primary : Colors.grey.shade400,
                   fontSize: 12,
                 ),
               ),
@@ -1090,14 +1045,14 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
         children: [
           Icon(
             Icons.timer,
-            color: isUrgent ? Colors.red : Colors.white70,
+            color: isUrgent ? Colors.red : Colors.grey.shade600,
             size: 20,
           ),
           const SizedBox(width: 6),
           Text(
             '$_turnRemaining초',
             style: TextStyle(
-              color: isUrgent ? Colors.red : Colors.white70,
+              color: isUrgent ? Colors.red : Colors.grey.shade600,
               fontSize: 18,
               fontWeight: FontWeight.bold,
             ),
@@ -1113,8 +1068,8 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.05),
-        border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
+        color: const Color(0xFFF5F6F8),
+        border: Border(top: BorderSide(color: const Color(0xFFEFF1F4))),
       ),
       child: Row(
         children: [
@@ -1123,14 +1078,14 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
               controller: _wordController,
               focusNode: _wordFocusNode,
               enabled: canInput,
-              style: const TextStyle(color: Colors.white, fontSize: 18),
+              style: const TextStyle(color: Color(0xFF1A1D23), fontSize: 18),
               decoration: InputDecoration(
                 hintText: canInput ? '2글자 단어 입력' : (_isMyTurn ? '입력 중...' : '상대 차례입니다'),
                 hintStyle: TextStyle(color: Colors.grey.shade600),
                 filled: true,
                 fillColor: canInput
-                    ? Colors.white.withValues(alpha: 0.1)
-                    : Colors.white.withValues(alpha: 0.03),
+                    ? const Color(0xFFEFF1F4)
+                    : const Color(0xFFFAFBFC),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
@@ -1149,7 +1104,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
             child: ElevatedButton(
               onPressed: canInput && !_isSubmitting ? _submitWord : null,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1E88E5),
+                backgroundColor: _theme.primary,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -1191,7 +1146,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
           if (_roundEndWord != null && _roundEndWord!.isNotEmpty) ...[
             Text(
               '"${_roundEndWord!}"',
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1A1D23)),
             ),
             const SizedBox(height: 4),
           ],
@@ -1202,7 +1157,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
           const SizedBox(height: 24),
           Text(
             'Round $_currentRound/3',
-            style: const TextStyle(fontSize: 16, color: Colors.white54),
+            style: TextStyle(fontSize: 16, color: Colors.grey.shade500),
           ),
           const SizedBox(height: 8),
           Text(
@@ -1210,11 +1165,11 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
             style: const TextStyle(
               fontSize: 36,
               fontWeight: FontWeight.bold,
-              color: Colors.white,
+              color: Color(0xFF1A1D23),
             ),
           ),
           const SizedBox(height: 16),
-          const CircularProgressIndicator(color: Color(0xFF1E88E5)),
+          CircularProgressIndicator(color: _theme.primary),
           const SizedBox(height: 8),
           Text(
             '다음 라운드 준비 중...',
@@ -1227,11 +1182,18 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
 
   // ====== 게임 종료 ======
   Widget _buildFinishedView() {
+    if (_rematchWaiting) {
+      return GameRematchPreparingView(
+        backgroundGradient: _theme.backgroundGradient,
+        accentColor: _theme.primary,
+        onCancel: _cancelRematch,
+      );
+    }
     String resultText;
     Color resultColor;
     IconData resultIcon;
 
-    if (_opponentLeft) {
+    if (_wonByForfeit) {
       resultText = '상대가 나갔습니다\n승리!';
       resultColor = const Color(0xFF4CAF50);
       resultIcon = Icons.emoji_events;
@@ -1267,7 +1229,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
           const SizedBox(height: 16),
           Text(
             '최종 스코어: ${_scores[0]} : ${_scores[1]}',
-            style: const TextStyle(fontSize: 20, color: Colors.white),
+            style: const TextStyle(fontSize: 20, color: Color(0xFF1A1D23)),
           ),
           const SizedBox(height: 32),
 
@@ -1275,9 +1237,10 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
             width: 280,
             child: GameEndActionPanel(
               showRematchActions: !_opponentLeft,
+              opponentLeft: _opponentLeft,
               opponentWantsRematch: _opponentWantsRematch,
               rematchWaiting: _rematchWaiting,
-              primaryColor: const Color(0xFF1E88E5),
+              primaryColor: _theme.primary,
               primaryForegroundColor: Colors.white,
               onRequestRematch: _requestRematch,
               onCancelRematch: _cancelRematch,
@@ -1291,9 +1254,9 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
               rematchIcon: Icons.refresh,
               leaveIcon: Icons.exit_to_app,
               acceptColor: Colors.orange,
-              waitingTextColor: Colors.white70,
-              leaveForegroundColor: Colors.white70,
-              leaveBorderSide: const BorderSide(color: Colors.white38),
+              waitingTextColor: Colors.grey.shade600,
+              leaveForegroundColor: Colors.grey.shade600,
+              leaveBorderSide: BorderSide(color: Colors.grey.shade400),
             ),
           ),
         ],

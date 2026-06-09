@@ -8,6 +8,11 @@ import '../../providers/ranked_provider.dart';
 import '../../services/socket_service.dart';
 import '../../config/app_config.dart';
 import '../../utils/game_theme.dart';
+import '../common/game_hardcore_toggle.dart';
+import '../common/game_intro_view.dart';
+import '../common/game_scaffold.dart';
+import '../common/game_result_summary.dart';
+import '../common/match_status_views.dart';
 import '../common/game_duel_header.dart';
 import '../common/game_result_action_buttons.dart';
 import '../common/game_session_helper.dart';
@@ -56,14 +61,10 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
             _showExitDialog(context);
           },
           child: Scaffold(
-            appBar: AppBar(
-              title: const Text('틱택토'),
+            appBar: gameAppBar(
+              title: '틱택토',
               backgroundColor: theme.primary,
-              foregroundColor: Colors.white,
-              leading: IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => _showExitDialog(context),
-              ),
+              onBack: () => _showExitDialog(context),
             ),
             body: switch (game.status) {
               GameStatus.idle => widget.isRanked ? _buildRankedWaitingView(theme) : _buildIdleView(game, theme),
@@ -275,299 +276,74 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
   }
 
   Widget _buildIdleView(GameProvider game, GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // 하트 아이콘
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: theme.primary.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.grid_3x3,
-                size: 80,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              game.isInfiniteMode ? '무한 틱택토' : '틱택토',
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: game.isInfiniteMode ? Colors.purple : theme.primary,
+    final accent = game.isHardcore
+        ? Colors.red
+        : (game.isInfiniteMode ? Colors.purple : theme.primary);
+    return GameIntroView(
+      backgroundGradient: theme.backgroundGradient,
+      accentColor: accent,
+      icon: game.isInfiniteMode ? Icons.all_inclusive : Icons.grid_3x3,
+      title: game.isInfiniteMode ? '무한 틱택토' : '틱택토',
+      descriptions: [
+        game.isInfiniteMode
+            ? '각 플레이어는 최대 3개의 말만!\n가장 오래된 말이 사라집니다'
+            : '3개를 연속으로 놓으면 승리!',
+      ],
+      findMatchLabel: _getMatchButtonLabel(game),
+      onFindMatch: () => game.findMatch(AppConfig.gameTypeTicTacToe),
+      onInviteFriend: () => _showFriendInviteDialog(context, game),
+      extra: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: game.isInfiniteMode ? Colors.purple.shade50 : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: game.isInfiniteMode ? Colors.purple : Colors.grey.shade300,
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              game.isInfiniteMode
-                  ? '각 플레이어는 최대 3개의 말만!\n가장 오래된 말이 사라집니다'
-                  : '3개를 연속으로 놓으면 승리!',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-              ),
-            ),
-            const SizedBox(height: 32),
-            // 무한 모드 토글
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: game.isInfiniteMode ? Colors.purple.shade50 : Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: game.isInfiniteMode ? Colors.purple : Colors.grey.shade300,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.all_inclusive,
-                    color: game.isInfiniteMode ? Colors.purple : Colors.grey,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '무한모드',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: game.isInfiniteMode ? Colors.purple : Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Switch(
-                    value: game.isInfiniteMode,
-                    onChanged: (value) => game.setInfiniteMode(value),
-                    activeThumbColor: Colors.purple,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            // 하드코어 모드 토글
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: game.isHardcore ? Colors.red.shade50 : Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: game.isHardcore ? Colors.red : Colors.grey.shade300,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.local_fire_department,
-                    color: game.isHardcore ? Colors.red : Colors.grey,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '하드코어',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: game.isHardcore ? Colors.red : Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '(10초)',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: game.isHardcore ? Colors.red.shade400 : Colors.grey,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Switch(
-                    value: game.isHardcore,
-                    onChanged: (value) => game.setHardcoreMode(value),
-                    activeThumbColor: Colors.red,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                ElevatedButton.icon(
-                  onPressed: () {
-                    game.findMatch(AppConfig.gameTypeTicTacToe);
-                  },
-                  icon: const Icon(Icons.search),
-                  label: Text(_getMatchButtonLabel(game)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: game.isHardcore ? Colors.red : (game.isInfiniteMode ? Colors.purple : theme.primary),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 16,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: () => _showFriendInviteDialog(context, game),
-                  icon: const Icon(Icons.person_add),
-                  label: const Text('친구 초대'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: game.isHardcore ? Colors.red : (game.isInfiniteMode ? Colors.purple : theme.primary),
-                    side: BorderSide(
-                      color: game.isHardcore ? Colors.red : (game.isInfiniteMode ? Colors.purple : theme.primary),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
+                Icon(Icons.all_inclusive,
+                    color: game.isInfiniteMode ? Colors.purple : Colors.grey),
+                const SizedBox(width: 8),
+                Text('무한모드',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: game.isInfiniteMode ? Colors.purple : Colors.grey.shade600)),
+                const SizedBox(width: 8),
+                Switch(
+                  value: game.isInfiniteMode,
+                  onChanged: (value) => game.setInfiniteMode(value),
+                  activeThumbColor: Colors.purple,
                 ),
               ],
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 12),
+          GameHardcoreToggle(
+            value: game.isHardcore,
+            onChanged: (v) => game.setHardcoreMode(v),
+            durationLabel: '(10초)',
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildSearchingView(GameProvider game, GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: 60,
-              height: 60,
-              child: CircularProgressIndicator(
-                color: theme.primary,
-                strokeWidth: 4,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              game.isHardcore ? '하드코어 상대를 찾는 중...' : '상대를 찾는 중...',
-              style: TextStyle(
-                fontSize: 18,
-                color: game.isHardcore ? Colors.red.shade700 : Colors.grey.shade700,
-              ),
-            ),
-            const SizedBox(height: 8),
-            if (game.isHardcore)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.local_fire_department, size: 16, color: Colors.red),
-                    const SizedBox(width: 4),
-                    Text(
-                      '하드코어 모드 (10초)',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.red.shade700,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.auto_awesome, size: 16, color: const Color(0xFFFDCB6E)),
-                  const SizedBox(width: 4),
-                  Text(
-                    '상대를 기다리는 중',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade500,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Icon(Icons.auto_awesome, size: 16, color: const Color(0xFFFDCB6E)),
-                ],
-              ),
-            const SizedBox(height: 48),
-            OutlinedButton(
-              onPressed: () {
-                game.cancelMatch(AppConfig.gameTypeTicTacToe);
-              },
-              style: OutlinedButton.styleFrom(
-                foregroundColor: theme.primary,
-                side: BorderSide(color: theme.primary),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                ),
-              ),
-              child: const Text('취소'),
-            ),
-          ],
-        ),
-      ),
+    return GameSearchingView(
+      theme: theme,
+      isHardcore: game.isHardcore,
+      onCancel: () => game.cancelMatch(AppConfig.gameTypeTicTacToe),
     );
   }
 
   Widget _buildMatchedView(GameProvider game, GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: theme.background1,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.sports_esports,
-                size: 64,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '${game.opponentNickname}님과 매칭!',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '게임이 곧 시작됩니다...',
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
-          ],
-        ),
-      ),
-    );
+    return GameMatchedView(theme: theme, opponentNickname: game.opponentNickname);
   }
 
   Widget _buildPlayingView(GameProvider game, GameTheme theme) {
@@ -677,56 +453,7 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
   }
 
   Widget _buildTimer(GameProvider game) {
-    final remaining = game.remainingTime;
-    final isLow = remaining <= 10;
-    final isCritical = remaining <= 5;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: isCritical
-            ? Colors.red.shade100
-            : isLow
-                ? Colors.orange.shade100
-                : Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isCritical
-              ? Colors.red
-              : isLow
-                  ? Colors.orange
-                  : Colors.grey.shade300,
-          width: isCritical ? 2 : 1,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.timer,
-            size: 18,
-            color: isCritical
-                ? Colors.red
-                : isLow
-                    ? Colors.orange
-                    : Colors.grey.shade600,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            '$remaining초',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: isCritical
-                  ? Colors.red
-                  : isLow
-                      ? Colors.orange
-                      : Colors.grey.shade700,
-            ),
-          ),
-        ],
-      ),
-    );
+    return GameBoardTimer(remaining: game.remainingTime);
   }
 
   Widget _buildBoard(GameProvider game, String? myId, GameTheme theme) {
@@ -796,24 +523,7 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
   }
 
   Widget _buildRankedWaitingView(GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text(
-              '게임 준비 중...',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-      ),
-    );
+    return GameRankedPreparingView(theme: theme);
   }
 
   Widget _buildFinishedView(GameProvider game, GameTheme theme) {
@@ -829,31 +539,11 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
       );
       final isWinner = game.isWinner;
       final isDraw = game.isDraw;
-      return Container(
-        decoration: BoxDecoration(gradient: theme.backgroundGradient),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                isDraw ? Icons.handshake : (isWinner ? Icons.emoji_events : Icons.sentiment_dissatisfied),
-                size: 80,
-                color: isDraw ? Colors.orange : (isWinner ? Colors.amber : Colors.grey),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                isDraw ? '무승부!' : (isWinner ? '승리!' : '패배'),
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: isDraw ? Colors.orange : (isWinner ? theme.primary : Colors.grey),
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text('잠시 후 다음 게임...', style: TextStyle(color: Colors.grey)),
-            ],
-          ),
-        ),
+      return GameRankedResultView(
+      backgroundGradient: theme.backgroundGradient,
+      accentColor: theme.primary,
+      isWinner: isWinner,
+      isDraw: isDraw,
       );
     }
 

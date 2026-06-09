@@ -10,6 +10,9 @@ import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
+import '../common/game_rematch_preparing_view.dart';
+import '../common/game_intro_view.dart';
+import '../common/game_scaffold.dart';
 import '../common/game_duel_header.dart';
 import '../common/game_event_helper.dart';
 import '../common/game_exit_helper.dart';
@@ -41,6 +44,9 @@ class SpeedTapScreen extends StatefulWidget {
 
 class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProviderStateMixin {
   final SocketService _socketService = SocketService();
+  // 게임 고유색 대신 사용자 테마 컬러를 accent로 사용.
+  Color get _accent =>
+      GameTheme.fromProfileSettings(context.read<ShopProvider>().profileSettings).primary;
   late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
   bool _hasScheduledPop = false;  // 중복 pop 방지
   bool _isExitDialogOpen = false;  // 나가기 다이얼로그 열림 상태
@@ -440,8 +446,16 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
 
     _socketListeners.on('opponent_left', (data) {
       if (_status == SpeedTapGameStatus.idle ||
-          _status == SpeedTapGameStatus.searching ||
-          _status == SpeedTapGameStatus.finished) {
+          _status == SpeedTapGameStatus.searching) {
+        return;
+      }
+      // 결과 화면에서 상대가 나간 경우: 결과는 유지하고 재대결만 불가 처리
+      if (_status == SpeedTapGameStatus.finished) {
+        setState(() {
+          _opponentLeft = true;
+          _rematchWaiting = false;
+          _opponentWantsRematch = false;
+        });
         return;
       }
       // 나가기 다이얼로그가 열려있으면 먼저 닫기
@@ -579,14 +593,10 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
             _showExitDialog(theme);
           },
           child: Scaffold(
-            appBar: AppBar(
-              title: const Text('스피드 탭'),
+            appBar: gameAppBar(
+              title: '스피드 탭',
               backgroundColor: theme.primary,
-              foregroundColor: Colors.white,
-              leading: IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => _showExitDialog(theme),
-              ),
+              onBack: () => _showExitDialog(theme),
             ),
             body: Stack(
               children: [
@@ -594,24 +604,12 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
                   transitionKey: '${_status.name}-$_currentRound-$_preRoundCountdown-$_roundInProgress-${_lastWinnerIndex ?? -1}-$_lastIsDraw',
                   child: _buildBody(theme),
                 ),
-                if (_isReconnecting)
-                  GameReconnectHelper.buildReconnectOverlay(
-                    title: '재연결 중...',
-                    message: '네트워크 연결을 다시 붙이는 중입니다.',
-                    resultMessage: '20초 안에 돌아오지 못하면 이 게임은 패배로 종료됩니다.',
-                    secondsRemaining: _reconnectSecondsRemaining,
-                    countdownLabel: '패배 처리까지',
-                    accentColor: theme.primary,
-                  ),
-                if (_isWaitingForReconnect)
-                  GameReconnectHelper.buildReconnectOverlay(
-                    title: '상대 재연결 대기 중',
-                    message: '상대 연결이 끊겨 게임을 잠시 멈췄습니다.',
-                    resultMessage: '20초 안에 돌아오지 않으면 자동 승리로 처리됩니다.',
-                    secondsRemaining: _reconnectSecondsRemaining,
-                    countdownLabel: '자동 승리까지',
-                    accentColor: theme.primary,
-                  ),
+                ...GameReconnectHelper.buildStandardOverlays(
+                  isReconnecting: _isReconnecting,
+                  isWaitingForReconnect: _isWaitingForReconnect,
+                  secondsRemaining: _reconnectSecondsRemaining,
+                  accentColor: theme.primary,
+                ),
               ],
             ),
           ),
@@ -789,96 +787,14 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
   }
 
   Widget _buildIdleView(GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: theme.primary.withValues(alpha: 0.3),
-                    blurRadius: 20,
-                  ),
-                ],
-              ),
-              child: Icon(
-                Icons.touch_app,
-                size: 64,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 32),
-            Text(
-              '스피드 탭',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '10초 동안 빠르게 터치!',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '3라운드 중 2라운드 승리!',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade500,
-              ),
-            ),
-            const SizedBox(height: 48),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: _findMatch,
-                  icon: const Icon(Icons.search),
-                  label: const Text('상대 찾기'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: theme.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: () => _showFriendInviteDialog(context),
-                  icon: const Icon(Icons.person_add),
-                  label: const Text('친구 초대'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: theme.primary,
-                    side: BorderSide(color: theme.primary),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+    return GameIntroView(
+      backgroundGradient: theme.backgroundGradient,
+      accentColor: theme.primary,
+      icon: Icons.touch_app,
+      title: '스피드 탭',
+      descriptions: const ['10초 동안 빠르게 터치!', '3라운드 중 2라운드 승리!'],
+      onFindMatch: _findMatch,
+      onInviteFriend: () => _showFriendInviteDialog(context),
     );
   }
 
@@ -889,7 +805,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            const Color(0xFF00CEC9).withValues(alpha: 0.1),
+            _accent.withValues(alpha: 0.1),
             Colors.white,
           ],
         ),
@@ -898,16 +814,16 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const CircularProgressIndicator(
-              color: Color(0xFF00CEC9),
+            CircularProgressIndicator(
+              color: _accent,
             ),
             const SizedBox(height: 24),
-            const Text(
+            Text(
               '상대를 찾는 중...',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF00CEC9),
+                color: _accent,
               ),
             ),
             const SizedBox(height: 48),
@@ -932,7 +848,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            const Color(0xFF00CEC9).withValues(alpha: 0.1),
+            _accent.withValues(alpha: 0.1),
             Colors.white,
           ],
         ),
@@ -947,19 +863,19 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
                 color: Color(0xFFE0F7FA),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.sports_esports,
                 size: 64,
-                color: Color(0xFF00CEC9),
+                color: _accent,
               ),
             ),
             const SizedBox(height: 16),
             Text(
               '$_opponentNickname님과 매칭!',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF00CEC9),
+                color: _accent,
               ),
             ),
             const SizedBox(height: 8),
@@ -981,7 +897,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
         // 프로필 & 점수판
         GameDuelHeader(
           backgroundColors: const [Color(0xFFE0F7FA), Color(0xFFF0FAFA)],
-          accentColor: const Color(0xFF00CEC9),
+          accentColor: _accent,
           centerLabel: 'R$_currentRound',
           centerSubtitle: '3라운드 대결',
           myName: _myNickname ?? '나',
@@ -1011,7 +927,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
       children: [
         GameHeaderScorePill(
           score: tapCount,
-          color: isMe ? const Color(0xFF00CEC9) : Colors.grey,
+          color: isMe ? _accent : Colors.grey,
         ),
         const SizedBox(height: 2),
         GameHeaderStarTrack(
@@ -1030,8 +946,8 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            const Color(0xFF00CEC9).withValues(alpha: 0.3),
-            const Color(0xFF00CEC9).withValues(alpha: 0.1),
+            _accent.withValues(alpha: 0.3),
+            _accent.withValues(alpha: 0.1),
           ],
         ),
       ),
@@ -1052,11 +968,11 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
               width: 120,
               height: 120,
               decoration: BoxDecoration(
-                color: const Color(0xFF00CEC9),
+                color: _accent,
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF00CEC9).withValues(alpha: 0.5),
+                    color: _accent.withValues(alpha: 0.5),
                     blurRadius: 20,
                     spreadRadius: 5,
                   ),
@@ -1101,8 +1017,8 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    const Color(0xFF00CEC9).withValues(alpha: 0.3),
-                    const Color(0xFF00CEC9).withValues(alpha: 0.6),
+                    _accent.withValues(alpha: 0.3),
+                    _accent.withValues(alpha: 0.6),
                   ],
                 ),
               ),
@@ -1114,7 +1030,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
                     GameTimerBadge(
                       seconds: _remainingSeconds,
                       label: '탭 남은 시간',
-                      accentColor: const Color(0xFF00CEC9),
+                      accentColor: _accent,
                       showLabel: false,
                     ),
                     const SizedBox(height: 40),
@@ -1135,7 +1051,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
                       child: Icon(
                         Icons.touch_app,
                         size: 80,
-                        color: const Color(0xFF00CEC9).withValues(alpha: 0.8),
+                        color: _accent.withValues(alpha: 0.8),
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -1229,6 +1145,13 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
   }
 
   Widget _buildFinishedView(GameTheme theme) {
+    if (_rematchWaiting) {
+      return GameRematchPreparingView(
+        backgroundGradient: theme.backgroundGradient,
+        accentColor: theme.primary,
+        onCancel: _cancelRematch,
+      );
+    }
     final isWinner = _winnerId == _myId;
 
     // 랭크전에서는 결과만 표시하고 자동으로 돌아가기
@@ -1239,31 +1162,11 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
         hasScheduledPop: _hasScheduledPop,
         markScheduledPop: () => _hasScheduledPop = true,
       );
-      return Container(
-        decoration: BoxDecoration(gradient: theme.backgroundGradient),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                _isDraw ? Icons.handshake : (isWinner ? Icons.emoji_events : Icons.sentiment_dissatisfied),
-                size: 80,
-                color: _isDraw ? Colors.orange : (isWinner ? Colors.amber : Colors.grey),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                _isDraw ? '무승부!' : (isWinner ? '승리!' : '패배'),
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: _isDraw ? Colors.orange : (isWinner ? theme.primary : Colors.grey),
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text('잠시 후 다음 게임...', style: TextStyle(color: Colors.grey)),
-            ],
-          ),
-        ),
+      return GameRankedResultView(
+      backgroundGradient: theme.backgroundGradient,
+      accentColor: theme.primary,
+      isWinner: isWinner,
+      isDraw: _isDraw,
       );
     }
 
@@ -1277,7 +1180,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
       resultIcon = Icons.handshake;
     } else if (isWinner) {
       resultText = '승리!';
-      resultColor = const Color(0xFF00CEC9);
+      resultColor = _accent;
       resultIcon = Icons.emoji_events;
     } else {
       resultText = '아쉬워요...';
@@ -1319,12 +1222,6 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
                 accentColor: resultColor,
               ),
               const SizedBox(height: 24),
-            if (_opponentLeft)
-              const GameResultStatusPill(
-                icon: Icons.exit_to_app_rounded,
-                text: '상대방이 나가서 경기 종료',
-                color: Color(0xFF6B7280),
-              ),
             if (_opponentWantsRematch && !_opponentLeft)
               GameResultStatusPill(
                 icon: Icons.hourglass_top_rounded,
@@ -1332,7 +1229,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
                 color: const Color(0xFF15803D),
               ),
             GameResultActionButtons(
-              accentColor: const Color(0xFF00CEC9),
+              accentColor: _accent,
               opponentLeft: _opponentLeft,
               rematchWaiting: _rematchWaiting,
               isInvitationGame: _isInvitationGame,
@@ -1398,7 +1295,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
     _isExitDialogOpen = true;
     showGameExitDialog(
       context: context,
-      accentColor: const Color(0xFF00CEC9),
+      accentColor: _accent,
       message: isRankedWaiting
           ? '랭크전 진행 중입니다.\n나가시겠습니까?'
           : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',

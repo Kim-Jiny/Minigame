@@ -4,13 +4,18 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
 import '../../providers/game_provider.dart';
+import '../../providers/shop_provider.dart';
 import '../../services/socket_service.dart';
 import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
+import '../common/game_rematch_preparing_view.dart';
+import '../common/game_hardcore_toggle.dart';
+import '../common/game_intro_view.dart';
 import '../common/game_duel_header.dart';
 import '../common/game_event_helper.dart';
+import '../common/game_scaffold.dart';
 import '../common/game_exit_helper.dart';
 import '../common/game_reconnect_helper.dart';
 import '../common/game_result_action_buttons.dart';
@@ -523,8 +528,16 @@ class _SequenceScreenState extends State<SequenceScreen>
 
     _socketListeners.on('opponent_left', (data) {
       if (_status == SequenceGameStatus.idle ||
-          _status == SequenceGameStatus.searching ||
-          _status == SequenceGameStatus.finished) {
+          _status == SequenceGameStatus.searching) {
+        return;
+      }
+      // 결과 화면에서 상대가 나간 경우: 결과는 유지하고 재대결만 불가 처리
+      if (_status == SequenceGameStatus.finished) {
+        setState(() {
+          _opponentLeft = true;
+          _rematchWaiting = false;
+          _opponentWantsRematch = false;
+        });
         return;
       }
       // 나가기 다이얼로그가 열려있으면 먼저 닫기
@@ -751,7 +764,8 @@ class _SequenceScreenState extends State<SequenceScreen>
     });
   }
 
-  GameTheme get _theme => GameTheme.fromProfileSettings(_myProfileSettings);
+  GameTheme get _theme => GameTheme.fromProfileSettings(
+      context.read<ShopProvider>().profileSettings);
 
   @override
   Widget build(BuildContext context) {
@@ -763,14 +777,10 @@ class _SequenceScreenState extends State<SequenceScreen>
         _showExitDialog();
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('순서 기억하기'),
+        appBar: gameAppBar(
+          title: '순서 기억하기',
           backgroundColor: theme.primary,
-          foregroundColor: theme.textOnPrimary,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: _showExitDialog,
-          ),
+          onBack: _showExitDialog,
         ),
         body: Stack(
           children: [
@@ -993,150 +1003,20 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   Widget _buildIdleView() {
-    final theme = _theme;
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: theme.primary.withValues(alpha: 0.3),
-                    blurRadius: 20,
-                  ),
-                ],
-              ),
-              child: Icon(
-                Icons.psychology,
-                size: 64,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 32),
-            Text(
-              '순서 기억하기',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '깜빡이는 순서를 기억하세요!',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '더 많이 기억한 사람이 승리!',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade500,
-              ),
-            ),
-            const SizedBox(height: 32),
-            // 하드코어 모드 토글
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: _isHardcore
-                    ? Colors.red.shade50
-                    : Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: _isHardcore ? Colors.red.shade300 : Colors.grey.shade300,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.local_fire_department,
-                    color: _isHardcore ? Colors.red : Colors.grey,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '하드코어',
-                    style: TextStyle(
-                      color: _isHardcore ? Colors.red : Colors.grey.shade700,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Switch(
-                    value: _isHardcore,
-                    onChanged: (value) => setState(() => _isHardcore = value),
-                    activeThumbColor: Colors.red,
-                    activeTrackColor: Colors.red.shade200,
-                  ),
-                ],
-              ),
-            ),
-            if (_isHardcore)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  '2배 빠른 속도!',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.red.shade400,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: _findMatch,
-                  icon: const Icon(Icons.search),
-                  label: Text(_isHardcore ? '하드코어 상대 찾기' : '상대 찾기'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _isHardcore ? Colors.red : theme.primary,
-                    foregroundColor: Colors.white,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: () => _showFriendInviteDialog(context),
-                  icon: const Icon(Icons.person_add),
-                  label: const Text('친구 초대'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _isHardcore ? Colors.red : theme.primary,
-                    side: BorderSide(
-                      color: _isHardcore ? Colors.red : theme.primary,
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
+    final accent = _isHardcore ? Colors.red : _theme.primary;
+    return GameIntroView(
+      backgroundGradient: _theme.backgroundGradient,
+      accentColor: accent,
+      icon: Icons.psychology,
+      title: '순서 기억하기',
+      descriptions: const ['깜빡이는 순서를 기억하세요!', '더 많이 기억한 사람이 승리!'],
+      findMatchLabel: _isHardcore ? '하드코어 상대 찾기' : '상대 찾기',
+      onFindMatch: _findMatch,
+      onInviteFriend: () => _showFriendInviteDialog(context),
+      extra: GameHardcoreToggle(
+        value: _isHardcore,
+        onChanged: (v) => setState(() => _isHardcore = v),
+        activeHint: '2배 빠른 속도!',
       ),
     );
   }
@@ -1298,7 +1178,7 @@ class _SequenceScreenState extends State<SequenceScreen>
                 GameTimerBadge(
                   seconds: _remainingSeconds,
                   label: '입력 남은 시간',
-                  accentColor: const Color(0xFF6366F1),
+                  accentColor: _theme.primary,
                   compact: true,
                 ),
                 const SizedBox(height: 16),
@@ -1343,11 +1223,11 @@ class _SequenceScreenState extends State<SequenceScreen>
                 title: _myFailed ? '입력 종료' : '입력 완료',
                 subtitle: message,
                 accentColor: _myFailed ? Colors.red : Colors.green,
-                content: const SizedBox(
+                content: SizedBox(
                   width: 30,
                   height: 30,
                   child: CircularProgressIndicator(
-                    color: Color(0xFF9B59B6),
+                    color: _theme.primary,
                     strokeWidth: 3,
                   ),
                 ),
@@ -1362,7 +1242,7 @@ class _SequenceScreenState extends State<SequenceScreen>
   Widget _buildHeader() {
     return GameDuelHeader(
       backgroundColors: const [Color(0xFFF3E5F5), Color(0xFFFCE4EC)],
-      accentColor: const Color(0xFF9B59B6),
+      accentColor: _theme.primary,
       centerLabel: 'Lv.$_currentLevel',
       centerSubtitle: _isHardcore ? '하드코어' : (_gridSize == 16 ? '4x4 패턴' : '3x3 패턴'),
       myName: _myNickname ?? '나',
@@ -1400,7 +1280,7 @@ class _SequenceScreenState extends State<SequenceScreen>
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF9B59B6).withValues(alpha: 0.2),
+              color: _theme.primary.withValues(alpha: 0.2),
               blurRadius: 20,
             ),
           ],
@@ -1435,13 +1315,13 @@ class _SequenceScreenState extends State<SequenceScreen>
 
     Color cellColor = Colors.grey.shade200;
     if (isShowing) {
-      cellColor = const Color(0xFF9B59B6);
+      cellColor = _theme.primary;
     } else if (isCorrectInput) {
       cellColor = Colors.green;
     } else if (isWrongInput) {
       cellColor = Colors.red;
     } else if (alreadyInput) {
-      cellColor = const Color(0xFF9B59B6).withValues(alpha: 0.3);
+      cellColor = _theme.primary.withValues(alpha: 0.3);
     }
 
     return GestureDetector(
@@ -1457,7 +1337,7 @@ class _SequenceScreenState extends State<SequenceScreen>
           boxShadow: isShowing
               ? [
                   BoxShadow(
-                    color: const Color(0xFF9B59B6).withValues(alpha: 0.5),
+                    color: _theme.primary.withValues(alpha: 0.5),
                     blurRadius: 15,
                     spreadRadius: 2,
                   )
@@ -1474,6 +1354,13 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   Widget _buildFinishedView() {
+    if (_rematchWaiting) {
+      return GameRematchPreparingView(
+        backgroundGradient: _theme.backgroundGradient,
+        accentColor: _theme.primary,
+        onCancel: _cancelRematch,
+      );
+    }
     final isWinner = _winnerId == _myId;
 
     // 랭크전에서는 결과만 표시하고 자동으로 돌아가기
@@ -1484,31 +1371,11 @@ class _SequenceScreenState extends State<SequenceScreen>
         hasScheduledPop: _hasScheduledPop,
         markScheduledPop: () => _hasScheduledPop = true,
       );
-      return Container(
-        decoration: BoxDecoration(gradient: _theme.backgroundGradient),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                _isDraw ? Icons.handshake : (isWinner ? Icons.emoji_events : Icons.sentiment_dissatisfied),
-                size: 80,
-                color: _isDraw ? Colors.orange : (isWinner ? Colors.amber : Colors.grey),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                _isDraw ? '무승부!' : (isWinner ? '승리!' : '패배'),
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: _isDraw ? Colors.orange : (isWinner ? _theme.primary : Colors.grey),
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text('잠시 후 다음 게임...', style: TextStyle(color: Colors.grey)),
-            ],
-          ),
-        ),
+      return GameRankedResultView(
+        backgroundGradient: _theme.backgroundGradient,
+        accentColor: _theme.primary,
+        isWinner: isWinner,
+        isDraw: _isDraw,
       );
     }
 
@@ -1522,7 +1389,7 @@ class _SequenceScreenState extends State<SequenceScreen>
       resultIcon = Icons.handshake;
     } else if (isWinner) {
       resultText = '승리!';
-      resultColor = const Color(0xFF9B59B6);
+      resultColor = _theme.primary;
       resultIcon = Icons.emoji_events;
     } else {
       resultText = '아쉬워요...';
@@ -1564,12 +1431,6 @@ class _SequenceScreenState extends State<SequenceScreen>
               accentColor: resultColor,
             ),
             const SizedBox(height: 24),
-            if (_opponentLeft)
-              const GameResultStatusPill(
-                icon: Icons.exit_to_app_rounded,
-                text: '상대방이 나가서 경기 종료',
-                color: Color(0xFF6B7280),
-              ),
             if (_opponentWantsRematch && !_opponentLeft)
               GameResultStatusPill(
                 icon: Icons.hourglass_top_rounded,
@@ -1577,7 +1438,7 @@ class _SequenceScreenState extends State<SequenceScreen>
                 color: const Color(0xFF15803D),
               ),
             GameResultActionButtons(
-              accentColor: const Color(0xFF9B59B6),
+              accentColor: _theme.primary,
               opponentLeft: _opponentLeft,
               rematchWaiting: _rematchWaiting,
               isInvitationGame: _isInvitationGame,
@@ -1648,7 +1509,7 @@ class _SequenceScreenState extends State<SequenceScreen>
     _isExitDialogOpen = true;
     showGameExitDialog(
       context: context,
-      accentColor: const Color(0xFF9B59B6),
+      accentColor: _theme.primary,
       message: isRankedWaiting
           ? '랭크전 진행 중입니다.\n나가시겠습니까?'
           : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',

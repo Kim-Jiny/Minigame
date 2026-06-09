@@ -10,6 +10,9 @@ import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
+import '../common/game_rematch_preparing_view.dart';
+import '../common/game_intro_view.dart';
+import '../common/game_scaffold.dart';
 import '../common/game_duel_header.dart';
 import '../common/game_event_helper.dart';
 import '../common/game_exit_helper.dart';
@@ -468,8 +471,16 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
 
     _socketListeners.on('opponent_left', (data) {
       if (_status == CardFlipGameStatus.idle ||
-          _status == CardFlipGameStatus.searching ||
-          _status == CardFlipGameStatus.finished) {
+          _status == CardFlipGameStatus.searching) {
+        return;
+      }
+      // 결과 화면에서 상대가 나간 경우: 결과는 유지하고 재대결만 불가 처리
+      if (_status == CardFlipGameStatus.finished) {
+        setState(() {
+          _opponentLeft = true;
+          _rematchWaiting = false;
+          _opponentWantsRematch = false;
+        });
         return;
       }
       if (_isExitDialogOpen && mounted) {
@@ -615,14 +626,10 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
             _showExitDialog(theme);
           },
           child: Scaffold(
-            appBar: AppBar(
-              title: const Text('카드 뒤집기'),
+            appBar: gameAppBar(
+              title: '카드 뒤집기',
               backgroundColor: theme.primary,
-              foregroundColor: Colors.white,
-              leading: IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => _showExitDialog(theme),
-              ),
+              onBack: () => _showExitDialog(theme),
             ),
             body: Stack(
               children: [
@@ -630,24 +637,12 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
                   transitionKey: _status.name,
                   child: _buildBody(theme),
                 ),
-                if (_isReconnecting)
-                  GameReconnectHelper.buildReconnectOverlay(
-                    title: '재연결 중...',
-                    message: '네트워크 연결을 다시 붙이는 중입니다.',
-                    resultMessage: '20초 안에 돌아오지 못하면 이 게임은 패배로 종료됩니다.',
-                    secondsRemaining: _reconnectSecondsRemaining,
-                    countdownLabel: '패배 처리까지',
-                    accentColor: theme.primary,
-                  ),
-                if (_isWaitingForReconnect)
-                  GameReconnectHelper.buildReconnectOverlay(
-                    title: '상대 재연결 대기 중',
-                    message: '상대 연결이 끊겨 게임을 잠시 멈췄습니다.',
-                    resultMessage: '20초 안에 돌아오지 않으면 자동 승리로 처리됩니다.',
-                    secondsRemaining: _reconnectSecondsRemaining,
-                    countdownLabel: '자동 승리까지',
-                    accentColor: theme.primary,
-                  ),
+                ...GameReconnectHelper.buildStandardOverlays(
+                  isReconnecting: _isReconnecting,
+                  isWaitingForReconnect: _isWaitingForReconnect,
+                  secondsRemaining: _reconnectSecondsRemaining,
+                  accentColor: theme.primary,
+                ),
               ],
             ),
           ),
@@ -820,101 +815,19 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
   }
 
   Widget _buildIdleView(GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: theme.primary.withValues(alpha: 0.3),
-                    blurRadius: 20,
-                  ),
-                ],
-              ),
-              child: Icon(
-                Icons.style,
-                size: 64,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 32),
-            Text(
-              '카드 뒤집기',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '짝이 맞는 카드를 찾아라!',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '4x5 그리드 / 턴당 10초',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade500,
-              ),
-            ),
-            const SizedBox(height: 48),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: _findMatch,
-                  icon: const Icon(Icons.search),
-                  label: const Text('상대 찾기'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: theme.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: () => _showFriendInviteDialog(context),
-                  icon: const Icon(Icons.person_add),
-                  label: const Text('친구 초대'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: theme.primary,
-                    side: BorderSide(color: theme.primary),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+    return GameIntroView(
+      backgroundGradient: theme.backgroundGradient,
+      accentColor: theme.primary,
+      icon: Icons.style,
+      title: '카드 뒤집기',
+      descriptions: const ['짝이 맞는 카드를 찾아라!', '4x5 그리드 / 턴당 10초'],
+      onFindMatch: _findMatch,
+      onInviteFriend: () => _showFriendInviteDialog(context),
     );
   }
 
   Widget _buildSearchingView(GameTheme theme) {
-    const accentColor = Color(0xFF6C5CE7);
+    final accentColor = theme.primary;
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -930,11 +843,11 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const CircularProgressIndicator(
+            CircularProgressIndicator(
               color: accentColor,
             ),
             const SizedBox(height: 24),
-            const Text(
+            Text(
               '상대를 찾는 중...',
               style: TextStyle(
                 fontSize: 20,
@@ -958,7 +871,7 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
   }
 
   Widget _buildMatchedView(GameTheme theme) {
-    const accentColor = Color(0xFF6C5CE7);
+    final accentColor = theme.primary;
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -980,7 +893,7 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
                 color: accentColor.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.sports_esports,
                 size: 64,
                 color: accentColor,
@@ -989,7 +902,7 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
             const SizedBox(height: 16),
             Text(
               '$_opponentNickname님과 매칭!',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
                 color: accentColor,
@@ -1007,7 +920,7 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
   }
 
   Widget _buildPlayingView(GameTheme theme) {
-    const accentColor = Color(0xFF6C5CE7);
+    final accentColor = theme.primary;
     final myScore = _scores[_myPlayerIndex];
     final opponentScore = _scores[1 - _myPlayerIndex];
 
@@ -1192,8 +1105,15 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
   }
 
   Widget _buildFinishedView(GameTheme theme) {
+    if (_rematchWaiting) {
+      return GameRematchPreparingView(
+        backgroundGradient: theme.backgroundGradient,
+        accentColor: theme.primary,
+        onCancel: _cancelRematch,
+      );
+    }
     final isWinner = _winnerId == _myId;
-    const accentColor = Color(0xFF6C5CE7);
+    final accentColor = theme.primary;
 
     if (widget.isRanked) {
       GameSessionHelper.scheduleRankedAutoReturn(
@@ -1202,31 +1122,11 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
         hasScheduledPop: _hasScheduledPop,
         markScheduledPop: () => _hasScheduledPop = true,
       );
-      return Container(
-        decoration: BoxDecoration(gradient: theme.backgroundGradient),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                _isDraw ? Icons.handshake : (isWinner ? Icons.emoji_events : Icons.sentiment_dissatisfied),
-                size: 80,
-                color: _isDraw ? Colors.orange : (isWinner ? Colors.amber : Colors.grey),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                _isDraw ? '무승부!' : (isWinner ? '승리!' : '패배'),
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: _isDraw ? Colors.orange : (isWinner ? theme.primary : Colors.grey),
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text('잠시 후 다음 게임...', style: TextStyle(color: Colors.grey)),
-            ],
-          ),
-        ),
+      return GameRankedResultView(
+      backgroundGradient: theme.backgroundGradient,
+      accentColor: theme.primary,
+      isWinner: isWinner,
+      isDraw: _isDraw,
       );
     }
 
@@ -1282,12 +1182,6 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
                 accentColor: resultColor,
               ),
               const SizedBox(height: 24),
-              if (_opponentLeft)
-                const GameResultStatusPill(
-                  icon: Icons.exit_to_app_rounded,
-                  text: '상대방이 나가서 경기 종료',
-                  color: Color(0xFF6B7280),
-                ),
               if (_opponentWantsRematch && !_opponentLeft)
                 GameResultStatusPill(
                   icon: Icons.hourglass_top_rounded,
@@ -1357,7 +1251,7 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
     _isExitDialogOpen = true;
     showGameExitDialog(
       context: context,
-      accentColor: const Color(0xFF6C5CE7),
+      accentColor: theme.primary,
       message: '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
       onExit: _leaveGame,
     ).then((_) => _isExitDialogOpen = false);

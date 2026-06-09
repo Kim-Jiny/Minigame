@@ -1,3 +1,4 @@
+// [CTR] CatchTheRule 전용 — 파일 전체가 CTR 소유. 삭제·리팩터링 금지 (리포 루트 CLAUDE.md 참고).
 // CatchTheRule 추가 스테이지(서버 제공) 검증. 번들 puzzles.json 과 동일 스키마.
 const LANGS = ['en', 'ko', 'ja', 'zh', 'es', 'fr', 'de'];
 
