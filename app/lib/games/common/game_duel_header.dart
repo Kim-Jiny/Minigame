@@ -42,13 +42,14 @@ class GameDuelHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       decoration: BoxDecoration(
-        gradient: LinearGradient(colors: backgroundColors),
-        borderRadius: BorderRadius.circular(28),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFECEDF1)),
         boxShadow: [
           BoxShadow(
-            color: accentColor.withValues(alpha: 0.16),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 18,
             offset: const Offset(0, 8),
           ),
@@ -71,48 +72,33 @@ class GameDuelHeader extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: centerWidget ??
                 Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.18),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.18),
-                        ),
+                        color: accentColor.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
                         centerLabel,
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w800,
-                          color: backgroundColors.last.computeLuminance() > 0.4
-                              ? const Color(0xFF111827)
-                              : Colors.white,
+                          color: accentColor,
                         ),
                       ),
                     ),
                     const SizedBox(height: 6),
-                    if (centerSubtitle != null)
-                      Text(
-                        centerSubtitle!,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white.withValues(alpha: 0.88),
-                          letterSpacing: 0.2,
-                        ),
-                      )
-                    else
-                      Text(
-                        'VS',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.white.withValues(alpha: 0.92),
-                          letterSpacing: 0.6,
-                        ),
+                    Text(
+                      centerSubtitle ?? 'VS',
+                      style: TextStyle(
+                        fontSize: centerSubtitle != null ? 11 : 14,
+                        fontWeight: FontWeight.w900,
+                        color: const Color(0xFF9AA1AC),
+                        letterSpacing: 0.4,
                       ),
+                    ),
                   ],
                 ),
           ),

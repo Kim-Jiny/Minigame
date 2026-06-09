@@ -148,7 +148,7 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
           // 프로필 & 턴 표시
           GameDuelHeader(
             backgroundColors: const [Color(0xFFE0F0FF), Color(0xFFF0F8FF)],
-            accentColor: const Color(0xFF00B894),
+            accentColor: theme.primary,
             centerLabel: '',
             myName: auth.nickname ?? '나',
             opponentName: game.opponentNickname ?? '상대',
@@ -171,7 +171,7 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
-                      color: game.isMyTurn ? const Color(0xFF00B894) : Colors.grey,
+                      color: game.isMyTurn ? theme.primary : Colors.grey,
                     ),
                   ),
                 ],

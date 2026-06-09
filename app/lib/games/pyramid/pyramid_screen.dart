@@ -72,6 +72,9 @@ class PyramidScreen extends StatefulWidget {
 
 class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateMixin {
   final SocketService _socketService = SocketService();
+  // 게임 고유색 대신 사용자 테마 컬러를 accent로 사용.
+  Color get _accent =>
+      GameTheme.fromProfileSettings(context.read<ShopProvider>().profileSettings).primary;
   late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
 
   // 게임 상태
@@ -711,7 +714,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
             backgroundColor: theme.background2,
             appBar: gameAppBar(
               title: '수식피라미드',
-              backgroundColor: const Color(0xFFE67E22),
+              backgroundColor: _accent,
               boldTitle: true,
             ),
             body: Container(
@@ -768,9 +771,9 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
       padding: const EdgeInsets.all(24),
       child: Column(
         children: [
-          const Icon(Icons.change_history, size: 80, color: Color(0xFFE67E22)),
+          Icon(Icons.change_history, size: 80, color: _accent),
           const SizedBox(height: 16),
-          const Text('수식피라미드', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFFE67E22))),
+          Text('수식피라미드', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: _accent)),
           const SizedBox(height: 12),
           Text(
             '카드를 골라 목표 숫자를 맞춰라!',
@@ -837,7 +840,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
                     icon: const Icon(Icons.people),
                     label: const Text('대전 (2인)', style: TextStyle(fontSize: 18)),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFE67E22),
+                      backgroundColor: _accent,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -850,8 +853,8 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
                   icon: const Icon(Icons.person_add, size: 20),
                   label: const Text('친구 초대'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFFE67E22),
-                    side: const BorderSide(color: Color(0xFFE67E22)),
+                    foregroundColor: _accent,
+                    side: BorderSide(color: _accent),
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
@@ -878,12 +881,12 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
 
   // ==================== SEARCHING ====================
   Widget _buildSearchingView(GameTheme theme) {
-    return GameSoloSearchingView(accentColor: const Color(0xFFE67E22), onCancel: _cancelMatch);
+    return GameSoloSearchingView(accentColor: _accent, onCancel: _cancelMatch);
   }
 
   // ==================== MATCHED ====================
   Widget _buildMatchedView(GameTheme theme) {
-    return GameSoloMatchedView(accentColor: const Color(0xFFE67E22), opponentNickname: _opponentNickname, isSolo: _isSolo);
+    return GameSoloMatchedView(accentColor: _accent, opponentNickname: _opponentNickname, isSolo: _isSolo);
   }
 
   // ==================== PLAYING / BUZZING ====================
@@ -900,7 +903,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFFE67E22),
+              color: _accent,
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
@@ -1059,7 +1062,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
         _buildHeader(theme),
         const SizedBox(height: 16),
         Text('라운드 $_currentRound/$maxRounds 종료',
-          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFFE67E22))),
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _accent)),
         const SizedBox(height: 8),
         Text('타겟: $_targetNumber',
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[700])),
@@ -1132,11 +1135,11 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
               const SizedBox(height: 16),
               Text('최종 점수', style: TextStyle(fontSize: 20, color: Colors.grey[700])),
               Text('${_scores.isNotEmpty ? _scores[0] : 0}점',
-                style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Color(0xFFE67E22))),
+                style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: _accent)),
             ] else if (_opponentLeft) ...[
               const Icon(Icons.emoji_events, size: 64, color: Colors.amber),
               const SizedBox(height: 16),
-              const Text('승리!', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFFE67E22))),
+              Text('승리!', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: _accent)),
               const Text('상대방이 나갔습니다', style: TextStyle(fontSize: 16, color: Colors.grey)),
             ] else if (_isDraw) ...[
               const Icon(Icons.handshake, size: 64, color: Colors.blue),
@@ -1145,7 +1148,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
             ] else if (isWinner) ...[
               const Icon(Icons.emoji_events, size: 64, color: Colors.amber),
               const SizedBox(height: 16),
-              const Text('승리!', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFFE67E22))),
+              Text('승리!', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: _accent)),
             ] else ...[
               Icon(Icons.sentiment_dissatisfied, size: 64, color: Colors.grey[400]),
               const SizedBox(height: 16),
@@ -1154,13 +1157,14 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
             const SizedBox(height: 16),
             if (!isSoloDone && _scores.length >= 2)
               Text('${_scores[_myPlayerIndex]} : ${_scores[_myPlayerIndex == 0 ? 1 : 0]}',
-                style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Color(0xFFE67E22))),
+                style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: _accent)),
             const SizedBox(height: 32),
             GameEndActionPanel(
               showRematchActions: !isSoloDone && !_opponentLeft,
+              opponentLeft: !isSoloDone && _opponentLeft,
               opponentWantsRematch: _opponentWantsRematch,
               rematchWaiting: _rematchWaiting,
-              primaryColor: const Color(0xFFE67E22),
+              primaryColor: _accent,
               primaryForegroundColor: Colors.white,
               onRequestRematch: _requestRematch,
               onCancelRematch: _cancelRematch,
@@ -1201,18 +1205,18 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFE67E22).withValues(alpha: 0.1),
+                  color: _accent.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text('R$_currentRound/$maxRounds',
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFFE67E22))),
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: _accent)),
               ),
               const SizedBox(height: 4),
               Text(
                 _isSolo
                     ? '${_scores.isNotEmpty ? _scores[0] : 0}점'
                     : '${_scores.isNotEmpty ? _scores[_myPlayerIndex] : 0} : ${_scores.length > 1 ? _scores[_myPlayerIndex == 0 ? 1 : 0] : 0}',
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFFE67E22)),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _accent),
               ),
             ],
           ),
@@ -1243,7 +1247,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
           isActive: _buzzingPlayerIndex == playerIndex,
           isMe: isMe,
           profileSettings: profileSettings,
-          activeColor: const Color(0xFFE67E22),
+          activeColor: _accent,
         ),
       ],
     );
@@ -1306,8 +1310,8 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
     double borderW;
 
     if (isSelected) {
-      bgColor = const Color(0xFFE67E22).withValues(alpha: 0.3);
-      borderColor = const Color(0xFFE67E22);
+      bgColor = _accent.withValues(alpha: 0.3);
+      borderColor = _accent;
       borderW = 3;
     } else if (isInPath) {
       bgColor = Colors.green.withValues(alpha: 0.2);
@@ -1315,7 +1319,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
       borderW = 2.5;
     } else if (canSelect) {
       bgColor = Colors.white;
-      borderColor = const Color(0xFFE67E22).withValues(alpha: 0.5);
+      borderColor = _accent.withValues(alpha: 0.5);
       borderW = 2;
     } else {
       bgColor = Colors.grey[200]!;
@@ -1343,7 +1347,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
               borderColor: borderColor,
               borderWidth: borderW,
               shadowColor: isSelected
-                  ? const Color(0xFFE67E22).withValues(alpha: 0.3)
+                  ? _accent.withValues(alpha: 0.3)
                   : Colors.black.withValues(alpha: 0.1),
             ),
             child: Center(
@@ -1355,7 +1359,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
                     style: TextStyle(
                       fontSize: hexSize * 0.28,
                       fontWeight: FontWeight.bold,
-                      color: isSelected ? const Color(0xFFE67E22) : Colors.black87,
+                      color: isSelected ? _accent : Colors.black87,
                     ),
                   ),
                   // 선택 순서 번호
@@ -1366,8 +1370,8 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
                       child: Container(
                         width: 20,
                         height: 20,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFE67E22),
+                        decoration: BoxDecoration(
+                          color: _accent,
                           shape: BoxShape.circle,
                         ),
                         alignment: Alignment.center,
@@ -1413,9 +1417,9 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
                   padding: const EdgeInsets.all(16),
                   child: Row(
                     children: [
-                      const Icon(Icons.leaderboard, color: Color(0xFFE67E22)),
+                      Icon(Icons.leaderboard, color: _accent),
                       const SizedBox(width: 8),
-                      const Text('솔로 랭킹', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFFE67E22))),
+                      Text('솔로 랭킹', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _accent)),
                       const Spacer(),
                       IconButton(
                         onPressed: () => Navigator.pop(ctx),
@@ -1458,7 +1462,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
                               title: Text(nickname, style: const TextStyle(fontWeight: FontWeight.w600)),
                               trailing: Text(
                                 '$score점',
-                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFFE67E22)),
+                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _accent),
                               ),
                             );
                           },
@@ -1499,7 +1503,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
                 Padding(
                   padding: const EdgeInsets.all(20),
                   child: Row(children: [
-                    const Icon(Icons.person_add, color: Color(0xFFE67E22)),
+                    Icon(Icons.person_add, color: _accent),
                     const SizedBox(width: 12),
                     const Text('친구 초대', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                   ]),
@@ -1525,10 +1529,10 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
                             return ListTile(
                               leading: Stack(children: [
                                 CircleAvatar(
-                                  backgroundColor: const Color(0xFFE67E22).withValues(alpha: 0.2),
+                                  backgroundColor: _accent.withValues(alpha: 0.2),
                                   child: Text(
                                     friend.nickname.isNotEmpty ? friend.nickname[0].toUpperCase() : '?',
-                                    style: const TextStyle(color: Color(0xFFE67E22)),
+                                    style: TextStyle(color: _accent),
                                   ),
                                 ),
                                 Positioned(
@@ -1556,7 +1560,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
                                   );
                                 },
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFFE67E22), foregroundColor: Colors.white,
+                                  backgroundColor: _accent, foregroundColor: Colors.white,
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                                 ),
                                 child: const Text('초대'),

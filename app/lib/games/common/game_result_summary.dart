@@ -80,27 +80,28 @@ class GameResultHero extends StatelessWidget {
     return Column(
       children: [
         Container(
-          width: 118,
-          height: 118,
+          width: 112,
+          height: 112,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: color.withValues(alpha: 0.14),
+            color: color.withValues(alpha: 0.10),
             boxShadow: [
               BoxShadow(
-                color: color.withValues(alpha: 0.2),
-                blurRadius: 24,
-                offset: const Offset(0, 10),
+                color: color.withValues(alpha: 0.12),
+                blurRadius: 28,
+                offset: const Offset(0, 12),
               ),
             ],
           ),
-          child: Icon(icon, size: 60, color: color),
+          child: Icon(icon, size: 56, color: color),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 22),
         Text(
           title,
           style: TextStyle(
-            fontSize: 34,
+            fontSize: 32,
             fontWeight: FontWeight.w800,
+            letterSpacing: -0.5,
             color: color,
           ),
         ),
@@ -192,21 +193,21 @@ class GameResultMatchupRow extends StatelessWidget {
         final leftCard = _MetricCard(
           label: leftLabel,
           value: leftValue,
-          backgroundColor: accentColor,
-          foregroundColor: Colors.white,
+          accentColor: accentColor,
+          highlighted: true,
         );
         final rightCard = _MetricCard(
           label: rightLabel,
           value: rightValue,
-          backgroundColor: const Color(0xFFF3F4F6),
-          foregroundColor: const Color(0xFF111827),
+          accentColor: accentColor,
+          highlighted: false,
         );
         final separator = Text(
           useVerticalLayout ? 'VS' : ':',
-          style: TextStyle(
-            fontSize: useVerticalLayout ? 18 : 32,
-            fontWeight: FontWeight.w900,
-            color: accentColor.withValues(alpha: 0.8),
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFFC2C7CF),
           ),
         );
 
@@ -241,29 +242,34 @@ class GameResultMatchupRow extends StatelessWidget {
 class _MetricCard extends StatelessWidget {
   final String label;
   final String value;
-  final Color backgroundColor;
-  final Color foregroundColor;
+  final Color accentColor;
+  final bool highlighted;
 
   const _MetricCard({
     required this.label,
     required this.value,
-    required this.backgroundColor,
-    required this.foregroundColor,
+    required this.accentColor,
+    required this.highlighted,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 116,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      width: 124,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(24),
+        color: highlighted ? accentColor.withValues(alpha: 0.08) : Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: highlighted
+              ? accentColor.withValues(alpha: 0.22)
+              : const Color(0xFFECEDF1),
+        ),
         boxShadow: [
           BoxShadow(
-            color: backgroundColor.withValues(alpha: 0.18),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
@@ -273,19 +279,19 @@ class _MetricCard extends StatelessWidget {
             label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: foregroundColor.withValues(alpha: 0.82),
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF9AA1AC),
             ),
           ),
           const SizedBox(height: 8),
           Text(
             value,
             style: TextStyle(
-              fontSize: 24,
+              fontSize: 26,
               fontWeight: FontWeight.w900,
-              color: foregroundColor,
+              color: highlighted ? accentColor : const Color(0xFF1A1D23),
             ),
           ),
         ],

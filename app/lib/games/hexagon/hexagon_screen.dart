@@ -779,7 +779,6 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
             appBar: gameAppBar(
               title: '헥사곤',
               backgroundColor: theme.primary,
-              foregroundColor: theme.textOnPrimary,
               boldTitle: true,
             ),
             body: Container(
@@ -1282,6 +1281,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
               ),
             GameEndActionPanel(
               showRematchActions: !_isSolo && !_opponentLeft,
+              opponentLeft: !_isSolo && _opponentLeft,
               opponentWantsRematch: _opponentWantsRematch,
               rematchWaiting: _rematchWaiting,
               primaryColor: theme.primary,

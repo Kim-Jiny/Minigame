@@ -89,7 +89,9 @@ class _ArrowdashScreenState extends State<ArrowdashScreen>
   late AnimationController _arrowAnimController;
   late Animation<double> _arrowScaleAnim;
 
-  static const _accentColor = Color(0xFF00B894);
+  // 게임 고유색 대신 사용자 테마 컬러를 accent로 사용.
+  Color get _accentColor =>
+      GameTheme.fromProfileSettings(context.read<ShopProvider>().profileSettings).primary;
   static const _totalArrows = 30;
 
   @override
@@ -825,11 +827,11 @@ class _ArrowdashScreenState extends State<ArrowdashScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const CircularProgressIndicator(
+            CircularProgressIndicator(
               color: _accentColor,
             ),
             const SizedBox(height: 24),
-            const Text(
+            Text(
               '상대를 찾는 중...',
               style: TextStyle(
                 fontSize: 20,
@@ -874,7 +876,7 @@ class _ArrowdashScreenState extends State<ArrowdashScreen>
                 color: _accentColor.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.sports_esports,
                 size: 64,
                 color: _accentColor,
@@ -883,7 +885,7 @@ class _ArrowdashScreenState extends State<ArrowdashScreen>
             const SizedBox(height: 16),
             Text(
               '$_opponentNickname님과 매칭!',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
                 color: _accentColor,
@@ -1011,7 +1013,7 @@ class _ArrowdashScreenState extends State<ArrowdashScreen>
     final isComplete = _myProgress >= _arrows.length;
 
     if (isComplete) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [

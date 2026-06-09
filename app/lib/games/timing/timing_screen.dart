@@ -94,7 +94,9 @@ class _TimingScreenState extends State<TimingScreen>
   // 애니메이션
   late AnimationController _gaugeController;
 
-  static const _accentColor = Color(0xFF6C5CE7);
+  // 게임 고유색 대신 사용자 테마 컬러를 accent로 사용.
+  Color get _accentColor =>
+      GameTheme.fromProfileSettings(context.read<ShopProvider>().profileSettings).primary;
   static const _maxRounds = 5;
 
   @override
@@ -831,11 +833,11 @@ class _TimingScreenState extends State<TimingScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const CircularProgressIndicator(
+            CircularProgressIndicator(
               color: _accentColor,
             ),
             const SizedBox(height: 24),
-            const Text(
+            Text(
               '상대를 찾는 중...',
               style: TextStyle(
                 fontSize: 20,
@@ -880,7 +882,7 @@ class _TimingScreenState extends State<TimingScreen>
                 color: _accentColor.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.sports_esports,
                 size: 64,
                 color: _accentColor,
@@ -889,7 +891,7 @@ class _TimingScreenState extends State<TimingScreen>
             const SizedBox(height: 16),
             Text(
               '$_opponentNickname님과 매칭!',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
                 color: _accentColor,
@@ -1068,7 +1070,7 @@ class _TimingScreenState extends State<TimingScreen>
               ),
             ),
             if (_opponentStopped)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.only(top: 8),
                 child: Text(
                   '상대 완료!',
@@ -1104,7 +1106,7 @@ class _TimingScreenState extends State<TimingScreen>
               ),
             ),
             if (_opponentStopped)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.only(top: 16),
                 child: Text(
                   '상대 완료!',
@@ -1156,7 +1158,7 @@ class _TimingScreenState extends State<TimingScreen>
         children: [
           Text(
             'Round $_currentRound 결과',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
               color: _accentColor,
@@ -1189,7 +1191,7 @@ class _TimingScreenState extends State<TimingScreen>
             children: [
               Text(
                 '총점  $_myScore',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                   color: _accentColor,

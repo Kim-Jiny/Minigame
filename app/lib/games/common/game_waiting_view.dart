@@ -77,11 +77,12 @@ class _GameWaitingViewState extends State<GameWaitingView> {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(28),
+                  border: Border.all(color: const Color(0xFFECEDF1)),
                   boxShadow: [
                     BoxShadow(
-                      color: widget.accentColor.withValues(alpha: 0.16),
-                      blurRadius: 24,
-                      offset: const Offset(0, 10),
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 28,
+                      offset: const Offset(0, 12),
                     ),
                   ],
                 ),

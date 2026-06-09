@@ -72,6 +72,35 @@ class GameResultActionButtons extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // 상대가 나가 재대결이 불가능한 경우 안내
+          if (opponentLeft) ...[
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F2F4),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline_rounded,
+                      size: 18, color: Colors.grey.shade500),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '상대방이 떠났어요',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           // 1차 CTA — 풀폭 필드 버튼
           SizedBox(
             width: double.infinity,

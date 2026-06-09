@@ -29,12 +29,12 @@ class GameStagePanel extends StatelessWidget {
         vertical: compact ? 20 : 24,
       ),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.92),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: accentColor.withValues(alpha: 0.12)),
+        border: Border.all(color: const Color(0xFFECEDF1)),
         boxShadow: [
           BoxShadow(
-            color: accentColor.withValues(alpha: 0.14),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 24,
             offset: const Offset(0, 10),
           ),

@@ -107,7 +107,28 @@
       "Bash(sed -n '1,20p')",
       "Bash(sed -n '/static Widget buildReconnectOverlay/,/^  }/p' game_reconnect_helper.dart)",
       "Bash(python3 -)",
-      "Bash(cd *)"
+      "Bash(cd *)",
+      "Bash(awk '/Widget _buildIdleView/{f=1} f{print} f&&/^  }$/{c++; if\\(c>=1\\)exit}' numberbattle/numberbattle_screen.dart)",
+      "Bash(awk '/Widget _buildIdleView/{s=NR} s&&/^  }$/{print \"range \"s\"-\"NR; exit}' rps/rps_screen.dart)",
+      "Bash(awk '/Widget _buildIdleView/{f=1} f&&/onPressed:/{print NR\": \"$0} f&&/^  }$/{exit}' rps/rps_screen.dart)",
+      "Bash(awk '/Widget _buildIdleView/{f=1; s=NR} f{print NR\": \"$0} f&&/^  }$/{exit}' stroop/stroop_screen.dart)",
+      "Bash(awk '/Widget _buildIdleView/{f=1} f&&\\(/하드코어|Switch\\\\\\(|isHardcore|onPressed:|label: |_findMatch|_showFriendInvite|Text\\\\\\(\\\\x27/\\){print NR\": \"$0} f&&/^  }$/{exit}' sequence/sequence_screen.dart)",
+      "Bash(awk '/Widget _buildIdleView/{f=1} f&&/하드코어|Switch\\\\\\(|setHardcoreMode|무승부 없음/{print NR\": \"$0} f&&/^  }$/{exit}' infinite_tictactoe/infinite_tictactoe_screen.dart)",
+      "Bash(awk '/Widget _buildIdleView/{s=NR} s&&/^  }$/{print s\"-\"NR; exit}' stroop/stroop_screen.dart)",
+      "Bash(awk '/Widget _buildIdleView/{s=NR} s&&/^  }$/{print \"range \"s\"-\"NR; exit}' sequence/sequence_screen.dart)",
+      "Bash(awk '/Widget _buildIdleView/{f=1} f{print NR\": \"$0} f&&/^  }$/{exit}' sequence/sequence_screen.dart)",
+      "Bash(awk '/Widget _buildIdleView/{f=1} f&&/gradient:/{print $0; exit}' sequence/sequence_screen.dart)",
+      "Bash(awk '/Widget _buildIdleView/{f=1} f{print NR\": \"$0} f&&/^  }$/{exit}' tictactoe/tictactoe_screen.dart)",
+      "Bash(awk '/Widget _buildIdleView/{s=NR} s&&/^  }$/{print \"range \"s\"-\"NR; exit}' gomoku/gomoku_screen.dart)",
+      "Bash(awk '/Widget _buildIdleView/{f=1} f{print NR\": \"$0} f&&/^  }$/{exit}' gomoku/gomoku_screen.dart)",
+      "Bash(sed -n '283,300p' gomoku/gomoku_screen.dart)",
+      "Bash(sed -n '320,345p' gomoku/gomoku_screen.dart)",
+      "Bash(sort -t: -k1,1 -k2,2n)",
+      "Bash(sed -n '950,970p' mathrace/mathrace_screen.dart)",
+      "Bash(sed -n '1070,1085p' timing/timing_screen.dart)",
+      "Bash(sed -n '1155,1170p' timing/timing_screen.dart)",
+      "Bash(sed -n '776,796p' mathrace/mathrace_screen.dart)",
+      "Bash(sed -n '828,846p' mathrace/mathrace_screen.dart)"
     ]
   }
 }

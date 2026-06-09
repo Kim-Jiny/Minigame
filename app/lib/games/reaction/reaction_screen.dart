@@ -818,7 +818,7 @@ class _ReactionScreenState extends State<ReactionScreen> {
         // 프로필 & 점수판
         GameDuelHeader(
           backgroundColors: const [Color(0xFFFADADA), Color(0xFFFFF0F0)],
-          accentColor: const Color(0xFFE74C3C),
+          accentColor: theme.primary,
           centerLabel: 'R$_currentRound/5',
           centerSubtitle: '반응속도',
           myName: _myNickname ?? '나',
@@ -1099,7 +1099,7 @@ class _ReactionScreenState extends State<ReactionScreen> {
                 color: const Color(0xFF15803D),
               ),
             GameResultActionButtons(
-              accentColor: const Color(0xFFE74C3C),
+              accentColor: theme.primary,
               opponentLeft: _opponentLeft,
               rematchWaiting: _rematchWaiting,
               isInvitationGame: _isInvitationGame,
@@ -1170,7 +1170,9 @@ class _ReactionScreenState extends State<ReactionScreen> {
     _isExitDialogOpen = true;
     showGameExitDialog(
       context: context,
-      accentColor: const Color(0xFFE74C3C),
+      accentColor: GameTheme.fromProfileSettings(
+              context.read<ShopProvider>().profileSettings)
+          .primary,
       message: isRankedWaiting
           ? '랭크전 진행 중입니다.\n나가시겠습니까?'
           : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',

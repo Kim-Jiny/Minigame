@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
 import '../../providers/game_provider.dart';
+import '../../providers/shop_provider.dart';
 import '../../services/socket_service.dart';
 import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
@@ -754,7 +755,8 @@ class _SequenceScreenState extends State<SequenceScreen>
     });
   }
 
-  GameTheme get _theme => GameTheme.fromProfileSettings(_myProfileSettings);
+  GameTheme get _theme => GameTheme.fromProfileSettings(
+      context.read<ShopProvider>().profileSettings);
 
   @override
   Widget build(BuildContext context) {
@@ -769,7 +771,6 @@ class _SequenceScreenState extends State<SequenceScreen>
         appBar: gameAppBar(
           title: '순서 기억하기',
           backgroundColor: theme.primary,
-          foregroundColor: theme.textOnPrimary,
           onBack: _showExitDialog,
         ),
         body: Stack(
@@ -1213,11 +1214,11 @@ class _SequenceScreenState extends State<SequenceScreen>
                 title: _myFailed ? '입력 종료' : '입력 완료',
                 subtitle: message,
                 accentColor: _myFailed ? Colors.red : Colors.green,
-                content: const SizedBox(
+                content: SizedBox(
                   width: 30,
                   height: 30,
                   child: CircularProgressIndicator(
-                    color: Color(0xFF9B59B6),
+                    color: _theme.primary,
                     strokeWidth: 3,
                   ),
                 ),
@@ -1232,7 +1233,7 @@ class _SequenceScreenState extends State<SequenceScreen>
   Widget _buildHeader() {
     return GameDuelHeader(
       backgroundColors: const [Color(0xFFF3E5F5), Color(0xFFFCE4EC)],
-      accentColor: const Color(0xFF9B59B6),
+      accentColor: _theme.primary,
       centerLabel: 'Lv.$_currentLevel',
       centerSubtitle: _isHardcore ? '하드코어' : (_gridSize == 16 ? '4x4 패턴' : '3x3 패턴'),
       myName: _myNickname ?? '나',
@@ -1270,7 +1271,7 @@ class _SequenceScreenState extends State<SequenceScreen>
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF9B59B6).withValues(alpha: 0.2),
+              color: _theme.primary.withValues(alpha: 0.2),
               blurRadius: 20,
             ),
           ],
@@ -1305,13 +1306,13 @@ class _SequenceScreenState extends State<SequenceScreen>
 
     Color cellColor = Colors.grey.shade200;
     if (isShowing) {
-      cellColor = const Color(0xFF9B59B6);
+      cellColor = _theme.primary;
     } else if (isCorrectInput) {
       cellColor = Colors.green;
     } else if (isWrongInput) {
       cellColor = Colors.red;
     } else if (alreadyInput) {
-      cellColor = const Color(0xFF9B59B6).withValues(alpha: 0.3);
+      cellColor = _theme.primary.withValues(alpha: 0.3);
     }
 
     return GestureDetector(
@@ -1327,7 +1328,7 @@ class _SequenceScreenState extends State<SequenceScreen>
           boxShadow: isShowing
               ? [
                   BoxShadow(
-                    color: const Color(0xFF9B59B6).withValues(alpha: 0.5),
+                    color: _theme.primary.withValues(alpha: 0.5),
                     blurRadius: 15,
                     spreadRadius: 2,
                   )
@@ -1372,7 +1373,7 @@ class _SequenceScreenState extends State<SequenceScreen>
       resultIcon = Icons.handshake;
     } else if (isWinner) {
       resultText = '승리!';
-      resultColor = const Color(0xFF9B59B6);
+      resultColor = _theme.primary;
       resultIcon = Icons.emoji_events;
     } else {
       resultText = '아쉬워요...';
@@ -1427,7 +1428,7 @@ class _SequenceScreenState extends State<SequenceScreen>
                 color: const Color(0xFF15803D),
               ),
             GameResultActionButtons(
-              accentColor: const Color(0xFF9B59B6),
+              accentColor: _theme.primary,
               opponentLeft: _opponentLeft,
               rematchWaiting: _rematchWaiting,
               isInvitationGame: _isInvitationGame,
@@ -1498,7 +1499,7 @@ class _SequenceScreenState extends State<SequenceScreen>
     _isExitDialogOpen = true;
     showGameExitDialog(
       context: context,
-      accentColor: const Color(0xFF9B59B6),
+      accentColor: _theme.primary,
       message: isRankedWaiting
           ? '랭크전 진행 중입니다.\n나가시겠습니까?'
           : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
