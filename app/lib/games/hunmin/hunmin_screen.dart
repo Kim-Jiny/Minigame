@@ -727,7 +727,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
           const SizedBox(height: 8),
           Text(
             'vs $_opponentNickname',
-            style: TextStyle(fontSize: 18, color: Colors.grey.shade300),
+            style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 16),
           CircularProgressIndicator(color: _theme.primary),

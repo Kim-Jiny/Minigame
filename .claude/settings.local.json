@@ -128,7 +128,9 @@
       "Bash(sed -n '1070,1085p' timing/timing_screen.dart)",
       "Bash(sed -n '1155,1170p' timing/timing_screen.dart)",
       "Bash(sed -n '776,796p' mathrace/mathrace_screen.dart)",
-      "Bash(sed -n '828,846p' mathrace/mathrace_screen.dart)"
+      "Bash(sed -n '828,846p' mathrace/mathrace_screen.dart)",
+      "Bash(sed -n '925,935p' app/lib/games/rps/rps_screen.dart)",
+      "Bash(sed -n '344,351p' app/lib/games/gomoku/gomoku_screen.dart)"
     ]
   }
 }
