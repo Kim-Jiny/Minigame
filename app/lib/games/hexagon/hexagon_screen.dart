@@ -874,7 +874,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
                 icon: const Icon(Icons.person),
                 label: const Text('랭킹 도전 (솔로)', style: TextStyle(fontSize: 18)),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2D3436),
+                  backgroundColor: theme.primary,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),

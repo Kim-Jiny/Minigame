@@ -28,6 +28,9 @@ class GomokuScreen extends StatefulWidget {
 }
 
 class _GomokuScreenState extends State<GomokuScreen> {
+  // 게임 고유색 대신 사용자 테마 컬러를 accent로 사용.
+  Color get _accent =>
+      GameTheme.fromProfileSettings(context.read<ShopProvider>().profileSettings).primary;
   // 보드 크기
   static const int boardSize = 15;
   static const int totalCells = boardSize * boardSize;
@@ -306,7 +309,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            const Color(0xFF2D3436).withValues(alpha: 0.1),
+            _accent.withValues(alpha: 0.1),
             Colors.white,
           ],
         ),
@@ -317,14 +320,14 @@ class _GomokuScreenState extends State<GomokuScreen> {
           GameDuelHeader(
             backgroundColors: game.isMyTurn
                 ? [
-                    const Color(0xFF2D3436).withValues(alpha: 0.12),
-                    const Color(0xFF2D3436).withValues(alpha: 0.04),
+                    _accent.withValues(alpha: 0.12),
+                    _accent.withValues(alpha: 0.04),
                   ]
                 : const [
                     Color(0xFFDFE6E9),
                     Color(0xFFF0F0F0),
                   ],
-            accentColor: const Color(0xFF2D3436),
+            accentColor: _accent,
             centerLabel: '',
             myName: auth.nickname ?? '나',
             opponentName: game.opponentNickname ?? '상대',
@@ -343,7 +346,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: game.isMyTurn ? const Color(0xFF2D3436) : Colors.grey.shade300,
+                      color: game.isMyTurn ? _accent : Colors.grey.shade300,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -574,7 +577,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
               icon: const Icon(Icons.check, size: 18),
               label: const Text('착수 확인'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2D3436),
+                backgroundColor: _accent,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
@@ -620,7 +623,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
       resultIcon = Icons.handshake;
     } else if (game.isWinner) {
       resultText = '승리!';
-      resultColor = const Color(0xFF2D3436);
+      resultColor = _accent;
       resultIcon = Icons.emoji_events;
     } else {
       resultText = '아쉬워요...';
@@ -725,7 +728,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
                   ),
                 const SizedBox(height: 8),
                 GameResultActionButtons(
-                  accentColor: const Color(0xFF2D3436),
+                  accentColor: _accent,
                   opponentLeft: game.opponentLeft,
                   rematchWaiting: game.rematchWaiting,
                   isInvitationGame: game.isInvitationGame,
@@ -812,9 +815,9 @@ class _GomokuScreenState extends State<GomokuScreen> {
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.exit_to_app, color: Color(0xFF2D3436)),
+            Icon(Icons.exit_to_app, color: _accent),
             SizedBox(width: 8),
             Text('게임 나가기'),
           ],
@@ -834,7 +837,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
               Navigator.pop(context);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2D3436),
+              backgroundColor: _accent,
               foregroundColor: Colors.white,
             ),
             child: const Text('나가기'),

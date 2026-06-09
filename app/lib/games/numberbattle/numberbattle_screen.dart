@@ -725,7 +725,7 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
   }
 
   Widget _buildSearchingView(GameTheme theme) {
-    const accentColor = Color(0xFFFF6B6B);
+    final accentColor = theme.primary;
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -741,11 +741,11 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const CircularProgressIndicator(
+            CircularProgressIndicator(
               color: accentColor,
             ),
             const SizedBox(height: 24),
-            const Text(
+            Text(
               '상대를 찾는 중...',
               style: TextStyle(
                 fontSize: 20,
@@ -769,7 +769,7 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
   }
 
   Widget _buildMatchedView(GameTheme theme) {
-    const accentColor = Color(0xFFFF6B6B);
+    final accentColor = theme.primary;
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -791,7 +791,7 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
                 color: accentColor.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.sports_esports,
                 size: 64,
                 color: accentColor,
@@ -800,7 +800,7 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
             const SizedBox(height: 16),
             Text(
               '$_opponentNickname님과 매칭!',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
                 color: accentColor,
@@ -818,7 +818,7 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
   }
 
   Widget _buildPlayingView(GameTheme theme) {
-    const accentColor = Color(0xFFFF6B6B);
+    final accentColor = theme.primary;
     final myProgress = _progress[_myPlayerIndex];
     final opponentProgress = _progress[1 - _myPlayerIndex];
 
@@ -999,7 +999,7 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
 
   Widget _buildFinishedView(GameTheme theme) {
     final isWinner = _winnerId == _myId;
-    const accentColor = Color(0xFFFF6B6B);
+    final accentColor = theme.primary;
 
     if (widget.isRanked) {
       GameSessionHelper.scheduleRankedAutoReturn(
@@ -1143,7 +1143,7 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
     _isExitDialogOpen = true;
     showGameExitDialog(
       context: context,
-      accentColor: const Color(0xFFFF6B6B),
+      accentColor: theme.primary,
       message: '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
       onExit: _leaveGame,
     ).then((_) => _isExitDialogOpen = false);

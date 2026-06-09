@@ -1169,7 +1169,7 @@ class _SequenceScreenState extends State<SequenceScreen>
                 GameTimerBadge(
                   seconds: _remainingSeconds,
                   label: '입력 남은 시간',
-                  accentColor: const Color(0xFF6366F1),
+                  accentColor: _theme.primary,
                   compact: true,
                 ),
                 const SizedBox(height: 16),

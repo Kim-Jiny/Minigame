@@ -818,7 +818,7 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
   }
 
   Widget _buildSearchingView(GameTheme theme) {
-    const accentColor = Color(0xFF6C5CE7);
+    final accentColor = theme.primary;
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -834,11 +834,11 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const CircularProgressIndicator(
+            CircularProgressIndicator(
               color: accentColor,
             ),
             const SizedBox(height: 24),
-            const Text(
+            Text(
               '상대를 찾는 중...',
               style: TextStyle(
                 fontSize: 20,
@@ -862,7 +862,7 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
   }
 
   Widget _buildMatchedView(GameTheme theme) {
-    const accentColor = Color(0xFF6C5CE7);
+    final accentColor = theme.primary;
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -884,7 +884,7 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
                 color: accentColor.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.sports_esports,
                 size: 64,
                 color: accentColor,
@@ -893,7 +893,7 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
             const SizedBox(height: 16),
             Text(
               '$_opponentNickname님과 매칭!',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
                 color: accentColor,
@@ -911,7 +911,7 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
   }
 
   Widget _buildPlayingView(GameTheme theme) {
-    const accentColor = Color(0xFF6C5CE7);
+    final accentColor = theme.primary;
     final myScore = _scores[_myPlayerIndex];
     final opponentScore = _scores[1 - _myPlayerIndex];
 
@@ -1097,7 +1097,7 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
 
   Widget _buildFinishedView(GameTheme theme) {
     final isWinner = _winnerId == _myId;
-    const accentColor = Color(0xFF6C5CE7);
+    final accentColor = theme.primary;
 
     if (widget.isRanked) {
       GameSessionHelper.scheduleRankedAutoReturn(
@@ -1241,7 +1241,7 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
     _isExitDialogOpen = true;
     showGameExitDialog(
       context: context,
-      accentColor: const Color(0xFF6C5CE7),
+      accentColor: theme.primary,
       message: '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
       onExit: _leaveGame,
     ).then((_) => _isExitDialogOpen = false);

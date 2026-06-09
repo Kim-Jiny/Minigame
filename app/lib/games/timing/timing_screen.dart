@@ -70,7 +70,8 @@ class _TimingScreenState extends State<TimingScreen>
   // 게임 상태
   int _currentRound = 0;
   List<int> _totalScores = [0, 0];
-  int _currentSpeed = 2000;
+  // ignore: unused_field
+  int _currentSpeed = 2000; // 서버 게이지 속도(향후 사용 대비 보관)
   bool _hasStopped = false;
   bool _opponentStopped = false;
   double? _stoppedPosition;

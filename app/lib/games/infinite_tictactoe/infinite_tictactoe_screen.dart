@@ -27,6 +27,9 @@ class InfiniteTicTacToeScreen extends StatefulWidget {
 
 class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
   bool _hasScheduledPop = false;  // 중복 pop 방지
+  // 게임 고유색 대신 사용자 테마 컬러를 accent로 사용.
+  Color get _accent =>
+      GameTheme.fromProfileSettings(context.read<ShopProvider>().profileSettings).primary;
 
   @override
   void initState() {
@@ -138,7 +141,7 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            const Color(0xFF74B9FF).withValues(alpha: 0.15),
+            _accent.withValues(alpha: 0.15),
             Colors.white,
           ],
         ),
@@ -266,14 +269,14 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
               border: Border.all(
                 color: isNextToDisappear
                     ? Colors.orange
-                    : const Color(0xFF74B9FF),
+                    : _accent,
                 width: isNextToDisappear ? 3 : 2,
               ),
               boxShadow: [
                 BoxShadow(
                   color: isNextToDisappear
                       ? Colors.orange.withValues(alpha: 0.3)
-                      : const Color(0xFF74B9FF).withValues(alpha: 0.1),
+                      : _accent.withValues(alpha: 0.1),
                   blurRadius: 8,
                   offset: const Offset(0, 4),
                 ),
@@ -462,7 +465,7 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
                   ),
                 const SizedBox(height: 8),
                 GameResultActionButtons(
-                  accentColor: const Color(0xFF74B9FF),
+                  accentColor: _accent,
                   rematchWaitingColor: Colors.grey.shade400,
                   opponentLeft: game.opponentLeft,
                   rematchWaiting: game.rematchWaiting,
@@ -519,9 +522,9 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.exit_to_app, color: Color(0xFF74B9FF)),
+            Icon(Icons.exit_to_app, color: _accent),
             SizedBox(width: 8),
             Text('게임 나가기'),
           ],
@@ -539,7 +542,7 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
               Navigator.pop(context);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF74B9FF),
+              backgroundColor: _accent,
               foregroundColor: Colors.white,
             ),
             child: const Text('나가기'),
