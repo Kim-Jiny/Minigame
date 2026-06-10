@@ -18,6 +18,7 @@ class GameCatalog {
     'mathrace': '사칙연산',
     'arrowdash': '방향 맞추기',
     'timing': '타이밍 맞추기',
+    'set': 'Set',
   };
 
   static const Map<String, String> _routes = {
@@ -37,6 +38,7 @@ class GameCatalog {
     'mathrace': '/game/mathrace',
     'arrowdash': '/game/arrowdash',
     'timing': '/game/timing',
+    'set': '/game/set',
   };
 
   static const Set<String> _boardGames = {

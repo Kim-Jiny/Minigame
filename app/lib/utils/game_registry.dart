@@ -168,6 +168,14 @@ class GameRegistry {
       modes: {PlayMode.duo},
     ),
     GameMeta(
+      id: 'set',
+      tagline: '같거나 모두 다른 3장 찾기',
+      icon: Icons.style_rounded,
+      color: Color(0xFF00897B),
+      tempo: GameTempo.brain,
+      modes: {PlayMode.duo},
+    ),
+    GameMeta(
       id: 'hunmin',
       tagline: '초성 단어 배틀 3판 2선',
       icon: Icons.translate_rounded,
