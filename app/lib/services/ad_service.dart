@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:flutter/foundation.dart';
 
 class AdService {
@@ -38,9 +39,32 @@ class AdService {
       debugPrint('[AdService] Skipping init - not a mobile platform');
       return;
     }
+    // iOS: 광고 식별자(IDFA) 사용을 위한 ATT(추적 투명성) 권한 요청.
+    // AdMob 초기화 전에 호출해야 IDFA 사용 여부가 광고 SDK에 반영된다.
+    if (Platform.isIOS) {
+      await _requestTrackingAuthorization();
+    }
     await MobileAds.instance.initialize();
     _initialized = true;
     loadRewardedAd();
+  }
+
+  /// iOS ATT 팝업 요청. 아직 결정 전(notDetermined)일 때만 시스템 프롬프트를 띄운다.
+  Future<void> _requestTrackingAuthorization() async {
+    try {
+      final status = await AppTrackingTransparency.trackingAuthorizationStatus;
+      if (status == TrackingStatus.notDetermined) {
+        // Apple 권장: 앱 활성 직후 안정화를 위한 짧은 지연 후 프롬프트.
+        await Future.delayed(const Duration(milliseconds: 200));
+        final result =
+            await AppTrackingTransparency.requestTrackingAuthorization();
+        debugPrint('[AdService] ATT result: $result');
+      } else {
+        debugPrint('[AdService] ATT already determined: $status');
+      }
+    } catch (e) {
+      debugPrint('[AdService] ATT request failed: $e');
+    }
   }
 
   void loadRewardedAd() {
