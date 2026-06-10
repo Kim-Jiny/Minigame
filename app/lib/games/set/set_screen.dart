@@ -64,6 +64,7 @@ class _SetScreenState extends State<SetScreen> {
   bool _claimLocked = false; // 클레임 응답 대기/패널티 중 입력 잠금
   bool _lastClaimFailed = false; // 직전 내 클레임 실패(빨강 피드백)
   Timer? _penaltyTimer;
+  Timer? _claimWatchdog; // 클레임 응답 유실 시 잠금 해제 안전장치
 
   // 게임 결과
   String? _winnerId;
@@ -127,6 +128,7 @@ class _SetScreenState extends State<SetScreen> {
     _reconnectTimer?.cancel();
     _waitingReconnectTimer?.cancel();
     _penaltyTimer?.cancel();
+    _claimWatchdog?.cancel();
     _socketListeners.offAll();
     super.dispose();
   }
@@ -274,6 +276,7 @@ class _SetScreenState extends State<SetScreen> {
 
     _socketListeners.on('set_claimed', (data) {
       _penaltyTimer?.cancel();
+      _claimWatchdog?.cancel();
       setState(() {
         _board = List<int>.from(data['board'] ?? _board);
         _scores = List<int>.from(data['scores'] ?? _scores);
@@ -291,10 +294,21 @@ class _SetScreenState extends State<SetScreen> {
       }
       final playerIndex = (data['playerIndex'] as num?)?.toInt();
       if (playerIndex != _myPlayerIndex) return;
-      // 내 클레임 실패 → 선택 해제 + 짧은 잠금. 실제 오답일 때만 빨강 피드백.
-      final isWrongSet = data['reason'] == 'not_a_set';
+      _claimWatchdog?.cancel();
+      // 내 잘못(오답/잘못된 입력)일 때만 빨강+잠금.
+      // 상대가 먼저 가져가서 실패(not_on_board)/게임종료는 조용히 선택만 해제.
+      final reason = data['reason'] as String?;
+      final isMyFault = reason == 'not_a_set' || reason == 'bad_input';
+      if (!isMyFault) {
+        setState(() {
+          _selected.clear();
+          _claimLocked = false;
+          _lastClaimFailed = false;
+        });
+        return;
+      }
       setState(() {
-        _lastClaimFailed = isWrongSet;
+        _lastClaimFailed = reason == 'not_a_set';
         _claimLocked = true;
       });
       _penaltyTimer?.cancel();
@@ -325,6 +339,7 @@ class _SetScreenState extends State<SetScreen> {
         _deckRemaining = (data['deckRemaining'] as num?)?.toInt() ?? _deckRemaining;
         _selected.clear();
         _claimLocked = false;
+        _lastClaimFailed = false;
         _isReconnecting = false;
         _isWaitingForReconnect = false;
       });
@@ -345,6 +360,7 @@ class _SetScreenState extends State<SetScreen> {
         _scoreToWin = (data['scoreToWin'] as num?)?.toInt() ?? _scoreToWin;
         _selected.clear();
         _claimLocked = false;
+        _lastClaimFailed = false;
         _status = SetGameStatus.playing;
         _isReconnecting = false;
         _isWaitingForReconnect = false;
@@ -496,6 +512,16 @@ class _SetScreenState extends State<SetScreen> {
   void _claim() {
     if (_roomId == null || _selected.length != 3) return;
     _claimLocked = true; // 응답까지 추가 입력 방지
+    // 응답(set_claimed/set_claim_rejected) 유실 시 영구 잠금 방지용 워치독
+    _claimWatchdog?.cancel();
+    _claimWatchdog = Timer(const Duration(seconds: 2), () {
+      if (!mounted || !_claimLocked) return;
+      setState(() {
+        _claimLocked = false;
+        _selected.clear();
+        _lastClaimFailed = false;
+      });
+    });
     _socketService.emit('game_action', {
       'roomId': _roomId,
       'action': {'type': 'claim', 'cards': List<int>.from(_selected)},

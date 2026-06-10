@@ -88,7 +88,7 @@ export class SetGame {
   }
 
   private ensureSetExists(): void {
-    // 보드에 세트가 없으면 덱에서 3장씩 추가(최대 18장)
+    // 보드에 세트가 없으면 덱에서 3장씩 추가(최대 21장 — 21장이면 세트 존재 보장)
     while (
       !this.boardHasSet() &&
       this.deck.length >= 3 &&
