@@ -133,7 +133,9 @@ export class SetGame {
       return { valid: false, reason: 'not_on_board' };
     }
     if (!SetGame.isSet(cardIds[0], cardIds[1], cardIds[2])) {
-      return { valid: false, reason: 'not_a_set' };
+      // 오답 패널티: -1점 (0 미만으로는 내려가지 않음)
+      this.scores[playerIndex] = Math.max(0, this.scores[playerIndex] - 1);
+      return { valid: false, reason: 'not_a_set', scores: this.getScores() };
     }
 
     // 유효 — 점수 + 카드 제거/보충

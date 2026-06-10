@@ -4575,10 +4575,12 @@ export function setupSocketHandlers(io: Server) {
             await finishSetGame(io, room);
           }
         } else {
-          // 잘못된 세트 → 클레임한 플레이어에게만 거절 알림(패널티는 클라에서 처리)
-          socket.emit('set_claim_rejected', {
+          // 거절: 오답이면 점수 -1이 반영됐을 수 있으니 방 전체에 점수 동기화 + 거절 알림.
+          // (빨강/잠금 피드백은 클레임한 플레이어 클라에서만 처리)
+          io.to(data.roomId).emit('set_claim_rejected', {
             playerIndex,
             reason: result.reason,
+            scores: result.scores ?? room.game.getScores(),
           });
         }
       }

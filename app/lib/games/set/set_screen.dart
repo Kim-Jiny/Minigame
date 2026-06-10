@@ -285,11 +285,16 @@ class _SetScreenState extends State<SetScreen> {
     });
 
     _socketListeners.on('set_claim_rejected', (data) {
+      // 점수 동기화(오답 -1 반영) — 양쪽 플레이어 모두
+      if (data['scores'] != null) {
+        setState(() => _scores = List<int>.from(data['scores']));
+      }
       final playerIndex = (data['playerIndex'] as num?)?.toInt();
       if (playerIndex != _myPlayerIndex) return;
-      // 내 클레임이 틀림 → 빨강 피드백 + 짧은 잠금
+      // 내 클레임 실패 → 선택 해제 + 짧은 잠금. 실제 오답일 때만 빨강 피드백.
+      final isWrongSet = data['reason'] == 'not_a_set';
       setState(() {
-        _lastClaimFailed = true;
+        _lastClaimFailed = isWrongSet;
         _claimLocked = true;
       });
       _penaltyTimer?.cancel();
@@ -599,7 +604,7 @@ class _SetScreenState extends State<SetScreen> {
       title: 'Set',
       descriptions: const [
         '4속성이 모두 같거나 모두 다른 카드 3장!',
-        '먼저 6세트를 모으면 승리 (120초)',
+        '먼저 6세트 승리 · 틀리면 -1점 (120초)',
       ],
       onFindMatch: _findMatch,
       onInviteFriend: () => _showFriendInviteDialog(context),
