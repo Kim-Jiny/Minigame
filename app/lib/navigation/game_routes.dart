@@ -15,6 +15,7 @@ import '../games/cardflip/cardflip_screen.dart';
 import '../games/mathrace/mathrace_screen.dart';
 import '../games/arrowdash/arrowdash_screen.dart';
 import '../games/timing/timing_screen.dart';
+import '../games/set/set_screen.dart';
 import '../utils/game_catalog.dart';
 import '../utils/game_registry.dart';
 
@@ -54,6 +55,7 @@ class GameRoutes {
       GameCatalog.routeFor('mathrace'): (_) => const MathraceScreen(),
       GameCatalog.routeFor('arrowdash'): (_) => const ArrowdashScreen(),
       GameCatalog.routeFor('timing'): (_) => const TimingScreen(),
+      GameCatalog.routeFor('set'): (_) => const SetScreen(),
     };
   }
 
@@ -91,6 +93,8 @@ class GameRoutes {
         return ArrowdashScreen(isRanked: isRanked);
       case 'timing':
         return TimingScreen(isRanked: isRanked);
+      case 'set':
+        return SetScreen(isRanked: isRanked);
       default:
         return null;
     }

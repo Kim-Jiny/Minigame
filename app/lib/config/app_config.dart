@@ -42,4 +42,5 @@ class AppConfig {
   static const String gameTypeMathrace = 'mathrace';
   static const String gameTypeArrowDash = 'arrowdash';
   static const String gameTypeTiming = 'timing';
+  static const String gameTypeSet = 'set';
 }

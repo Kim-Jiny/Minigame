@@ -15,6 +15,7 @@ import { CardFlipGame } from '../games/cardflip';
 import { MathRaceGame } from '../games/mathrace';
 import { ArrowDashGame } from '../games/arrowdash';
 import { TimingGame } from '../games/timing';
+import { SetGame } from '../games/set';
 import { dictionaryService } from '../services/dictionaryService';
 import { friendService } from '../services/friendService';
 import { invitationService } from '../services/invitationService';
@@ -69,7 +70,7 @@ interface GameRoom {
   id: string;
   gameType: string;
   players: Player[];
-  game: TicTacToeGame | InfiniteTicTacToeGame | GomokuGame | ReactionGame | RpsGame | SpeedTapGame | SequenceGame | StroopGame | HexagonGame | PyramidGame | HunminGame | NumberBattleGame | CardFlipGame | MathRaceGame | ArrowDashGame | TimingGame | null;
+  game: TicTacToeGame | InfiniteTicTacToeGame | GomokuGame | ReactionGame | RpsGame | SpeedTapGame | SequenceGame | StroopGame | HexagonGame | PyramidGame | HunminGame | NumberBattleGame | CardFlipGame | MathRaceGame | ArrowDashGame | TimingGame | SetGame | null;
   status: 'waiting' | 'playing' | 'finished';
   rematchRequests?: Set<string>;
   turnTimer?: NodeJS.Timeout;
@@ -839,6 +840,114 @@ async function finishNumberBattleGame(io: Server, room: GameRoom) {
   console.log(`🏆 NumberBattle game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${progress[0]} vs ${progress[1]})`);
 
   // 랭크전인 경우 추가 처리
+  if (room.isRanked) {
+    await handleRankedGameEnd(io, room, winnerIndex);
+  }
+}
+
+// Set(셋) 게임 시작
+function startSet(io: Server, room: GameRoom) {
+  if (room.gameType !== 'set' || !(room.game instanceof SetGame)) return;
+  if (room.reconnectPaused || room.status !== 'playing') return;
+  room.pendingRoundStart = false;
+
+  const game = room.game;
+  io.to(room.id).emit('set_start', {
+    board: game.getBoard(),
+    scores: game.getScores(),
+    deckRemaining: game.getDeckRemaining(),
+    scoreToWin: SetGame.SCORE_TO_WIN,
+    duration: SetGame.GAME_TIME,
+  });
+
+  console.log(`🃏 Set started`);
+
+  scheduleRoundTimer(room, SetGame.GAME_TIME, () => {
+    finishSetByTimeout(io, room);
+  });
+}
+
+// Set 타임아웃 처리 — 점수 높은 쪽 승리
+async function finishSetByTimeout(io: Server, room: GameRoom) {
+  if (!(room.game instanceof SetGame)) return;
+  if (room.reconnectPaused || room.status !== 'playing') return;
+  if (room.game.isGameOver()) return;
+
+  room.game.setGameOver();
+  io.to(room.id).emit('set_timeout', {
+    scores: room.game.getScores(),
+  });
+
+  console.log(`⏰ Set timeout: scores ${room.game.getScores()}`);
+  await finishSetGame(io, room);
+}
+
+// Set 게임 종료 처리
+async function finishSetGame(io: Server, room: GameRoom) {
+  if (!(room.game instanceof SetGame)) return;
+  if (!markRoomFinishedOnce(room, 'set_game_end')) return;
+  clearRoundTimer(room);
+
+  const game = room.game;
+  const winnerIndex = game.getWinner();
+  const scores = game.getScores();
+
+  const winner = winnerIndex !== null ? room.players[winnerIndex] : null;
+  const winnerId = winner?.id ?? null;
+  const winnerNickname = winner?.nickname ?? null;
+  const isDraw = winnerIndex === null;
+
+  const rewardResults: { [key: string]: any } = {};
+
+  for (let i = 0; i < room.players.length; i++) {
+    const player = room.players[i];
+    const opponent = room.players[i === 0 ? 1 : 0];
+    if (player.userId) {
+      let gameResult: 'win' | 'loss' | 'draw';
+      if (isDraw) {
+        gameResult = 'draw';
+      } else if (winnerIndex === i) {
+        gameResult = 'win';
+      } else {
+        gameResult = 'loss';
+      }
+      try {
+        const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
+        player.socket.emit('stats_updated', { stats });
+        if (i === 0 && opponent.userId) {
+          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult, {
+            isRanked: room.isRanked,
+            rankedMatchId: room.isRanked ? room.id : undefined,
+            rankedGameIndex: room.isRanked ? room.rankedCurrentIndex : undefined,
+          });
+        }
+
+        if (opponent.userId) {
+          const reward = await coinService.processGameReward(player.userId, opponent.userId, gameResult);
+          rewardResults[player.id] = reward;
+          player.socket.emit('coins_updated', {
+            coins: reward.totalCoins,
+            earned: reward.coinsEarned,
+            streak: reward.streakAfter,
+            streakBonus: reward.streakBonusEarned,
+          });
+        }
+      } catch (err) {
+        console.error('Failed to update stats:', err);
+      }
+    }
+  }
+
+  io.to(room.id).emit('game_end', {
+    winner: winnerId,
+    winnerNickname,
+    isDraw,
+    scores,
+    rewards: rewardResults,
+  });
+
+  console.log(`🏆 Set game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores[0]} vs ${scores[1]})`);
+
   if (room.isRanked) {
     await handleRankedGameEnd(io, room, winnerIndex);
   }
@@ -2228,6 +2337,18 @@ function emitRejoinState(socket: Socket, room: GameRoom, userId: number) {
       remainingTimeMs: getRemainingMs(room.roundDeadlineAt, NumberBattleGame.GAME_TIME),
       playerIndex,
     });
+  } else if (room.gameType === 'set' && room.game instanceof SetGame) {
+    const game = room.game;
+    socket.emit('rejoin_game_state', {
+      gameType: 'set',
+      roomId: room.id,
+      board: game.getBoard(),
+      scores: game.getScores(),
+      deckRemaining: game.getDeckRemaining(),
+      scoreToWin: SetGame.SCORE_TO_WIN,
+      remainingTimeMs: getRemainingMs(room.roundDeadlineAt, SetGame.GAME_TIME),
+      playerIndex,
+    });
   } else if (room.gameType === 'mathrace' && room.game instanceof MathRaceGame) {
     const game = room.game;
     socket.emit('rejoin_game_state', {
@@ -2309,6 +2430,10 @@ function resumePausedGame(io: Server, room: GameRoom) {
     }
     if (room.gameType === 'numberbattle') {
       scheduleRoundStart(room, startDelay, () => startNumberBattle(io, room));
+      return;
+    }
+    if (room.gameType === 'set') {
+      scheduleRoundStart(room, startDelay, () => startSet(io, room));
       return;
     }
     if (room.gameType === 'mathrace') {
@@ -2471,6 +2596,19 @@ function resumePausedGame(io: Server, room: GameRoom) {
       duration: remainingMs,
     });
     scheduleRoundTimer(room, remainingMs, () => finishNumberBattleByTimeout(io, room));
+    return;
+  }
+
+  if (room.gameType === 'set' && room.game instanceof SetGame) {
+    const game = room.game;
+    const remainingMs = Math.max(0, pausedRoundRemainingMs ?? SetGame.GAME_TIME);
+    io.to(room.id).emit('set_resumed', {
+      board: game.getBoard(),
+      scores: game.getScores(),
+      deckRemaining: game.getDeckRemaining(),
+      duration: remainingMs,
+    });
+    scheduleRoundTimer(room, remainingMs, () => finishSetByTimeout(io, room));
     return;
   }
 
@@ -2956,6 +3094,8 @@ async function startRankedGame(io: Server, room: GameRoom) {
     room.game = new SpeedTapGame();
   } else if (gameType === 'numberbattle') {
     room.game = new NumberBattleGame();
+  } else if (gameType === 'set') {
+    room.game = new SetGame();
   } else if (gameType === 'mathrace') {
     room.game = new MathRaceGame();
   } else if (gameType === 'arrowdash') {
@@ -3019,6 +3159,9 @@ async function startRankedGame(io: Server, room: GameRoom) {
       io.to(room.id).emit('game_start', { gameType: 'numberbattle' });
       console.log(`📤 [startRankedGame] game_start emitted for numberbattle`);
       scheduleRoundStart(room, 1000, () => startNumberBattle(io, room));
+    } else if (gameType === 'set') {
+      io.to(room.id).emit('game_start', { gameType: 'set' });
+      scheduleRoundStart(room, 1000, () => startSet(io, room));
     } else if (gameType === 'mathrace') {
       io.to(room.id).emit('game_start', { gameType: 'mathrace' });
       console.log(`📤 [startRankedGame] game_start emitted for mathrace`);
@@ -3768,6 +3911,8 @@ export function setupSocketHandlers(io: Server) {
           room.game = new SpeedTapGame();
         } else if (gameType === 'numberbattle') {
           room.game = new NumberBattleGame();
+        } else if (gameType === 'set') {
+          room.game = new SetGame();
         } else if (gameType === 'mathrace') {
           room.game = new MathRaceGame();
         } else if (gameType === 'arrowdash') {
@@ -3859,6 +4004,12 @@ export function setupSocketHandlers(io: Server) {
             gameType: 'numberbattle',
           });
           scheduleRoundStart(room, 1000, () => startNumberBattle(io, room));
+        } else if (gameType === 'set') {
+          // Set 게임
+          io.to(roomId).emit('game_start', {
+            gameType: 'set',
+          });
+          scheduleRoundStart(room, 1000, () => startSet(io, room));
         } else if (gameType === 'mathrace') {
           // 사칙연산 스피드 게임
           io.to(roomId).emit('game_start', {
@@ -4402,6 +4553,35 @@ export function setupSocketHandlers(io: Server) {
           if (room.game.isGameOver()) {
             await finishNumberBattleGame(io, room);
           }
+        }
+      }
+
+      // Set 게임 로직
+      if (room.gameType === 'set' && room.game instanceof SetGame) {
+        const cards = data.action.cards as number[];
+        const result = room.game.claim(playerIndex, cards);
+
+        if (result.valid) {
+          io.to(data.roomId).emit('set_claimed', {
+            playerId: socket.id,
+            playerIndex,
+            board: result.board,
+            scores: result.scores,
+            deckRemaining: result.deckRemaining,
+            claimedCards: result.claimedCards,
+          });
+
+          if (room.game.isGameOver()) {
+            await finishSetGame(io, room);
+          }
+        } else {
+          // 거절: 오답이면 점수 -1이 반영됐을 수 있으니 방 전체에 점수 동기화 + 거절 알림.
+          // (빨강/잠금 피드백은 클레임한 플레이어 클라에서만 처리)
+          io.to(data.roomId).emit('set_claim_rejected', {
+            playerIndex,
+            reason: result.reason,
+            scores: result.scores ?? room.game.getScores(),
+          });
         }
       }
 
@@ -5271,6 +5451,8 @@ export function setupSocketHandlers(io: Server) {
           room.game = new SpeedTapGame();
         } else if (invitation.gameType === 'numberbattle') {
           room.game = new NumberBattleGame();
+        } else if (invitation.gameType === 'set') {
+          room.game = new SetGame();
         } else if (invitation.gameType === 'mathrace') {
           room.game = new MathRaceGame();
         } else if (invitation.gameType === 'arrowdash') {
@@ -5466,6 +5648,43 @@ export function setupSocketHandlers(io: Server) {
             });
 
             scheduleRoundStart(room, 1000, () => startNumberBattle(io, room));
+          }, 500);
+        } else if (invitation.gameType === 'set') {
+          // Set 게임
+          socket.emit('accept_invitation_result', {
+            success: true,
+            invitationId: data.invitationId,
+            roomId,
+            gameType: invitation.gameType,
+            gameState: {
+              players,
+              isInvitation: true,
+            }
+          });
+
+          inviterSocket!.emit('invitation_accepted', {
+            roomId,
+            gameType: invitation.gameType,
+            acceptedBy: currentPlayer.nickname,
+            gameState: {
+              players,
+              isInvitation: true,
+            }
+          });
+
+          setTimeout(() => {
+            io.to(roomId).emit('match_found', {
+              roomId,
+              gameType: invitation.gameType,
+              isInvitation: true,
+              players
+            });
+
+            io.to(roomId).emit('game_start', {
+              gameType: 'set',
+            });
+
+            scheduleRoundStart(room, 1000, () => startSet(io, room));
           }, 500);
         } else if (invitation.gameType === 'mathrace') {
           // 사칙연산 스피드 게임
@@ -6290,6 +6509,8 @@ export function setupSocketHandlers(io: Server) {
           room.game = new SpeedTapGame();
         } else if (room.gameType === 'numberbattle') {
           room.game = new NumberBattleGame();
+        } else if (room.gameType === 'set') {
+          room.game = new SetGame();
         } else if (room.gameType === 'mathrace') {
           room.game = new MathRaceGame();
         } else if (room.gameType === 'arrowdash') {
@@ -6351,6 +6572,13 @@ export function setupSocketHandlers(io: Server) {
             players: rematchPlayers,
           });
           scheduleRoundStart(room, 1000, () => startNumberBattle(io, room));
+        } else if (room.gameType === 'set') {
+          // Set 게임 재대결
+          io.to(data.roomId).emit('game_start', {
+            gameType: 'set',
+            players: rematchPlayers,
+          });
+          scheduleRoundStart(room, 1000, () => startSet(io, room));
         } else if (room.gameType === 'mathrace') {
           // 사칙연산 스피드 게임 재대결
           io.to(data.roomId).emit('game_start', {
