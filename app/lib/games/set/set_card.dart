@@ -92,8 +92,9 @@ class _SetSymbolPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final symW = size.width * 0.84;
-    final symH = (size.height * 0.26).clamp(10.0, 40.0);
-    const gap = 8.0;
+    const gap = 6.0;
+    // 카드 높이에 항상 들어가도록 심볼 높이를 맞춘다(1~3개).
+    final symH = ((size.height - (number - 1) * gap) / number).clamp(8.0, 38.0);
     final totalH = number * symH + (number - 1) * gap;
     double y = (size.height - totalH) / 2;
     final x = (size.width - symW) / 2;

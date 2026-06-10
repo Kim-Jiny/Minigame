@@ -7,7 +7,8 @@
  * - 공용 보드 12장. 둘이 동시에 "세트"(카드 3장)를 찾아 외친다.
  * - 세트: 4속성 각각이 "셋 다 같음" 또는 "셋 다 다름". (속성합 % 3 === 0)
  * - 유효한 세트를 먼저 집으면 +1점, 보드에서 제거 후 덱에서 보충.
- * - 보드에 세트가 하나도 없으면 3장 추가(최대 18장).
+ * - 보드에 세트가 하나도 없으면 3장 추가(최대 21장).
+ *   수학적으로 21장이면 반드시 세트가 존재한다(세트 없는 최대 조합 = 20장).
  * - 먼저 SCORE_TO_WIN 점에 도달하거나, 덱 소진 + 보드에 세트 없음이면 종료.
  *   종료 시 점수 높은 쪽 승리(동점 무승부). 제한시간 종료 시에도 점수로 판정.
  */
@@ -24,7 +25,7 @@ export interface SetClaimResult {
 export class SetGame {
   static readonly TOTAL_CARDS = 81;
   static readonly BOARD_SIZE = 12;
-  static readonly MAX_BOARD = 18;
+  static readonly MAX_BOARD = 21; // 21장이면 세트 존재가 수학적으로 보장됨
   static readonly SCORE_TO_WIN = 6;
   static readonly GAME_TIME = 120000; // 120초 단판
 

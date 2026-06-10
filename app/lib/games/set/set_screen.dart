@@ -714,19 +714,32 @@ class _SetScreenState extends State<SetScreen> {
   }
 
   Widget _buildBoard(Color accent) {
+    const cols = 3;
+    const spacing = 10.0;
+    // 안드로이드 시스템 네비게이션 바와 겹치지 않도록 하단 인셋만큼 비운다.
+    final bottomInset = MediaQuery.of(context).padding.bottom;
+    final padding = EdgeInsets.fromLTRB(14, 6, 14, 14 + bottomInset);
     return LayoutBuilder(
       builder: (context, constraints) {
-        final cols = _board.length > 12 ? 3 : 3;
+        final count = _board.length;
+        if (count == 0) return const SizedBox.shrink();
+        // 행 수에 맞춰 카드 종횡비를 계산 → 스크롤 없이 한 화면에 모두 표시.
+        final rows = (count / cols).ceil();
+        final availW = constraints.maxWidth - padding.horizontal;
+        final availH = constraints.maxHeight - padding.vertical;
+        final cardW = (availW - spacing * (cols - 1)) / cols;
+        final cardH = (availH - spacing * (rows - 1)) / rows;
+        final aspect = (cardH > 0 && cardW > 0) ? cardW / cardH : 0.74;
         return GridView.builder(
-          padding: const EdgeInsets.fromLTRB(14, 6, 14, 18),
-          physics: const BouncingScrollPhysics(),
+          padding: padding,
+          physics: const NeverScrollableScrollPhysics(),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: cols,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            childAspectRatio: 0.74,
+            crossAxisSpacing: spacing,
+            mainAxisSpacing: spacing,
+            childAspectRatio: aspect,
           ),
-          itemCount: _board.length,
+          itemCount: count,
           itemBuilder: (context, index) {
             final id = _board[index];
             final selected = _selected.contains(id);
