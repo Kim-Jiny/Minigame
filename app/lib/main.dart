@@ -40,10 +40,13 @@ void main() async {
   // 원격 설정 초기화
   await remoteConfigService.initialize();
 
-  // AdMob 초기화
-  AdService().initialize();
-
   runApp(MinigameApp(remoteConfigService: remoteConfigService));
+
+  // 첫 프레임 렌더 후(앱이 포그라운드 활성 상태)에 ATT 권한 요청 → AdMob 초기화.
+  // iOS ATT 프롬프트는 앱이 active 상태여야 표시되므로 runApp 이후로 미룬다.
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    AdService().initialize();
+  });
 }
 
 class MinigameApp extends StatelessWidget {
