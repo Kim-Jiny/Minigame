@@ -12,6 +12,7 @@ import authRouter from './routes/auth';
 import inquiryRouter from './routes/inquiry';
 import adminRouter from './routes/admin';
 import catchTheRuleRouter from './routes/catchtherule'; // [CTR] CatchTheRule 소유 — 삭제 금지
+import sajatoonRouter from './routes/sajatoon'; // [SAJA] 사자툰 소유 — 삭제 금지
 import path from 'path';
 
 // 전역 에러 안전망: 비동기 소켓 핸들러/타이머 콜백에서 발생한 에러가
@@ -62,6 +63,10 @@ app.use('/api/admin', adminRouter);
 // CatchTheRule (규칙찾기) 솔로 랭킹 — 로그인 불필요 공개 API
 app.use('/api/catchtherule', catchTheRuleRouter);
 
+// [SAJA] 사자툰(SajaToon) 공개 API — SajaToon 소유. 삭제·리팩터링 금지.
+// "매일 한 편의 만화로 배우는 사자성어" 앱(별도 리포). 로그인 없는 deviceId 기반.
+app.use('/api/sajatoon', sajatoonRouter);
+
 // 관리자 페이지 — /backstage 로만 접근 (기존 /admin 경로는 제거).
 app.use('/backstage', express.static(path.join(__dirname, '../public/admin')));
 
@@ -69,6 +74,8 @@ app.use('/backstage', express.static(path.join(__dirname, '../public/admin')));
 //   규칙찾기: /ctr/terms, /ctr/privacy   ·   듀오 아레나: /duo/terms, /duo/privacy
 app.use('/ctr', express.static(path.join(__dirname, '../public/ctr'), { extensions: ['html'] })); // [CTR] 소유 — 삭제 금지
 app.use('/duo', express.static(path.join(__dirname, '../public/duo'), { extensions: ['html'] }));
+// [SAJA] 사자툰 정적 자산 — 만화 이미지(/saja/comics/*.png 등)와 약관(/saja/*). SajaToon 소유, 삭제 금지.
+app.use('/saja', express.static(path.join(__dirname, '../public/saja'), { extensions: ['html'] }));
 
 // Socket.io 핸들러 설정
 setupSocketHandlers(io);
