@@ -8,6 +8,9 @@ services:
       - "3001:3000"
     env_file:
       - ./server/.env
+    # [SAJA] 사자툰 만화 이미지 업로드 영속화 — 재배포(이미지 재빌드)에도 업로드 파일 보존.
+    volumes:
+      - saja_comics:/app/public/saja/comics
     depends_on:
       db:
         condition: service_healthy
@@ -37,6 +40,7 @@ services:
 
 volumes:
   pgdata:
+  saja_comics: # [SAJA] 사자툰 만화 이미지 업로드 영속 볼륨
 
 networks:
   app-network:

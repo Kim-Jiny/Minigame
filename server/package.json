@@ -20,13 +20,16 @@
   "license": "ISC",
   "description": "Minigame server with real-time multiplayer support",
   "dependencies": {
+    "@types/multer": "^2.1.0",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "google-auth-library": "^9.15.1",
     "jsonwebtoken": "^9.0.3",
+    "multer": "^2.1.1",
     "pg": "^8.17.2",
+    "sharp": "^0.35.0",
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
