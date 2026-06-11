@@ -27,3 +27,7 @@ node_modules/
 dist/
 build/
 server/.env
+
+# [SAJA] 사자툰 업로드 만화 이미지 — 런타임 업로드(운영은 도커 볼륨에 영속). README만 추적.
+server/public/saja/comics/*
+!server/public/saja/comics/README.md
