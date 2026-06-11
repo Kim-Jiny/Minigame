@@ -41,6 +41,19 @@
     .stat-card.accent .number { color: #6C5CE7; }
     .stat-card.warn .number { color: #e74c3c; }
     .stat-card.success .number { color: #27ae60; }
+    /* [SAJA] 사자툰 폼 입력 스타일 */
+    .saja-lbl { display:block; font-size:12px; font-weight:600; color:#777; margin:12px 0 4px; }
+    .saja-in { width:100%; padding:9px 11px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box; }
+    .saja-ta { width:100%; padding:10px 11px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box; resize:vertical; }
+    .saja-tab-content { display:none; }
+    .saja-tab-content.active { display:block; }
+    .saja-drop { border:2px dashed #d8c4b4; border-radius:10px; padding:18px; text-align:center; color:#9a8a78; font-size:13px; cursor:pointer; background:#fdf8f1; transition:all .15s; }
+    .saja-drop:hover { border-color:#F2683C; color:#F2683C; }
+    .saja-drop.drag { border-color:#F2683C; background:#fbe0d4; color:#F2683C; }
+    .saja-chip { position:relative; width:84px; height:84px; border-radius:12px; overflow:visible; }
+    .saja-chip img { width:84px; height:84px; object-fit:cover; border-radius:12px; border:1px solid #ddd; display:block; }
+    .saja-chip .ord { position:absolute; top:4px; left:4px; background:rgba(0,0,0,.55); color:#fff; font-size:11px; font-weight:700; padding:1px 6px; border-radius:8px; }
+    .saja-chip .del { position:absolute; top:-8px; right:-8px; width:22px; height:22px; border-radius:50%; border:none; background:#e74c3c; color:#fff; cursor:pointer; font-size:12px; line-height:1; }
 
     /* Game Popularity Chart */
     .chart-container { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
@@ -462,6 +475,183 @@
     </div>
   </div>
 
+  <!-- [SAJA] 사자툰 소유 — #sajaDashboard 섹션 삭제·리팩터링 금지 (리포 루트 CLAUDE.md) -->
+  <!-- Dashboard (사자툰) -->
+  <div class="dashboard" id="sajaDashboard" style="display:none">
+    <div class="header">
+      <div style="display:flex;align-items:center;gap:12px">
+        <button class="btn-back" onclick="backToHub()">← 게임 선택</button>
+        <h1>사자툰</h1>
+      </div>
+      <button onclick="logout()">Logout</button>
+    </div>
+
+    <div class="nav-tabs">
+      <button class="active" onclick="sajaTab('idioms', this)">사자성어</button>
+      <button onclick="sajaTab('bulk', this)">일괄 등록</button>
+      <button onclick="sajaTab('images', this)">이미지 <span id="sajaOrphanBadge" style="display:none;background:#e74c3c;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:700;margin-left:2px">0</span></button>
+      <button onclick="sajaTab('stats', this)">통계</button>
+    </div>
+
+    <!-- 사자성어 탭 -->
+    <div class="saja-tab-content active" id="saja-tab-idioms">
+      <!-- 등록/수정 폼 -->
+      <div class="stat-card" style="margin-bottom:18px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h3 id="sajaFormTitle">새 사자성어 등록</h3>
+          <button onclick="sajaResetForm()" style="padding:6px 14px;background:#e0e0e0;border:none;border-radius:8px;cursor:pointer">새로 작성</button>
+        </div>
+        <input type="hidden" id="sajaId">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
+          <div><label class="saja-lbl">식별자(slug) *</label><input id="sajaSlug" class="saja-in" placeholder="oilmujung"></div>
+          <div><label class="saja-lbl">한자 *</label><input id="sajaHanja" class="saja-in" placeholder="五里霧中"></div>
+          <div><label class="saja-lbl">한글 음 *</label><input id="sajaReading" class="saja-in" placeholder="오리무중"></div>
+          <div><label class="saja-lbl">분류</label><input id="sajaCategory" class="saja-in" placeholder="처세"></div>
+          <div><label class="saja-lbl">난이도(1~3)</label><input id="sajaLevel" class="saja-in" type="number" min="1" max="3" value="1"></div>
+          <div><label class="saja-lbl">학습 순서(day)</label><input id="sajaDayIndex" class="saja-in" type="number" placeholder="1"></div>
+        </div>
+        <label class="saja-lbl">뜻 *</label>
+        <textarea id="sajaMeaning" class="saja-ta" style="min-height:60px"></textarea>
+        <label class="saja-lbl">유래</label>
+        <textarea id="sajaOrigin" class="saja-ta" style="min-height:60px"></textarea>
+        <label class="saja-lbl">현대 사례</label>
+        <textarea id="sajaModern" class="saja-ta" style="min-height:50px"></textarea>
+        <label class="saja-lbl">한자 풀이 (한 글자씩 뜻·음) — JSON 배열 [{"c":"五","hun":"다섯","eum":"오"}, ...]</label>
+        <textarea id="sajaChars" class="saja-ta" style="min-height:60px;font-family:monospace;font-size:12px"
+          placeholder='[{"c":"五","hun":"다섯","eum":"오"},{"c":"里","hun":"마을","eum":"리"},{"c":"霧","hun":"안개","eum":"무"},{"c":"中","hun":"가운데","eum":"중"}]'></textarea>
+        <label class="saja-lbl">만화 이미지 (4컷=1장·8컷=2장 순서대로) — 끌어다 놓거나 클릭해서 업로드 (자동 압축)</label>
+        <div id="sajaComicDrop" class="saja-drop"
+             onclick="document.getElementById('sajaUpload').click()"
+             ondragover="sajaDragOver(event,this)" ondragleave="sajaDragLeave(this)" ondrop="sajaDrop(event,'comic')">
+          📥 이미지를 여기로 <b>끌어다 놓기</b> 또는 클릭해서 선택 (여러 장 가능)
+          <input type="file" id="sajaUpload" accept="image/*" multiple style="display:none" onchange="sajaUploadFiles(this.files,'comic')">
+        </div>
+        <span id="sajaUploadMsg" style="font-size:12px;color:#888"></span>
+        <!-- 업로드된 만화 이미지 목록(순서대로). 각 이미지 ✕ 로 목록에서 빼고 서버 파일 삭제. -->
+        <div id="sajaImagesList" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px"></div>
+        <div style="display:flex;gap:6px;margin-top:6px">
+          <input id="sajaImageUrlInput" class="saja-in" style="font-family:monospace;font-size:12px"
+            placeholder="URL 직접 추가 (/saja/comics/.. 또는 https://..)"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();sajaAddImageFromInput();}">
+          <button type="button" onclick="sajaAddImageFromInput()" style="padding:0 16px;background:#e0e0e0;border:none;border-radius:8px;cursor:pointer;white-space:nowrap">추가</button>
+        </div>
+
+        <label class="saja-lbl">모아보기 대표 썸네일 (선택 — 없으면 첫 만화컷 사용)</label>
+        <div style="display:flex;gap:12px;align-items:stretch">
+          <div id="sajaThumbDrop" class="saja-drop" style="flex:1"
+               onclick="document.getElementById('sajaThumbUpload').click()"
+               ondragover="sajaDragOver(event,this)" ondragleave="sajaDragLeave(this)" ondrop="sajaDrop(event,'thumb')">
+            📥 썸네일 이미지 <b>끌어다 놓기</b> 또는 클릭
+            <input type="file" id="sajaThumbUpload" accept="image/*" style="display:none" onchange="sajaUploadFiles(this.files,'thumb')">
+          </div>
+          <div id="sajaThumbBox" style="position:relative;display:none">
+            <img id="sajaThumbPreview" alt="" style="width:84px;height:84px;object-fit:cover;border-radius:12px;border:1px solid #ddd;display:block">
+            <button type="button" title="썸네일 삭제" onclick="sajaDeleteThumb()"
+              style="position:absolute;top:-8px;right:-8px;width:22px;height:22px;border-radius:50%;border:none;background:#e74c3c;color:#fff;cursor:pointer;font-size:12px;line-height:1">✕</button>
+          </div>
+        </div>
+        <input id="sajaThumbnail" class="saja-in" style="margin-top:6px;font-family:monospace;font-size:12px"
+          placeholder="/saja/comics/xxx.webp (업로드하면 자동 입력)" oninput="sajaUpdateThumbPreview()">
+        <span id="sajaThumbMsg" style="font-size:12px;color:#888"></span>
+        <label class="saja-lbl">퀴즈 목록 JSON (배열, 여러 유형 가능) — 정답 위치는 앱에서 매번 섞임</label>
+        <textarea id="sajaQuiz" class="saja-ta" style="min-height:110px;font-family:monospace;font-size:12px"
+          placeholder='[{"type":"meaning","question":"‘오리무중’에 어울리는 상황은?","options":["A","B","C","D"],"answerIndex":1,"explanation":"..."},{"type":"hanja","question":"‘오리무중(五里霧中)’에서 ‘霧’의 뜻은?","options":["안개","마을","다섯","가운데"],"answerIndex":0,"explanation":"..."}]'></textarea>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:14px;color:#555">
+          <input type="checkbox" id="sajaActive" checked> 활성화(앱에 노출)
+        </label>
+        <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
+          <button onclick="saveSajaIdiom()" style="padding:9px 22px;background:#F2683C;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600">저장</button>
+          <span id="sajaFormMsg" style="font-size:13px"></span>
+        </div>
+      </div>
+
+      <!-- 목록 -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+        <div class="filter-tabs" style="margin:0">
+          <button class="active" onclick="sajaListFilterBy('all', this)">전체</button>
+          <button onclick="sajaListFilterBy('noimg', this)">이미지 미등록</button>
+        </div>
+        <span id="sajaListSummary" style="font-size:13px;color:#888"></span>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr><th>day</th><th>한자</th><th>음</th><th>분류</th><th>이미지</th><th>퀴즈</th><th>활성</th><th>관리</th></tr>
+        </thead>
+        <tbody id="sajaIdiomsBody"><tr><td colspan="8" class="empty">Loading...</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- 일괄 등록 탭 — JSON 배열 붙여넣기 + AI 프롬프트 복사 -->
+    <div class="saja-tab-content" id="saja-tab-bulk" style="display:none">
+      <div class="stat-card" style="margin-bottom:16px">
+        <h3>① AI로 사자성어 JSON 만들기</h3>
+        <p style="color:#666;font-size:13px;margin:8px 0 12px;line-height:1.6">
+          아래 버튼으로 프롬프트를 복사 → ChatGPT 등 AI에 붙여넣기 → 받은 <b>JSON 배열</b>을 그대로 아래 칸에 붙여넣고 등록하세요.
+          (이미지·썸네일은 등록 후 각 사자성어에서 따로 업로드합니다.)
+        </p>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input id="sajaBulkCount" type="number" min="1" max="50" value="10" style="width:70px;padding:8px;border:1px solid #ddd;border-radius:8px">
+          <span style="font-size:13px;color:#666">개</span>
+          <input id="sajaBulkStartDay" type="number" min="1" value="1" style="width:80px;padding:8px;border:1px solid #ddd;border-radius:8px" placeholder="시작 day">
+          <span style="font-size:13px;color:#666">번부터</span>
+          <input id="sajaBulkTopic" type="text" placeholder="주제(선택, 예: 노력)" style="flex:1;min-width:140px;padding:8px;border:1px solid #ddd;border-radius:8px">
+          <button onclick="copySajaAiPrompt()" style="padding:9px 18px;background:#1f1b16;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600">📋 AI 프롬프트 복사</button>
+          <span id="sajaPromptMsg" style="font-size:13px"></span>
+        </div>
+        <p style="margin:8px 0 0;font-size:12px;color:#999">복사 시 <b>이미 등록된 사자성어는 제외</b>하도록 프롬프트에 자동 포함됩니다(중복 방지).</p>
+      </div>
+
+      <div class="stat-card">
+        <h3>② JSON 붙여넣고 등록</h3>
+        <textarea id="sajaBulkInput" style="width:100%;min-height:280px;font-family:monospace;font-size:12px;padding:12px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;margin-top:10px"
+          placeholder='[
+  {
+    "slug": "oilmujung",
+    "hanja": "五里霧中",
+    "reading": "오리무중",
+    "meaning": "갈피를 잡지 못하고 헤매는 상태",
+    "origin": "후한서에서 유래...",
+    "modernExample": "...",
+    "category": "처세",
+    "level": 1,
+    "dayIndex": 1,
+    "chars": [{"c":"五","hun":"다섯","eum":"오"}, ...],
+    "quiz": {"question":"...","options":["A","B","C","D"],"answerIndex":1,"explanation":"..."}
+  }
+]'></textarea>
+        <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button onclick="validateSajaBulk()" style="padding:9px 18px;background:#1f1b16;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600">🔍 검증</button>
+          <button onclick="submitSajaBulk()" style="padding:9px 22px;background:#F2683C;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600">일괄 등록</button>
+          <button onclick="document.getElementById('sajaBulkInput').value='';document.getElementById('sajaBulkErrors').innerHTML='';document.getElementById('sajaBulkMsg').textContent=''" style="padding:9px 16px;background:#e0e0e0;border:none;border-radius:8px;cursor:pointer">지우기</button>
+          <span id="sajaBulkMsg" style="font-size:13px"></span>
+        </div>
+        <p style="margin:8px 0 0;font-size:12px;color:#999">중복(배치 내 또는 이미 등록된 slug·한자)은 자동으로 건너뜁니다. 등록 전 <b>검증</b>으로 형식·중복을 미리 확인하세요.</p>
+        <div id="sajaBulkErrors" style="margin-top:10px;font-size:12px;line-height:1.7"></div>
+      </div>
+    </div>
+
+    <!-- 이미지 탭 — 업로드된 만화 이미지 전체 + 연결 여부 -->
+    <div class="saja-tab-content" id="saja-tab-images" style="display:none">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+        <div id="sajaImagesSummary" style="font-size:14px;color:#555;font-weight:600">불러오는 중…</div>
+        <div class="filter-tabs" style="margin:0">
+          <button class="active" onclick="sajaImageFilter('all', this)">전체</button>
+          <button onclick="sajaImageFilter('orphan', this)">미연결만</button>
+        </div>
+        <button onclick="loadSajaImages()" style="padding:6px 14px;background:#e0e0e0;border:none;border-radius:8px;cursor:pointer">새로고침</button>
+        <button id="sajaDeleteOrphansBtn" onclick="sajaDeleteAllOrphans()" style="padding:6px 14px;background:#e74c3c;color:#fff;border:none;border-radius:8px;cursor:pointer;display:none">미연결 전체 삭제</button>
+      </div>
+      <div id="sajaImageGallery" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px">
+        <div class="empty">Loading...</div>
+      </div>
+    </div>
+
+    <!-- 통계 탭 -->
+    <div class="saja-tab-content" id="saja-tab-stats" style="display:none">
+      <div class="stats-grid" id="sajaStatsGrid"><div class="empty">Loading...</div></div>
+    </div>
+  </div>
+
   <!-- CTR Inquiry Modal -->
   <div class="modal" id="ctrInquiryModal">
     <div class="modal-content">
@@ -596,6 +786,9 @@
         privacy: '/duo/privacy', terms: '/duo/terms' },
       { id: 'ctr', name: '규칙찾기', desc: '문의 관리', icon: '🧩',
         privacy: '/ctr/privacy', terms: '/ctr/terms' },
+      // [SAJA] 사자툰 소유 — 카드 항목 삭제 금지
+      { id: 'saja', name: '사자툰', desc: '사자성어 등록 · 수정 · 통계', icon: '🦁',
+        privacy: '/saja/privacy', terms: '/saja/terms' },
     ];
 
     if (token) showHub();
@@ -633,6 +826,7 @@
       document.getElementById('gameHub').style.display = 'none';
       document.getElementById('dashboard').style.display = 'none';
       document.getElementById('ctrDashboard').style.display = 'none';
+      document.getElementById('sajaDashboard').style.display = 'none';
     }
 
     // 로그인 후 게임 선택 허브
@@ -640,6 +834,7 @@
       document.getElementById('loginContainer').style.display = 'none';
       document.getElementById('dashboard').style.display = 'none';
       document.getElementById('ctrDashboard').style.display = 'none';
+      document.getElementById('sajaDashboard').style.display = 'none';
       document.getElementById('gameHub').style.display = 'block';
       const grid = document.getElementById('gameGrid');
       grid.innerHTML = GAMES.map(g => `
@@ -670,6 +865,14 @@
         document.getElementById('dashboard').style.display = 'none';
         loadCtrStats();
         loadCtrInquiries('all');
+      } else if (id === 'saja') {
+        document.getElementById('sajaDashboard').style.display = 'block';
+        document.getElementById('dashboard').style.display = 'none';
+        document.getElementById('ctrDashboard').style.display = 'none';
+        sajaResetForm();
+        loadSajaStats();
+        loadSajaIdioms();
+        sajaRefreshOrphanBadge();
       }
     }
 
@@ -1601,6 +1804,503 @@
         if (e.target === modal) modal.classList.remove('show');
       });
     });
+    // ============================================================
+    // [SAJA] 사자툰 — 사자성어 등록/수정/삭제 (삭제·리팩터링 금지)
+    // ============================================================
+    let sajaIdiomList = [];
+
+    function sajaEsc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    }
+
+    function sajaTab(name, btn) {
+      document.querySelectorAll('#sajaDashboard .nav-tabs button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('#sajaDashboard .saja-tab-content').forEach(c => { c.style.display = 'none'; c.classList.remove('active'); });
+      const el = document.getElementById('saja-tab-' + name);
+      el.style.display = 'block'; el.classList.add('active');
+      if (name === 'stats') loadSajaStats();
+      if (name === 'idioms') loadSajaIdioms();
+      if (name === 'images') loadSajaImages();
+    }
+
+    // ── 업로드 이미지 관리(연결 여부 확인 + 고아 정리) ──
+    let sajaAllImages = [];
+    let sajaImageFilterMode = 'all';
+
+    function sajaImageFilter(mode, btn) {
+      sajaImageFilterMode = mode;
+      document.querySelectorAll('#saja-tab-images .filter-tabs button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      sajaRenderGallery();
+    }
+
+    function sajaFmtSize(n) {
+      if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + 'MB';
+      if (n >= 1024) return Math.round(n / 1024) + 'KB';
+      return n + 'B';
+    }
+
+    async function loadSajaImages() {
+      const gal = document.getElementById('sajaImageGallery');
+      gal.innerHTML = '<div class="empty">Loading...</div>';
+      try {
+        const data = await api('/api/admin/saja/images');
+        sajaAllImages = data.images || [];
+        sajaUpdateOrphanBadge(data.orphanCount || 0);
+        sajaRenderGallery();
+      } catch (e) {
+        gal.innerHTML = '<div class="empty">불러오기 실패</div>';
+      }
+    }
+
+    function sajaUpdateOrphanBadge(count) {
+      const badge = document.getElementById('sajaOrphanBadge');
+      if (count > 0) { badge.textContent = count; badge.style.display = 'inline-block'; }
+      else { badge.style.display = 'none'; }
+    }
+
+    // 탭을 열지 않아도 미연결 개수만 가볍게 갱신(경고 배지용).
+    async function sajaRefreshOrphanBadge() {
+      try { const d = await api('/api/admin/saja/images'); sajaUpdateOrphanBadge(d.orphanCount || 0); } catch (e) {}
+    }
+
+    function sajaRenderGallery() {
+      const gal = document.getElementById('sajaImageGallery');
+      const orphanCount = sajaAllImages.filter(i => !i.linked).length;
+      document.getElementById('sajaImagesSummary').innerHTML =
+        `전체 ${sajaAllImages.length}장 · <span style="color:${orphanCount ? '#e74c3c' : '#27ae60'}">미연결 ${orphanCount}장</span>`;
+      document.getElementById('sajaDeleteOrphansBtn').style.display = orphanCount ? 'inline-block' : 'none';
+
+      const list = sajaImageFilterMode === 'orphan' ? sajaAllImages.filter(i => !i.linked) : sajaAllImages;
+      if (!list.length) {
+        gal.innerHTML = '<div class="empty">' + (sajaImageFilterMode === 'orphan' ? '미연결 이미지가 없습니다 🎉' : '업로드된 이미지가 없습니다.') + '</div>';
+        return;
+      }
+      gal.innerHTML = list.map(img => {
+        const badge = img.linked
+          ? `<span style="background:#d7f0e2;color:#1e8a5a;border-radius:8px;padding:2px 7px;font-size:11px;font-weight:700">연결됨</span>`
+          : `<span style="background:#fbe0d4;color:#e74c3c;border-radius:8px;padding:2px 7px;font-size:11px;font-weight:700">⚠️ 미연결</span>`;
+        const used = img.linked ? `<div style="font-size:11px;color:#888;margin-top:2px" title="${sajaEsc(img.usedBy.join(', '))}">${sajaEsc(img.usedBy.join(', ')).slice(0, 30)}</div>` : '';
+        return `
+          <div style="border:1px solid #eee;border-radius:12px;overflow:hidden;background:#fff">
+            <div style="position:relative">
+              <img src="${sajaEsc(img.url)}" alt="" style="width:100%;height:120px;object-fit:cover;display:block;background:#faf6ef">
+              <button type="button" title="삭제" onclick="sajaDeleteImage('${sajaEsc(img.url)}', ${img.linked})"
+                style="position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:50%;border:none;background:rgba(231,76,60,.92);color:#fff;cursor:pointer">✕</button>
+            </div>
+            <div style="padding:8px 10px">
+              ${badge}${used}
+              <div style="font-size:11px;color:#aaa;margin-top:4px">${sajaFmtSize(img.size)}</div>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    async function sajaDeleteImage(url, linked) {
+      const warn = linked
+        ? '이 이미지는 사자성어에 연결되어 있습니다. 삭제하면 해당 만화가 깨집니다. 그래도 삭제할까요?'
+        : '이 이미지를 서버에서 삭제할까요?';
+      if (!confirm(warn)) return;
+      try {
+        await api('/api/admin/saja/upload/delete', { method: 'POST', body: JSON.stringify({ url }) });
+        loadSajaImages();
+      } catch (e) { alert('삭제 실패'); }
+    }
+
+    async function sajaDeleteAllOrphans() {
+      const orphans = sajaAllImages.filter(i => !i.linked);
+      if (!orphans.length) return;
+      if (!confirm(`미연결 이미지 ${orphans.length}장을 모두 삭제할까요?`)) return;
+      for (const img of orphans) {
+        try { await api('/api/admin/saja/upload/delete', { method: 'POST', body: JSON.stringify({ url: img.url }) }); } catch (e) {}
+      }
+      loadSajaImages();
+    }
+
+    let sajaListFilter = 'all';
+
+    function sajaListFilterBy(mode, btn) {
+      sajaListFilter = mode;
+      document.querySelectorAll('#saja-tab-idioms .filter-tabs button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderSajaList();
+    }
+
+    function renderSajaList() {
+      const body = document.getElementById('sajaIdiomsBody');
+      const noImg = sajaIdiomList.filter(it => (it.images || []).length === 0).length;
+      document.getElementById('sajaListSummary').innerHTML =
+        `전체 ${sajaIdiomList.length}개 · <span style="color:${noImg ? '#e74c3c' : '#27ae60'}">이미지 미등록 ${noImg}개</span>`;
+
+      const list = sajaListFilter === 'noimg'
+        ? sajaIdiomList.filter(it => (it.images || []).length === 0)
+        : sajaIdiomList;
+      if (!list.length) {
+        body.innerHTML = '<tr><td colspan="8" class="empty">' + (sajaListFilter === 'noimg' ? '이미지 미등록 사자성어가 없습니다 🎉' : '등록된 사자성어가 없습니다.') + '</td></tr>';
+        return;
+      }
+      body.innerHTML = list.map(it => {
+        const imgCount = (it.images || []).length;
+        const imgCell = imgCount === 0
+          ? '<span style="color:#e74c3c;font-weight:700">⚠️ 0장</span>'
+          : imgCount + '장';
+        return `
+          <tr>
+            <td>${it.dayIndex ?? '-'}</td>
+            <td style="font-weight:600">${sajaEsc(it.hanja)}</td>
+            <td>${sajaEsc(it.reading)}</td>
+            <td>${sajaEsc(it.category || '-')}</td>
+            <td>${imgCell}</td>
+            <td>${it.quiz ? '✓' : '-'}</td>
+            <td>${it.isActive ? '✅' : '⛔'}</td>
+            <td>
+              <button onclick="editSajaIdiom(${it.id})" style="padding:4px 10px;background:#F2683C;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-right:4px">수정</button>
+              <button onclick="deleteSajaIdiom(${it.id}, '${sajaEsc(it.reading)}')" style="padding:4px 10px;background:#e74c3c;color:#fff;border:none;border-radius:6px;cursor:pointer">삭제</button>
+            </td>
+          </tr>`;
+      }).join('');
+    }
+
+    async function loadSajaIdioms() {
+      try {
+        const data = await api('/api/admin/saja/idioms');
+        sajaIdiomList = data.idioms || [];
+        sajaRefreshOrphanBadge();
+        renderSajaList();
+      } catch (e) {
+        document.getElementById('sajaIdiomsBody').innerHTML = '<tr><td colspan="8" class="empty">불러오기 실패</td></tr>';
+      }
+    }
+
+    function sajaResetForm() {
+      document.getElementById('sajaFormTitle').textContent = '새 사자성어 등록';
+      document.getElementById('sajaId').value = '';
+      ['sajaSlug', 'sajaHanja', 'sajaReading', 'sajaCategory', 'sajaDayIndex', 'sajaMeaning', 'sajaOrigin', 'sajaModern', 'sajaChars', 'sajaThumbnail', 'sajaQuiz'].forEach(id => document.getElementById(id).value = '');
+      document.getElementById('sajaLevel').value = '1';
+      document.getElementById('sajaActive').checked = true;
+      document.getElementById('sajaFormMsg').textContent = '';
+      document.getElementById('sajaUploadMsg').textContent = '';
+      document.getElementById('sajaThumbMsg').textContent = '';
+      sajaImageList = [];
+      sajaRenderImages();
+      sajaUpdateThumbPreview();
+    }
+
+    function editSajaIdiom(id) {
+      const it = sajaIdiomList.find(x => x.id === id);
+      if (!it) return;
+      document.getElementById('sajaFormTitle').textContent = '사자성어 수정 — ' + it.reading;
+      document.getElementById('sajaId').value = it.id;
+      document.getElementById('sajaSlug').value = it.slug || '';
+      document.getElementById('sajaHanja').value = it.hanja || '';
+      document.getElementById('sajaReading').value = it.reading || '';
+      document.getElementById('sajaCategory').value = it.category || '';
+      document.getElementById('sajaLevel').value = it.level || 1;
+      document.getElementById('sajaDayIndex').value = it.dayIndex ?? '';
+      document.getElementById('sajaMeaning').value = it.meaning || '';
+      document.getElementById('sajaOrigin').value = it.origin || '';
+      document.getElementById('sajaModern').value = it.modernExample || '';
+      sajaImageList = (it.images || []).slice();
+      sajaRenderImages();
+      document.getElementById('sajaThumbnail').value = it.thumbnail || '';
+      sajaUpdateThumbPreview();
+      document.getElementById('sajaThumbMsg').textContent = '';
+      document.getElementById('sajaUploadMsg').textContent = '';
+      document.getElementById('sajaChars').value = (it.chars && it.chars.length) ? JSON.stringify(it.chars) : '';
+      document.getElementById('sajaQuiz').value = (it.quizzes && it.quizzes.length) ? JSON.stringify(it.quizzes, null, 2) : (it.quiz ? JSON.stringify([it.quiz], null, 2) : '');
+      document.getElementById('sajaActive').checked = it.isActive !== false;
+      document.getElementById('sajaFormMsg').textContent = '';
+      document.getElementById('sajaDashboard').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    async function saveSajaIdiom() {
+      const msg = document.getElementById('sajaFormMsg');
+      const payload = {
+        slug: document.getElementById('sajaSlug').value.trim(),
+        hanja: document.getElementById('sajaHanja').value.trim(),
+        reading: document.getElementById('sajaReading').value.trim(),
+        category: document.getElementById('sajaCategory').value.trim(),
+        level: parseInt(document.getElementById('sajaLevel').value, 10) || 1,
+        dayIndex: document.getElementById('sajaDayIndex').value.trim(),
+        meaning: document.getElementById('sajaMeaning').value.trim(),
+        origin: document.getElementById('sajaOrigin').value.trim(),
+        modernExample: document.getElementById('sajaModern').value.trim(),
+        chars: document.getElementById('sajaChars').value.trim(),
+        images: sajaImageList,
+        thumbnail: document.getElementById('sajaThumbnail').value.trim(),
+        quizzes: document.getElementById('sajaQuiz').value.trim(),
+        isActive: document.getElementById('sajaActive').checked,
+      };
+      if (!payload.slug || !payload.hanja || !payload.reading || !payload.meaning) {
+        msg.style.color = '#e74c3c'; msg.textContent = '식별자·한자·음·뜻은 필수입니다.'; return;
+      }
+      try {
+        const res = await api('/api/admin/saja/idioms', { method: 'POST', body: JSON.stringify(payload) });
+        if (res.success) {
+          msg.style.color = '#27ae60'; msg.textContent = '저장되었습니다.';
+          sajaResetForm();
+          loadSajaIdioms();
+        } else {
+          msg.style.color = '#e74c3c'; msg.textContent = res.error || '저장 실패';
+        }
+      } catch (e) {
+        msg.style.color = '#e74c3c'; msg.textContent = '저장 실패';
+      }
+    }
+
+    async function deleteSajaIdiom(id, name) {
+      if (!confirm(`‘${name}’ 사자성어를 삭제할까요? (학습 진도 기록도 함께 삭제됩니다)`)) return;
+      try {
+        await api('/api/admin/saja/idioms/' + id, { method: 'DELETE' });
+        loadSajaIdioms();
+      } catch (e) { alert('삭제 실패'); }
+    }
+
+    // 현재 폼의 만화 이미지 목록(순서 유지). 서버엔 이 배열을 images로 보낸다.
+    let sajaImageList = [];
+
+    function sajaRenderImages() {
+      const wrap = document.getElementById('sajaImagesList');
+      if (!sajaImageList.length) { wrap.innerHTML = '<span style="color:#aaa;font-size:12px">등록된 만화 이미지가 없습니다.</span>'; return; }
+      wrap.innerHTML = sajaImageList.map((u, i) => `
+        <div class="saja-chip">
+          <span class="ord">${i + 1}</span>
+          <img src="${sajaEsc(u)}" alt="">
+          <button type="button" class="del" title="삭제" onclick="sajaRemoveImage(${i})">✕</button>
+        </div>`).join('');
+    }
+
+    function sajaAddImage(url) {
+      const u = (url || '').trim();
+      if (u && !sajaImageList.includes(u)) { sajaImageList.push(u); sajaRenderImages(); }
+    }
+
+    function sajaAddImageFromInput() {
+      const el = document.getElementById('sajaImageUrlInput');
+      sajaAddImage(el.value);
+      el.value = '';
+    }
+
+    // 목록에서 빼고 + 서버 파일도 삭제(업로드된 /saja/comics/* 인 경우).
+    async function sajaRemoveImage(idx) {
+      const url = sajaImageList[idx];
+      if (!confirm('이 이미지를 빼고 서버 파일도 삭제할까요?')) return;
+      sajaImageList.splice(idx, 1);
+      sajaRenderImages();
+      await sajaDeleteServerFile(url);
+    }
+
+    async function sajaDeleteServerFile(url) {
+      if (!url || url.indexOf('/saja/comics/') === -1) return; // 외부 URL은 파일 삭제 대상 아님
+      try { await api('/api/admin/saja/upload/delete', { method: 'POST', body: JSON.stringify({ url }) }); } catch (e) {}
+    }
+
+    async function sajaDeleteThumb() {
+      const url = document.getElementById('sajaThumbnail').value.trim();
+      document.getElementById('sajaThumbnail').value = '';
+      sajaUpdateThumbPreview();
+      await sajaDeleteServerFile(url);
+    }
+
+    // 드래그&드롭 핸들러
+    function sajaDragOver(e, el) { e.preventDefault(); el.classList.add('drag'); }
+    function sajaDragLeave(el) { el.classList.remove('drag'); }
+    function sajaDrop(e, kind) { e.preventDefault(); e.currentTarget.classList.remove('drag'); sajaUploadFiles(e.dataTransfer.files, kind); }
+
+    // 이미지 업로드(서버에서 자동 리사이즈/압축). kind='comic'→images 목록 추가, 'thumb'→썸네일 설정.
+    async function sajaUploadFiles(fileList, kind) {
+      const files = Array.from(fileList || []).filter(f => f.type.startsWith('image/'));
+      if (!files.length) return;
+      const isThumb = kind === 'thumb';
+      const msg = document.getElementById(isThumb ? 'sajaThumbMsg' : 'sajaUploadMsg');
+      for (const file of files) {
+        msg.style.color = '#888'; msg.textContent = '업로드 중… ' + file.name;
+        const fd = new FormData(); fd.append('file', file);
+        try {
+          const res = await fetch('/api/admin/saja/upload?kind=' + kind, {
+            method: 'POST', headers: { 'Authorization': 'Bearer ' + token }, body: fd,
+          });
+          const data = await res.json();
+          if (data.success && data.url) {
+            if (isThumb) {
+              document.getElementById('sajaThumbnail').value = data.url;
+              sajaUpdateThumbPreview();
+            } else {
+              sajaAddImage(data.url);
+            }
+            msg.style.color = '#27ae60'; msg.textContent = '업로드됨: ' + data.url;
+          } else {
+            msg.style.color = '#e74c3c'; msg.textContent = data.error || '업로드 실패';
+          }
+        } catch (e) {
+          msg.style.color = '#e74c3c'; msg.textContent = '업로드 실패';
+        }
+      }
+    }
+
+    function sajaUpdateThumbPreview() {
+      const v = document.getElementById('sajaThumbnail').value.trim();
+      const box = document.getElementById('sajaThumbBox');
+      const img = document.getElementById('sajaThumbPreview');
+      if (v) { img.src = v; box.style.display = 'block'; } else { img.removeAttribute('src'); box.style.display = 'none'; }
+    }
+
+    // ── 일괄 등록 ──
+    // http(비보안 origin)에서도 동작하도록 clipboard API + execCommand 폴백.
+    function sajaCopyText(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(text);
+      }
+      return new Promise((resolve, reject) => {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+          document.body.appendChild(ta); ta.focus(); ta.select();
+          const ok = document.execCommand('copy');
+          document.body.removeChild(ta);
+          ok ? resolve() : reject();
+        } catch (e) { reject(e); }
+      });
+    }
+
+    async function copySajaAiPrompt() {
+      const count = parseInt(document.getElementById('sajaBulkCount').value, 10) || 10;
+      const startDay = parseInt(document.getElementById('sajaBulkStartDay').value, 10) || 1;
+      const topic = (document.getElementById('sajaBulkTopic')?.value || '').trim();
+      const msg = document.getElementById('sajaPromptMsg');
+      msg.style.color = '#888'; msg.textContent = '기존 목록 확인 중…';
+
+      // 이미 등록된 사자성어(읽기)를 받아 프롬프트에서 제외 → 중복 생성 방지.
+      let existing = [];
+      try {
+        const d = await api('/api/admin/saja/idioms');
+        existing = (d.idioms || []).map(i => i.reading).filter(Boolean);
+      } catch (e) {}
+      const excludeClause = existing.length
+        ? `\n- 다음은 이미 등록되어 있으니 절대 다시 만들지 말 것(중복 금지): ${existing.join(', ')}`
+        : '';
+      const topicClause = topic ? `\n- 주제: "${topic}" 와(과) 관련된 사자성어 위주로 선정.` : '';
+
+      const prompt =
+`너는 한국 사자성어 학습 앱의 콘텐츠 에디터다.
+아래 규칙과 스키마에 "정확히" 맞는 사자성어 ${count}개를 JSON 배열로만 출력하라.
+
+[출력 형식 — 엄수]
+- 순수 JSON 배열 하나만 출력. 첫 글자는 '[', 마지막 글자는 ']'.
+- 마크다운 코드펜스(\`\`\`), 머리말, 설명, 주석 절대 금지.
+- 모든 키/문자열은 큰따옴표. JSON 문법 위반 금지(따옴표·역슬래시만 이스케이프).
+
+[선정 규칙]
+- 한국에서 교육용으로 널리 쓰이는 표준 사자성어 우선. 표기는 한국 표준(정자 한자).
+- 배치 내에서 서로 중복 금지.${topicClause}${excludeClause}
+
+[필드]
+- slug: reading을 로마자로 옮긴 소문자 식별자. 영문 소문자·숫자·하이픈·언더스코어만([a-z0-9_-]), 서로 유일. 예: 오리무중→"oilmujung", 일석이조→"ilseokijo".
+- hanja: 정확한 정자 한자(보통 4글자).
+- reading: 한글 음. 예: "오리무중".
+- meaning: 뜻을 한 문장으로 명확하게.
+- origin: 유래 2~3문장. 출처(문헌·고사)는 "확실한 경우에만" 밝히고, 불확실하면 지어내지 말 것(사실이 아닌 출처 금지).
+- modernExample: 그 사자성어를 실제로 쓰는 자연스러운 한국어 예문 한 문장(따옴표로 감쌈).
+- category: "노력" | "지혜" | "처세" | "인생" 중 가장 가까운 하나.
+- level: 1(아주 유명·쉬움) ~ 3(덜 알려짐·어려움) 정수.
+- dayIndex: ${startDay}부터 1씩 증가하는 정수.
+- chars: 한자 한 글자씩 [{ "c": 한자, "hun": 대표 훈(뜻), "eum": 음 }]. hanja 글자 수와 동일. 대표 훈음을 정확히(예: 山="메"/"산", 之="갈"/"지").
+- quizzes: 2~3개, 유형을 다양하게.
+  - 각 원소 { "type", "question", "options"(보기 4개), "answerIndex"(0-based), "explanation" }.
+  - type 은 "meaning"(뜻/어울리는 상황), "target"(가리키는 대상), "hanja"(특정 한자의 뜻) 중에서.
+  - 보기 4개는 서로 명확히 다르고 정답은 정확히 하나. answerIndex 는 options 배열에서 정답의 실제 위치를 정확히 가리킬 것(표시 위치는 앱이 매번 섞음).
+  - 오답은 그럴듯하되 분명히 틀린 것으로.
+
+[형식 예시 — 그대로 베끼지 말고 형식만 참고]
+[
+  {
+    "slug": "oilmujung", "hanja": "五里霧中", "reading": "오리무중",
+    "meaning": "갈피를 잡지 못하고 헤매는 상태.",
+    "origin": "후한서(後漢書)에 나온다. 학자 장해가 5리에 안개를 일으켰다는 데서 유래했다.",
+    "modernExample": "\\"새 프로젝트 방향이 오리무중이라 다들 멈춰 있었다.\\"",
+    "category": "처세", "level": 1, "dayIndex": ${startDay},
+    "chars": [{"c":"五","hun":"다섯","eum":"오"},{"c":"里","hun":"마을","eum":"리"},{"c":"霧","hun":"안개","eum":"무"},{"c":"中","hun":"가운데","eum":"중"}],
+    "quizzes": [
+      {"type":"meaning","question":"‘오리무중’에 어울리는 상황은?","options":["일이 술술 풀림","갈피를 못 잡고 헤맴","한 번에 두 이득","준비를 철저히 함"],"answerIndex":1,"explanation":"짙은 안갯속처럼 방향을 잃은 상태예요."},
+      {"type":"hanja","question":"‘오리무중(五里霧中)’에서 한자 ‘霧’의 뜻은?","options":["안개","마을","다섯","가운데"],"answerIndex":0,"explanation":"霧는 '안개 무'예요."}
+    ]
+  }
+]`;
+      sajaCopyText(prompt).then(() => {
+        msg.style.color = '#27ae60';
+        msg.textContent = `복사됨! (${existing.length}개 제외) AI에 붙여넣으세요.`;
+      }).catch(() => {
+        msg.style.color = '#e74c3c'; msg.textContent = '복사 실패 — 프롬프트 칸을 길게 눌러 직접 복사하세요.';
+      });
+    }
+
+    // 저장 없이 형식·중복 검증만.
+    async function validateSajaBulk() {
+      const text = document.getElementById('sajaBulkInput').value.trim();
+      const msg = document.getElementById('sajaBulkMsg');
+      const errBox = document.getElementById('sajaBulkErrors');
+      errBox.innerHTML = '';
+      if (!text) { msg.style.color = '#e74c3c'; msg.textContent = '붙여넣은 JSON이 없습니다.'; return; }
+      msg.style.color = '#888'; msg.textContent = '검증 중…';
+      try {
+        const res = await api('/api/admin/saja/idioms/validate', { method: 'POST', body: JSON.stringify({ text }) });
+        if (res.error) { msg.style.color = '#e74c3c'; msg.textContent = res.error; return; }
+        msg.style.color = (res.invalid || res.duplicates) ? '#e67e22' : '#27ae60';
+        msg.textContent = `전체 ${res.total} · 등록 가능 ${res.validNew} · 중복 ${res.duplicates} · 형식오류 ${res.invalid}`;
+        errBox.innerHTML = (res.report || []).filter(r => r.errors.length || r.duplicate).map(r => {
+          const label = `#${r.index}${r.reading ? ' ' + sajaEsc(r.reading) : ''}${r.slug ? ' (' + sajaEsc(r.slug) + ')' : ''}`;
+          if (r.errors.length) return `<span style="color:#e74c3c">✗ ${label}: ${sajaEsc(r.errors.join(', '))}</span>`;
+          return `<span style="color:#e67e22">⊘ ${label}: ${sajaEsc(r.duplicate)} (건너뜀)</span>`;
+        }).join('<br>') || '<span style="color:#27ae60">문제 없음 — 모두 등록 가능합니다 ✓</span>';
+      } catch (e) {
+        msg.style.color = '#e74c3c'; msg.textContent = '검증 실패';
+      }
+    }
+
+    async function submitSajaBulk() {
+      const text = document.getElementById('sajaBulkInput').value.trim();
+      const msg = document.getElementById('sajaBulkMsg');
+      const errBox = document.getElementById('sajaBulkErrors');
+      errBox.innerHTML = '';
+      if (!text) { msg.style.color = '#e74c3c'; msg.textContent = '붙여넣은 JSON이 없습니다.'; return; }
+      msg.style.color = '#888'; msg.textContent = '등록 중…';
+      try {
+        const res = await api('/api/admin/saja/idioms/bulk', { method: 'POST', body: JSON.stringify({ text }) });
+        if (res.success) {
+          const skip = res.skippedCount || 0;
+          msg.style.color = (res.failed || skip) ? '#e67e22' : '#27ae60';
+          msg.textContent = `${res.saved}개 등록`
+            + (skip ? ` · 중복 ${skip}개 건너뜀` : '')
+            + (res.failed ? ` · 실패 ${res.failed}개` : '');
+          const lines = [];
+          (res.skipped || []).forEach(s => lines.push(`<span style="color:#e67e22">⊘ #${s.index}${s.slug ? ' (' + sajaEsc(s.slug) + ')' : ''}: ${sajaEsc(s.reason)}</span>`));
+          (res.errors || []).forEach(e => lines.push(`<span style="color:#e74c3c">✗ #${e.index}${e.slug ? ' (' + sajaEsc(e.slug) + ')' : ''}: ${sajaEsc(e.error)}</span>`));
+          errBox.innerHTML = lines.join('<br>');
+          loadSajaIdioms();
+          sajaRefreshOrphanBadge();
+        } else {
+          msg.style.color = '#e74c3c'; msg.textContent = res.error || '등록 실패';
+        }
+      } catch (e) {
+        msg.style.color = '#e74c3c'; msg.textContent = '등록 실패';
+      }
+    }
+
+    async function loadSajaStats() {
+      try {
+        const s = await api('/api/admin/saja/stats');
+        document.getElementById('sajaStatsGrid').innerHTML = `
+          <div class="stat-card accent"><h3>전체 사용자</h3><div class="number">${s.totalUsers}</div></div>
+          <div class="stat-card"><h3>DAU</h3><div class="number">${s.dau}</div></div>
+          <div class="stat-card"><h3>WAU</h3><div class="number">${s.wau}</div></div>
+          <div class="stat-card"><h3>MAU</h3><div class="number">${s.mau}</div></div>
+          <div class="stat-card success"><h3>사자성어 수</h3><div class="number">${s.idiomCount}</div></div>
+          <div class="stat-card"><h3>누적 학습</h3><div class="number">${s.learnedTotal}</div></div>`;
+      } catch (e) {
+        document.getElementById('sajaStatsGrid').innerHTML = '<div class="empty">불러오기 실패</div>';
+      }
+    }
   </script>
 </body>
 </html>

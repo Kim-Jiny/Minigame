@@ -5,8 +5,44 @@ import bcrypt from 'bcrypt';
 import { coinService } from '../services/coinService';
 import { parseAndValidate } from '../services/ctrPuzzleValidate';
 import { updateNickname } from '../services/userService';
+import multer from 'multer'; // [SAJA] 사자툰 만화 이미지 업로드용
+// [SAJA] sharp 는 네이티브 모듈 — 로드 실패가 서버 전체를 죽이지 않도록 업로드 시점에 지연 로딩한다.
+import path from 'path';
+import fs from 'fs';
 
 const router = Router();
+
+// [SAJA] 사자툰 만화 이미지 저장 위치. 정적 라우트 /saja(=public/saja)로 서빙되므로
+//        파일은 /saja/comics/<파일명> 으로 접근된다. (배포 시 호스트 볼륨으로 영속화)
+//        __dirname: dev=src/routes, prod=dist/routes → ../../public 가 server/public 또는 /app/public.
+const SAJA_COMIC_DIR = path.join(__dirname, '../../public/saja/comics');
+// 업로드는 메모리로 받아 sharp 로 리사이즈/압축 후 webp 로 저장한다(용량 절감).
+const sajaUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 }, // 원본 최대 25MB (압축 전)
+  fileFilter: (_req, file, cb) => {
+    cb(null, /^image\/(png|jpe?g|webp|gif|heic|heif)$/.test(file.mimetype));
+  },
+});
+
+// 업로드 이미지를 용량에 맞게 줄여 webp 로 저장하고 상대 URL 반환.
+//   kind='thumb' → 600px 안쪽(모아보기 썸네일), 그 외 → 1080px 폭(웹툰 만화컷).
+async function saveSajaImage(buffer: Buffer, originalName: string, kind: string): Promise<string> {
+  fs.mkdirSync(SAJA_COMIC_DIR, { recursive: true });
+  const base = path.basename(originalName, path.extname(originalName))
+    .toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 40) || (kind === 'thumb' ? 'thumb' : 'comic');
+  const filename = `${base}_${Date.now()}.webp`;
+
+  const sharp = (await import('sharp')).default; // 지연 로딩(네이티브 모듈)
+  let pipeline = sharp(buffer, { failOn: 'none' }).rotate(); // EXIF 회전 보정
+  if (kind === 'thumb') {
+    pipeline = pipeline.resize({ width: 600, height: 600, fit: 'inside', withoutEnlargement: true });
+  } else {
+    pipeline = pipeline.resize({ width: 1080, withoutEnlargement: true });
+  }
+  await pipeline.webp({ quality: 80 }).toFile(path.join(SAJA_COMIC_DIR, filename));
+  return `/saja/comics/${filename}`;
+}
 
 // ADMIN_JWT_SECRET은 반드시 환경변수로 주입해야 한다. 운영 환경에서 누락 시
 // 관리자 토큰 위조 위험이 있으므로 부팅을 실패시킨다.
@@ -1004,6 +1040,388 @@ router.get('/ctr/stats', verifyAdminToken, async (_req: Request, res: Response):
   } catch (error) {
     console.error('CTR admin stats error:', error);
     res.status(500).json({ error: 'Failed to load stats' });
+  }
+});
+
+// ================================================================
+// [SAJA] 사자툰(SajaToon) 소유 — /api/admin/saja/* 엔드포인트 삭제·리팩터링 금지 (리포 루트 CLAUDE.md).
+// 백스테이지에서 사자성어 콘텐츠(sj_idioms)를 등록·수정·삭제한다.
+// ================================================================
+
+// 문자열 배열로 정규화 (images: 줄바꿈/배열 모두 허용)
+function asStringArray(v: any): string[] {
+  if (Array.isArray(v)) return v.map((x) => String(x).trim()).filter(Boolean);
+  if (typeof v === 'string') return v.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  return [];
+}
+
+// GET /api/admin/saja/idioms - 사자성어 전체(편집용 전체 필드)
+router.get('/saja/idioms', verifyAdminToken, async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const r = await pool.query(
+      `SELECT id, slug, hanja, reading, meaning, origin, modern_example, category,
+              level, day_index, comic, images, thumbnail, chars, quiz, quizzes, is_active, updated_at
+       FROM sj_idioms
+       ORDER BY day_index ASC NULLS LAST, id ASC`
+    );
+    const idioms = r.rows.map((row: any) => ({
+      id: row.id, slug: row.slug, hanja: row.hanja, reading: row.reading,
+      meaning: row.meaning, origin: row.origin, modernExample: row.modern_example,
+      category: row.category, level: row.level, dayIndex: row.day_index,
+      comic: row.comic ?? [], images: row.images ?? [], thumbnail: row.thumbnail ?? null,
+      chars: row.chars ?? [],
+      quiz: row.quiz ?? null,
+      quizzes: (Array.isArray(row.quizzes) && row.quizzes.length > 0) ? row.quizzes : (row.quiz ? [row.quiz] : []),
+      isActive: row.is_active, updatedAt: row.updated_at,
+    }));
+    res.json({ idioms });
+  } catch (error) {
+    console.error('SAJA admin list idioms error:', error);
+    res.status(500).json({ error: 'Failed to load idioms' });
+  }
+});
+
+// 사자성어 한 건 검증 + upsert(slug 기준). 단일/일괄 등록에서 공용으로 쓴다.
+async function upsertSajaIdiom(pool: any, b: any): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
+  const slug = typeof b.slug === 'string' ? b.slug.trim().toLowerCase().slice(0, 64) : '';
+  const hanja = typeof b.hanja === 'string' ? b.hanja.trim().slice(0, 20) : '';
+  const reading = typeof b.reading === 'string' ? b.reading.trim().slice(0, 40) : '';
+  const meaning = typeof b.meaning === 'string' ? b.meaning.trim() : '';
+  if (!slug || !hanja || !reading || !meaning) {
+    return { ok: false, error: 'slug, hanja, reading, meaning 은 필수입니다.' };
+  }
+
+  const origin = typeof b.origin === 'string' ? b.origin.trim() : null;
+  const modernExample = typeof b.modernExample === 'string' ? b.modernExample.trim() : null;
+  const category = typeof b.category === 'string' ? b.category.trim().slice(0, 30) : null;
+  const level = Number.isInteger(b.level) ? b.level : parseInt(b.level, 10) || 1;
+  const dayIndex = b.dayIndex === '' || b.dayIndex == null ? null : (parseInt(b.dayIndex, 10) || null);
+  const images = asStringArray(b.images);
+  const comic = Array.isArray(b.comic) ? b.comic : [];
+  const thumbnail = typeof b.thumbnail === 'string' && b.thumbnail.trim() ? b.thumbnail.trim() : null;
+  const isActive = b.isActive === false ? false : true;
+
+  // chars: 배열이거나 JSON 문자열로 들어올 수 있다. 비면 [].
+  let chars: any[] = [];
+  if (Array.isArray(b.chars)) chars = b.chars;
+  else if (typeof b.chars === 'string' && b.chars.trim()) {
+    try { const p = JSON.parse(b.chars); if (Array.isArray(p)) chars = p; }
+    catch { return { ok: false, error: '한자 풀이(chars) JSON 형식 오류' }; }
+  }
+
+  // quiz: 객체이거나, 문자열(JSON)로 들어오면 파싱. 비면 null. (레거시 단일)
+  let quiz: any = null;
+  if (b.quiz && typeof b.quiz === 'object') quiz = b.quiz;
+  else if (typeof b.quiz === 'string' && b.quiz.trim()) {
+    try { quiz = JSON.parse(b.quiz); } catch { return { ok: false, error: 'quiz JSON 형식 오류' }; }
+  }
+
+  // quizzes: 배열이거나 JSON 문자열. 단일 객체면 [객체]로. 비면 [].
+  let quizzes: any[] = [];
+  if (Array.isArray(b.quizzes)) quizzes = b.quizzes;
+  else if (typeof b.quizzes === 'string' && b.quizzes.trim()) {
+    try {
+      const p = JSON.parse(b.quizzes);
+      quizzes = Array.isArray(p) ? p : (p && typeof p === 'object' ? [p] : []);
+    } catch { return { ok: false, error: '퀴즈 목록(quizzes) JSON 형식 오류' }; }
+  }
+  // quizzes 가 비고 단일 quiz 만 있으면 리스트로 승격.
+  if (quizzes.length === 0 && quiz) quizzes = [quiz];
+
+  const r = await pool.query(
+    `INSERT INTO sj_idioms
+       (slug, hanja, reading, meaning, origin, modern_example, category, level, day_index, comic, images, thumbnail, chars, quiz, quizzes, is_active, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,CURRENT_TIMESTAMP)
+     ON CONFLICT (slug) DO UPDATE SET
+       hanja=EXCLUDED.hanja, reading=EXCLUDED.reading, meaning=EXCLUDED.meaning,
+       origin=EXCLUDED.origin, modern_example=EXCLUDED.modern_example, category=EXCLUDED.category,
+       level=EXCLUDED.level, day_index=EXCLUDED.day_index, comic=EXCLUDED.comic,
+       images=EXCLUDED.images, thumbnail=EXCLUDED.thumbnail, chars=EXCLUDED.chars, quiz=EXCLUDED.quiz, quizzes=EXCLUDED.quizzes, is_active=EXCLUDED.is_active,
+       updated_at=CURRENT_TIMESTAMP
+     RETURNING id`,
+    [slug, hanja, reading, meaning, origin, modernExample, category, level, dayIndex,
+     JSON.stringify(comic), JSON.stringify(images), thumbnail, JSON.stringify(chars),
+     quiz ? JSON.stringify(quiz) : null, JSON.stringify(quizzes), isActive]
+  );
+  return { ok: true, id: r.rows[0].id };
+}
+
+// POST /api/admin/saja/idioms - 등록/수정 (slug 기준 upsert)
+router.post('/saja/idioms', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const result = await upsertSajaIdiom(pool, req.body ?? {});
+    if (!result.ok) { res.status(400).json({ error: result.error }); return; }
+    res.json({ success: true, id: result.id });
+  } catch (error) {
+    console.error('SAJA admin upsert idiom error:', error);
+    res.status(500).json({ error: 'Failed to save idiom' });
+  }
+});
+
+// body(text/items) → 사자성어 배열로 파싱. 실패 시 { error }.
+function parseBulkItems(body: any): { items: any[] } | { error: string } {
+  let items: any = body?.items;
+  if (!Array.isArray(items)) {
+    const text = typeof body?.text === 'string' ? body.text : '';
+    if (!text.trim()) return { error: '붙여넣은 JSON이 없습니다.' };
+    try {
+      const parsed = JSON.parse(text);
+      items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.idioms) ? parsed.idioms : null);
+    } catch (e: any) { return { error: 'JSON 파싱 실패 — 배열 형식인지 확인하세요. (' + (e?.message || '') + ')' }; }
+  }
+  if (!Array.isArray(items)) return { error: 'JSON 최상위가 배열이 아닙니다.' };
+  if (items.length === 0) return { error: '배열이 비어 있습니다.' };
+  if (items.length > 200) return { error: '한 번에 최대 200개까지 가능합니다.' };
+  return { items };
+}
+
+// 한 항목의 형식 검증(저장 없이). slug/hanja/reading 과 오류 목록 반환.
+function validateSajaItem(b: any): { slug: string; hanja: string; reading: string; errors: string[] } {
+  const errors: string[] = [];
+  const slug = typeof b?.slug === 'string' ? b.slug.trim().toLowerCase() : '';
+  const hanja = typeof b?.hanja === 'string' ? b.hanja.trim() : '';
+  const reading = typeof b?.reading === 'string' ? b.reading.trim() : '';
+  const meaning = typeof b?.meaning === 'string' ? b.meaning.trim() : '';
+  if (!slug) errors.push('slug 누락');
+  else if (!/^[a-z0-9_-]+$/.test(slug)) errors.push('slug 형식 오류(영문 소문자/숫자/-_ 만)');
+  if (!hanja) errors.push('hanja 누락');
+  if (!reading) errors.push('reading 누락');
+  if (!meaning) errors.push('meaning 누락');
+
+  const qs = Array.isArray(b?.quizzes) ? b.quizzes : (b?.quiz ? [b.quiz] : []);
+  qs.forEach((q: any, i: number) => {
+    if (!q || typeof q !== 'object') { errors.push(`quizzes[${i}] 형식 오류`); return; }
+    if (!q.question) errors.push(`quizzes[${i}] question 누락`);
+    if (!Array.isArray(q.options) || q.options.length < 2) errors.push(`quizzes[${i}] options 2개 이상 필요`);
+    else if (!Number.isInteger(q.answerIndex) || q.answerIndex < 0 || q.answerIndex >= q.options.length) {
+      errors.push(`quizzes[${i}] answerIndex 범위 오류`);
+    }
+  });
+  if (b?.chars !== undefined && !Array.isArray(b.chars)) errors.push('chars 는 배열이어야 함');
+  return { slug, hanja, reading, errors };
+}
+
+// 중복 판정: 배치 내/DB(slug·한자). 첫 등장 이후는 중복으로 본다.
+function sajaDupReason(
+  v: { slug: string; hanja: string },
+  seenSlug: Set<string>, seenHanja: Set<string>,
+  dbSlugs: Set<string>, dbHanja: Set<string>,
+): string | null {
+  if (v.slug && seenSlug.has(v.slug)) return '배치 내 slug 중복';
+  if (v.hanja && seenHanja.has(v.hanja)) return '배치 내 한자 중복';
+  if (v.slug && dbSlugs.has(v.slug)) return '이미 등록된 slug';
+  if (v.hanja && dbHanja.has(v.hanja)) return '이미 등록된 한자';
+  return null;
+}
+
+async function sajaExistingSets(pool: any): Promise<{ dbSlugs: Set<string>; dbHanja: Set<string> }> {
+  const ex = await pool.query(`SELECT slug, hanja FROM sj_idioms`);
+  return {
+    dbSlugs: new Set(ex.rows.map((r: any) => r.slug)),
+    dbHanja: new Set(ex.rows.map((r: any) => r.hanja)),
+  };
+}
+
+// POST /api/admin/saja/idioms/validate - 저장하지 않고 형식·중복만 검사.
+router.post('/saja/idioms/validate', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const parsed = parseBulkItems(req.body);
+    if ('error' in parsed) { res.status(400).json({ error: parsed.error }); return; }
+    const items = parsed.items;
+
+    const { dbSlugs, dbHanja } = await sajaExistingSets(pool);
+    const seenSlug = new Set<string>(), seenHanja = new Set<string>();
+    const report = items.map((b, i) => {
+      const v = validateSajaItem(b);
+      const dup = sajaDupReason(v, seenSlug, seenHanja, dbSlugs, dbHanja);
+      if (v.slug) seenSlug.add(v.slug);
+      if (v.hanja) seenHanja.add(v.hanja);
+      return { index: i, slug: v.slug, reading: v.reading, hanja: v.hanja, errors: v.errors, duplicate: dup };
+    });
+    res.json({
+      total: items.length,
+      validNew: report.filter((r) => r.errors.length === 0 && !r.duplicate).length,
+      duplicates: report.filter((r) => r.duplicate).length,
+      invalid: report.filter((r) => r.errors.length > 0).length,
+      report,
+    });
+  } catch (error) {
+    console.error('SAJA admin validate error:', error);
+    res.status(500).json({ error: 'Failed to validate' });
+  }
+});
+
+// POST /api/admin/saja/idioms/bulk - 사자성어 배열 일괄 등록(중복 자동 건너뜀).
+//   slug/한자가 배치 내 또는 DB에 이미 있으면 skip. 형식 오류는 failed.
+router.post('/saja/idioms/bulk', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const parsed = parseBulkItems(req.body);
+    if ('error' in parsed) { res.status(400).json({ error: parsed.error }); return; }
+    const items = parsed.items;
+
+    const { dbSlugs, dbHanja } = await sajaExistingSets(pool);
+    const seenSlug = new Set<string>(), seenHanja = new Set<string>();
+
+    let saved = 0;
+    const skipped: Array<{ index: number; slug?: string; reason: string }> = [];
+    const errors: Array<{ index: number; slug?: string; error: string }> = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const v = validateSajaItem(items[i] ?? {});
+      if (v.errors.length > 0) { errors.push({ index: i, slug: v.slug, error: v.errors.join(', ') }); continue; }
+      const dup = sajaDupReason(v, seenSlug, seenHanja, dbSlugs, dbHanja);
+      seenSlug.add(v.slug); seenHanja.add(v.hanja);
+      if (dup) { skipped.push({ index: i, slug: v.slug, reason: dup }); continue; }
+
+      const result = await upsertSajaIdiom(pool, items[i]);
+      if (result.ok) saved++;
+      else errors.push({ index: i, slug: v.slug, error: result.error });
+    }
+    res.json({ success: true, saved, skipped, failed: errors.length, errors, skippedCount: skipped.length });
+  } catch (error) {
+    console.error('SAJA admin bulk upsert error:', error);
+    res.status(500).json({ error: 'Failed to bulk save' });
+  }
+});
+
+// DELETE /api/admin/saja/idioms/:id
+router.delete('/saja/idioms/:id', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const id = parseInt(String(req.params.id), 10);
+    // 진도(sj_progress)가 FK로 참조하므로 먼저 정리 후 삭제.
+    await pool.query('DELETE FROM sj_progress WHERE idiom_id = $1', [id]);
+    await pool.query('DELETE FROM sj_idioms WHERE id = $1', [id]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('SAJA admin delete idiom error:', error);
+    res.status(500).json({ error: 'Failed to delete idiom' });
+  }
+});
+
+// GET /api/admin/saja/images - 업로드된 만화 이미지 전체 목록 + 연결 여부.
+//   사자성어(images/thumbnail)에 연결 안 된 '고아' 이미지를 찾아낸다.
+router.get('/saja/images', verifyAdminToken, async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+
+    // 참조 맵: 파일명 → 사용 중인 사자성어 읽기들 (절대/상대 URL 모두 파일명으로 매칭).
+    const usedBy = new Map<string, string[]>();
+    const fileOf = (u: string): string | null => {
+      const m = String(u || '').match(/\/saja\/comics\/([^/?#]+)$/);
+      return m ? m[1] : null;
+    };
+    const r = await pool.query(`SELECT reading, images, thumbnail FROM sj_idioms`);
+    for (const row of r.rows) {
+      const urls: string[] = [];
+      if (Array.isArray(row.images)) urls.push(...row.images);
+      if (row.thumbnail) urls.push(row.thumbnail);
+      for (const u of urls) {
+        const f = fileOf(u);
+        if (!f) continue;
+        const list = usedBy.get(f) || [];
+        if (!list.includes(row.reading)) list.push(row.reading);
+        usedBy.set(f, list);
+      }
+    }
+
+    fs.mkdirSync(SAJA_COMIC_DIR, { recursive: true });
+    const exts = new Set(['.webp', '.png', '.jpg', '.jpeg', '.gif']);
+    const files = fs.readdirSync(SAJA_COMIC_DIR)
+      .filter((f) => exts.has(path.extname(f).toLowerCase()));
+
+    const images = files.map((f) => {
+      let size = 0;
+      try { size = fs.statSync(path.join(SAJA_COMIC_DIR, f)).size; } catch {}
+      const used = usedBy.get(f) || [];
+      return { url: `/saja/comics/${f}`, filename: f, size, linked: used.length > 0, usedBy: used };
+    });
+    // 미연결(고아) 먼저, 그다음 파일명 역순(최근 업로드 위로).
+    images.sort((a, b) => Number(a.linked) - Number(b.linked) || (a.filename < b.filename ? 1 : -1));
+
+    res.json({ images, orphanCount: images.filter((i) => !i.linked).length });
+  } catch (error) {
+    console.error('SAJA admin list images error:', error);
+    res.status(500).json({ error: 'Failed to list images' });
+  }
+});
+
+// GET /api/admin/saja/stats - 사자툰 디바이스/학습 통계
+router.get('/saja/stats', verifyAdminToken, async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const [devices, active, idioms, learned] = await Promise.all([
+      pool.query(`SELECT COUNT(*)::int AS c FROM sj_devices`),
+      pool.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE day = CURRENT_DATE)::int AS dau,
+          COUNT(DISTINCT device_id) FILTER (WHERE day >= CURRENT_DATE - 6)::int AS wau,
+          COUNT(DISTINCT device_id) FILTER (WHERE day >= CURRENT_DATE - 29)::int AS mau
+        FROM sj_device_daily`),
+      pool.query(`SELECT COUNT(*)::int AS c FROM sj_idioms WHERE is_active = TRUE`),
+      pool.query(`SELECT COUNT(*)::int AS c FROM sj_progress WHERE learned = TRUE`),
+    ]);
+    res.json({
+      totalUsers: devices.rows[0].c,
+      dau: active.rows[0].dau || 0,
+      wau: active.rows[0].wau || 0,
+      mau: active.rows[0].mau || 0,
+      idiomCount: idioms.rows[0].c,
+      learnedTotal: learned.rows[0].c,
+    });
+  } catch (error) {
+    console.error('SAJA admin stats error:', error);
+    res.status(500).json({ error: 'Failed to load stats' });
+  }
+});
+
+// POST /api/admin/saja/upload?kind=comic|thumb - 이미지 업로드(자동 리사이즈/압축 → webp)
+//   multipart/form-data, field: file. 응답 url 은 상대경로(/saja/comics/<파일>).
+//   앱이 BASE_URL 기준으로 해석하므로 디버그(로컬)·릴리스(운영) 어디서든 같은 값으로 동작.
+router.post('/saja/upload', verifyAdminToken, sajaUpload.single('file'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const file = (req as any).file;
+    if (!file || !file.buffer) {
+      res.status(400).json({ error: '이미지 파일이 필요합니다 (png/jpg/webp/gif/heic, 25MB 이하)' });
+      return;
+    }
+    const kind = req.query.kind === 'thumb' ? 'thumb' : 'comic';
+    const url = await saveSajaImage(file.buffer, file.originalname || 'image', kind);
+    res.json({ success: true, url });
+  } catch (error) {
+    console.error('SAJA admin upload error:', error);
+    res.status(500).json({ error: '이미지 처리 실패' });
+  }
+});
+
+// POST /api/admin/saja/upload/delete - 업로드된 이미지 파일을 서버 디스크에서 삭제.
+//   body: { url } — /saja/comics/<파일명> 형태만 허용(경로 탈출 방지). 이미 없으면 성공 처리.
+router.post('/saja/upload/delete', verifyAdminToken, (req: Request, res: Response): void => {
+  try {
+    const url = typeof req.body?.url === 'string' ? req.body.url : '';
+    // 파일명만 안전하게 추출(슬래시/.. 불가). 영숫자·._- 만 허용.
+    const m = url.match(/\/saja\/comics\/([A-Za-z0-9._-]+)$/);
+    if (!m) { res.status(400).json({ error: '잘못된 이미지 경로입니다.' }); return; }
+    const filePath = path.join(SAJA_COMIC_DIR, m[1]);
+    if (!path.resolve(filePath).startsWith(path.resolve(SAJA_COMIC_DIR))) {
+      res.status(400).json({ error: '잘못된 경로' }); return;
+    }
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('SAJA admin delete file error:', error);
+    res.status(500).json({ error: '파일 삭제 실패' });
   }
 });
 
