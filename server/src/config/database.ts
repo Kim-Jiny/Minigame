@@ -457,6 +457,97 @@ export async function setupDatabase() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
       CREATE INDEX IF NOT EXISTS idx_ctr_puzzles_order ON ctr_puzzles(chapter, ord);
+
+      -- ================================================================
+      -- [SAJA] 사자툰(SajaToon) 소유 — sj_ 테이블 전체 삭제·리팩터링 금지 (리포 루트 CLAUDE.md).
+      -- 사자툰(SajaToon) — "매일 한 편의 만화로 배우는 사자성어".
+      -- 앱 소스는 별도 리포 ~/Documents/Jiny/SajaToon (Android Kotlin, 추후 iOS).
+      -- 로그인 없는 deviceId 기반 공개 API(routes/sajatoon.ts). 프리픽스 sj_ 로
+      -- 다른 앱(dm_/ctr_) 데이터와 분리. dm_users FK 없음. 임의로 지우지 말 것.
+      -- ================================================================
+
+      -- [SAJA] 사자성어 콘텐츠. 만화 패널·뜻·유래·현대사례·퀴즈를 한 행에 담는다.
+      --        comic = 패널 배열 [{ caption, emoji, bg, imageKey }], quiz = { question, options[], answerIndex, explanation }.
+      CREATE TABLE IF NOT EXISTS sj_idioms (
+        id SERIAL PRIMARY KEY,
+        slug VARCHAR(64) UNIQUE NOT NULL,        -- 안정적 식별자 (예: 'oilmujung')
+        hanja VARCHAR(20) NOT NULL,              -- 한자 (예: 五里霧中)
+        reading VARCHAR(40) NOT NULL,            -- 한글 음 (예: 오리무중)
+        meaning TEXT NOT NULL,                   -- 뜻
+        origin TEXT,                             -- 유래
+        modern_example TEXT,                     -- 현대 사례
+        category VARCHAR(30),                    -- 분류 (예: 처세, 노력)
+        level INTEGER DEFAULT 1,                 -- 난이도(1~3)
+        day_index INTEGER,                       -- 학습 순서(오늘의 사자성어 회차)
+        comic JSONB NOT NULL DEFAULT '[]',       -- (폴백) 만화 패널 배열 — 실제 이미지 없을 때 플레이스홀더용
+        images JSONB NOT NULL DEFAULT '[]',      -- 실제 만화 이미지 URL 리스트. 4컷=1장, 8컷=2장 식으로 순서대로.
+        thumbnail TEXT,                          -- 모아보기/홈 대표 썸네일 이미지 URL(없으면 첫 만화컷으로 폴백)
+        chars JSONB NOT NULL DEFAULT '[]',       -- 한자 한 글자씩 풀이 [{ c, hun(뜻), eum(음) }]
+        quiz JSONB,                              -- (레거시) 단일 객관식 퀴즈
+        quizzes JSONB NOT NULL DEFAULT '[]',     -- 객관식 퀴즈 여러 개(유형 다양). 정답 위치는 앱에서 매번 섞음.
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_sj_idioms_day ON sj_idioms(day_index);
+      -- [SAJA] images 컬럼 추가 (기존 테이블용). 만화 이미지 URL 리스트.
+      ALTER TABLE sj_idioms ADD COLUMN IF NOT EXISTS images JSONB NOT NULL DEFAULT '[]';
+      -- [SAJA] thumbnail 컬럼 추가 (기존 테이블용). 모아보기 대표 썸네일.
+      ALTER TABLE sj_idioms ADD COLUMN IF NOT EXISTS thumbnail TEXT;
+      -- [SAJA] chars 컬럼 추가 (기존 테이블용). 한자 한 글자씩 풀이.
+      ALTER TABLE sj_idioms ADD COLUMN IF NOT EXISTS chars JSONB NOT NULL DEFAULT '[]';
+      -- [SAJA] quizzes 컬럼 추가 (기존 테이블용). 퀴즈 여러 개.
+      ALTER TABLE sj_idioms ADD COLUMN IF NOT EXISTS quizzes JSONB NOT NULL DEFAULT '[]';
+
+      -- [SAJA] 디바이스(익명) — 로그인 없이 유저 카운팅/통계 (ctr_devices 와 동일 패턴).
+      CREATE TABLE IF NOT EXISTS sj_devices (
+        device_id VARCHAR(64) PRIMARY KEY,
+        platform VARCHAR(10),                     -- ios | android
+        country VARCHAR(2),
+        app_version VARCHAR(20),
+        os_version VARCHAR(30),
+        launch_count INTEGER DEFAULT 1,
+        first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_sj_devices_last_seen ON sj_devices(last_seen);
+
+      -- [SAJA] 일자별 활성 디바이스 (DAU/WAU/MAU 산출용).
+      CREATE TABLE IF NOT EXISTS sj_device_daily (
+        device_id VARCHAR(64) NOT NULL,
+        day DATE NOT NULL,
+        platform VARCHAR(10),
+        PRIMARY KEY (device_id, day)
+      );
+      CREATE INDEX IF NOT EXISTS idx_sj_device_daily_day ON sj_device_daily(day);
+
+      -- [SAJA] 학습 진도 (기기별·사자성어별). 학습 완료/퀴즈 정답/북마크 기록. 서버 동기화.
+      CREATE TABLE IF NOT EXISTS sj_progress (
+        device_id VARCHAR(64) NOT NULL,
+        idiom_id INTEGER NOT NULL REFERENCES sj_idioms(id),
+        learned BOOLEAN DEFAULT FALSE,
+        learned_at TIMESTAMP,
+        quiz_correct INTEGER DEFAULT 0,          -- 누적 정답 횟수
+        quiz_attempts INTEGER DEFAULT 0,         -- 누적 시도 횟수
+        bookmarked BOOLEAN DEFAULT FALSE,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (device_id, idiom_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_sj_progress_device ON sj_progress(device_id);
+
+      -- [SAJA] 사자툰 메타(키-값). 'seeded' 플래그로 콘텐츠 시드를 최초 1회만 실행한다.
+      CREATE TABLE IF NOT EXISTS sj_meta (
+        key VARCHAR(40) PRIMARY KEY,
+        value TEXT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- [LAB] 참고: 이 공유 DB 에는 라비린스 온라인 소유의 lab_* 테이블
+      --       (lab_matches, lab_match_players, lab_user_stats)도 존재한다.
+      --       그러나 그 테이블은 "별도 리포·별도 서버"(~/Documents/Jiny/LabyrinthOnline,
+      --       독립 컨테이너)가 직접 생성/관리한다. 여기(듀오 서버)에서는 만들지도, 지우지도
+      --       말 것. DB 정리 중 lab_* 가 보여도 "안 쓰는 테이블"이 아니다 — 운영 중인
+      --       라비린스 서비스의 데이터다. 소유권: 리포 루트 CLAUDE.md 의 [LAB] 섹션.
     `);
 
     console.log('✅ Database tables ready');
@@ -465,6 +556,18 @@ export async function setupDatabase() {
 
     // 초기 상점 아이템 seed
     await seedShopItems(client);
+
+    // [SAJA] 사자툰 시드/백필. 실패해도 코어 서비스(듀오·규칙찾기) 부팅에는 영향 없도록 비치명적 처리.
+    try {
+      // 콘텐츠 seed (slug 충돌 시 건너뜀 → 관리자 수정 보존).
+      await seedSajatoonIdioms(client);
+      // 한자 풀이 백필(이미 시드된 사자성어에 chars 채움 — 비어 있을 때만).
+      await backfillSajatoonChars(client);
+      // 퀴즈 리스트 백필(단일 quiz → quizzes + 한자 의미 퀴즈 자동 생성).
+      await backfillSajatoonQuizzes(client);
+    } catch (sajaErr) {
+      console.error('[SAJA] seed/backfill 실패 — 건너뜀(코어 서비스 영향 없음):', sajaErr);
+    }
 
     client.release();
   } catch (error) {
@@ -652,6 +755,278 @@ async function seedShopItems(client: any) {
   }
 
   console.log('✅ Shop items seeded');
+}
+
+// ================================================================
+// [SAJA] 사자툰(SajaToon) 소유 — 사자성어 콘텐츠 seed. 삭제 금지.
+// slug 충돌 시 DO NOTHING(관리자/운영 중 수정 보존). 새 사자성어만 추가된다.
+// comic 패널: { caption(나레이션), emoji(플레이스홀더 일러스트 힌트),
+//   bg(플레이스홀더 배경색), imageKey(실제 웹툰 PNG 슬롯 키) }.
+// 앱은 imageKey 에 해당하는 실제 이미지가 없으면 emoji+bg 로 플레이스홀더를 그린다.
+// quiz: { question, options[4], answerIndex(0-based), explanation }.
+// ================================================================
+async function seedSajatoonIdioms(client: any) {
+  // 시드는 '최초 1회만'. sj_meta.seeded 플래그가 있으면 건너뛴다.
+  // (관리자가 admin 에서 사자성어를 지워도 재부팅 때 되살아나지 않도록.)
+  const seededFlag = await client.query(`SELECT 1 FROM sj_meta WHERE key = 'seeded' LIMIT 1`);
+  if (seededFlag.rows.length > 0) return;
+
+  // 플래그는 없지만 이미 콘텐츠가 있으면(기존 운영 데이터) 시드 없이 플래그만 세팅.
+  const existing = await client.query(`SELECT COUNT(*)::int AS c FROM sj_idioms`);
+  if (existing.rows[0].c > 0) {
+    await client.query(
+      `INSERT INTO sj_meta (key, value) VALUES ('seeded', '1') ON CONFLICT (key) DO NOTHING`
+    );
+    console.log('✅ SajaToon seed skipped (콘텐츠 이미 존재 → 플래그만 설정)');
+    return;
+  }
+
+  const panel = (caption: string, emoji: string, bg: string) => ({ caption, emoji, bg });
+  // 각 사자성어의 4컷 만화 + 퀴즈. 콘텐츠는 운영 중 admin 으로 보강 가능.
+  const idioms = [
+    {
+      slug: 'oilmujung', hanja: '五里霧中', reading: '오리무중', category: '처세', level: 1, day_index: 1,
+      meaning: '5리(약 2km)나 되는 짙은 안갯속에 있다는 뜻으로, 무슨 일에 대해 갈피를 잡지 못하고 어찌할 바를 모르는 상태.',
+      origin: '후한서(後漢書)에 나온다. 학자 장해(張楷)는 도술로 사방 5리에 안개를 일으킬 수 있었다고 한다. 사람들이 그를 찾아와도 안개에 가려 길을 잃었다는 데서, 방향을 잃고 헤매는 상황을 가리키게 되었다.',
+      modern_example: '"새 프로젝트 방향이 오리무중이라, 팀 전체가 뭘 먼저 해야 할지 몰라 멈춰 있었다."',
+      comic: [
+        panel('주인공이 깊은 안갯속을 걷는다.', '🌫️', '#E6E2DA'),
+        panel('한 치 앞도 보이지 않아 길을 잃는다.', '😵‍💫', '#D8D2C6'),
+        panel('어느 쪽으로 가야 할지 도무지 알 수 없다.', '🧭', '#CFC9BB'),
+        panel('"이게 바로 오리무중이구나!"', '💡', '#F4C95D'),
+      ],
+      quiz: { question: '‘오리무중(五里霧中)’의 뜻으로 알맞은 것은?', options: ['일이 술술 잘 풀림', '갈피를 못 잡고 헤맴', '한 번에 두 가지 이득', '준비를 철저히 함'], answerIndex: 1, explanation: '짙은 안갯속처럼 방향을 잃고 어찌할 바를 모르는 상태를 뜻해요.' },
+    },
+    {
+      slug: 'ilseokijo', hanja: '一石二鳥', reading: '일석이조', category: '지혜', level: 1, day_index: 2,
+      meaning: '돌 하나를 던져 새 두 마리를 잡는다는 뜻으로, 한 가지 일로 두 가지 이익을 얻음.',
+      origin: '본래 영어 속담 "kill two birds with one stone"에서 유래해 한자로 옮겨진 표현으로, 동아시아권에서 널리 쓰이게 되었다. 같은 뜻의 한자성어로 일거양득(一擧兩得)이 있다.',
+      modern_example: '"계단을 이용하면 운동도 되고 시간도 아끼니 일석이조다."',
+      comic: [
+        panel('손에 돌멩이 하나를 든 주인공.', '🪨', '#DCE6DA'),
+        panel('나뭇가지에 새 두 마리가 앉아 있다.', '🐦🐦', '#CFE0CB'),
+        panel('돌을 휙— 던진다.', '💨', '#BFD6BA'),
+        panel('한 번에 두 마리! "일석이조!"', '🎯', '#F4C95D'),
+      ],
+      quiz: { question: '‘일석이조’와 뜻이 가장 비슷한 말은?', options: ['일거양득(一擧兩得)', '오리무중(五里霧中)', '작심삼일(作心三日)', '자업자득(自業自得)'], answerIndex: 0, explanation: '한 번에 두 이익을 얻는다는 점에서 일거양득과 같은 뜻이에요.' },
+    },
+    {
+      slug: 'saeongjima', hanja: '塞翁之馬', reading: '새옹지마', category: '인생', level: 2, day_index: 3,
+      meaning: '변방 노인의 말(馬)이라는 뜻으로, 인생의 화(禍)와 복(福)은 변화가 많아 예측하기 어려움을 이르는 말.',
+      origin: '회남자(淮南子)에 나온다. 변방 노인의 말이 도망가(화) → 준마를 데리고 돌아오고(복) → 아들이 그 말을 타다 다리를 다치나(화) → 그 덕에 전쟁 징집을 면한다(복). 길흉화복은 돌고 돈다는 교훈이다.',
+      modern_example: '"시험에 떨어져 낙심했지만, 그 덕에 더 좋은 길을 찾았다. 인생은 새옹지마다."',
+      comic: [
+        panel('노인의 말이 국경 너머로 달아난다.', '🐎', '#E3DCEA'),
+        panel('며칠 뒤, 멋진 준마를 데리고 돌아온다.', '🐴✨', '#D6CDE2'),
+        panel('아들이 그 말을 타다 다리를 다친다.', '🤕', '#C8BDD9'),
+        panel('그 덕에 전쟁 징집을 피한다. "새옹지마!"', '🕊️', '#F4C95D'),
+      ],
+      quiz: { question: '‘새옹지마’가 전하는 교훈으로 알맞은 것은?', options: ['노력은 배신하지 않는다', '화와 복은 예측하기 어렵다', '지나치면 모자람만 못하다', '뭉치면 강해진다'], answerIndex: 1, explanation: '좋은 일과 나쁜 일은 돌고 돌아, 길흉화복을 미리 알 수 없다는 뜻이에요.' },
+    },
+    {
+      slug: 'ugongisan', hanja: '愚公移山', reading: '우공이산', category: '노력', level: 2, day_index: 4,
+      meaning: '우공이 산을 옮긴다는 뜻으로, 어떤 큰 일이라도 끊임없이 꾸준히 노력하면 반드시 이루어짐.',
+      origin: '열자(列子)에 나온다. 90세 노인 우공이 집 앞을 막은 두 산을 옮기겠다며 흙을 나르자 사람들이 비웃었다. 그러나 "내가 못 하면 자손이, 자손이 못 하면 그 자손이 잇는다"는 말에 하늘이 감동해 산을 옮겨 주었다고 한다.',
+      modern_example: '"매일 30분씩 공부한 것이 쌓여 결국 합격했다. 우공이산의 힘이다."',
+      comic: [
+        panel('집 앞을 가로막은 거대한 두 산.', '⛰️', '#DDE3E6'),
+        panel('90세 우공이 흙을 한 줌씩 나른다.', '👴🪣', '#CFD9DE'),
+        panel('"못 하면 자손이 잇는다!" 사람들이 비웃는다.', '😅', '#C1CCD3'),
+        panel('마침내 산이 옮겨진다. "우공이산!"', '🌄', '#F4C95D'),
+      ],
+      quiz: { question: '‘우공이산’이 강조하는 것은?', options: ['타고난 재능', '꾸준한 노력', '빠른 판단', '운과 요행'], answerIndex: 1, explanation: '아무리 큰 일도 멈추지 않고 꾸준히 하면 이뤄진다는 뜻이에요.' },
+    },
+    {
+      slug: 'hwaryongjeongjeong', hanja: '畵龍點睛', reading: '화룡점정', category: '지혜', level: 2, day_index: 5,
+      meaning: '용을 그린 뒤 마지막으로 눈동자를 그려 넣는다는 뜻으로, 가장 중요한 부분을 마무리해 일을 완성함.',
+      origin: '역대명화기(歷代名畵記)에 나온다. 화가 장승요가 벽에 용을 그리고 눈동자를 찍지 않자 사람들이 의아해했다. 시험 삼아 눈동자를 찍자 용이 벽을 박차고 하늘로 날아올랐다고 한다.',
+      modern_example: '"발표 자료의 마지막 한 문장이 화룡점정이 되어 모두를 설득했다."',
+      comic: [
+        panel('화가가 벽에 멋진 용을 그린다.', '🐉', '#E6DAD6'),
+        panel('그런데 눈동자만 찍지 않는다.', '👁️‍🗨️', '#E0CFC9'),
+        panel('마지막으로 눈동자를 콕— 찍자', '🖌️', '#D9C4BD'),
+        panel('용이 하늘로 날아오른다! "화룡점정!"', '✨🐲', '#F4C95D'),
+      ],
+      quiz: { question: '‘화룡점정’의 의미로 알맞은 것은?', options: ['처음부터 다시 시작함', '가장 중요한 마무리', '쓸데없는 군더더기', '준비가 부족함'], answerIndex: 1, explanation: '마지막 핵심을 더해 전체를 완성한다는 뜻이에요. 용의 눈동자처럼요!' },
+    },
+    {
+      slug: 'daegimanseong', hanja: '大器晩成', reading: '대기만성', category: '인생', level: 2, day_index: 6,
+      meaning: '큰 그릇은 늦게 만들어진다는 뜻으로, 크게 될 사람은 많은 노력과 시간을 들여 늦게 이루어짐.',
+      origin: '노자(老子) 도덕경에 "큰 그릇은 늦게 이루어진다(大器晩成)"는 구절에서 나왔다. 삼국지의 최염도 늦게 빛을 본 인물로, 대기만성의 예로 자주 인용된다.',
+      modern_example: '"30대 후반에야 빛을 본 그는 대기만성형 배우로 불린다."',
+      comic: [
+        panel('작은 그릇들은 금세 완성된다.', '🍵', '#DCE0E6'),
+        panel('한 도공이 거대한 그릇을 빚는다.', '🪔', '#CED4DE'),
+        panel('오랜 시간 정성껏 굽고 또 굽는다.', '🔥⏳', '#C0C8D4'),
+        panel('마침내 완성된 대작! "대기만성!"', '🏆', '#F4C95D'),
+      ],
+      quiz: { question: '‘대기만성’의 뜻으로 알맞은 것은?', options: ['크게 될 사람은 늦게 이뤄짐', '한 번에 두 이득을 봄', '작은 일에 크게 화냄', '시작이 반이다'], answerIndex: 0, explanation: '큰 그릇이 천천히 완성되듯, 큰 인물은 시간이 걸려 이뤄진다는 뜻이에요.' },
+    },
+    {
+      slug: 'gwayubulgeup', hanja: '過猶不及', reading: '과유불급', category: '처세', level: 2, day_index: 7,
+      meaning: '지나침은 미치지 못함과 같다는 뜻으로, 정도를 넘어서는 것은 부족함과 다를 바 없음.',
+      origin: '논어(論語) 선진편에 나온다. 제자가 두 사람 중 누가 더 나으냐고 묻자 공자는 "지나친 것은 미치지 못한 것과 같다(過猶不及)"고 답했다. 중용(中庸)의 미덕을 강조한 말이다.',
+      modern_example: '"건강을 위한 운동도 과유불급, 무리하면 오히려 몸을 해친다."',
+      comic: [
+        panel('친구가 양념을 적당히 넣는다.', '🧂', '#DEE6DA'),
+        panel('주인공은 "더 많이!" 하고 잔뜩 붓는다.', '😋', '#D2E0CC'),
+        panel('너무 짜서 먹을 수가 없다.', '😣', '#C5D6BE'),
+        panel('"지나치면 모자람만 못해. 과유불급!"', '⚖️', '#F4C95D'),
+      ],
+      quiz: { question: '‘과유불급’이 강조하는 가치는?', options: ['많을수록 좋다', '알맞은 정도(중용)', '빠를수록 좋다', '강할수록 좋다'], answerIndex: 1, explanation: '지나침은 부족함과 같으니, 알맞은 정도를 지키라는 뜻이에요.' },
+    },
+    {
+      slug: 'yubimuhwan', hanja: '有備無患', reading: '유비무환', category: '처세', level: 1, day_index: 8,
+      meaning: '준비가 되어 있으면 근심할 것이 없다는 뜻으로, 미리 대비하면 걱정이 없음.',
+      origin: '서경(書經)에 "준비가 있으면 근심이 없다(有備無患)"는 구절에서 나왔다. 춘추시대 진나라의 신하 위강이 임금에게 이 말을 들어 방심을 경계하게 했다는 일화가 전한다.',
+      modern_example: '"우산을 미리 챙겼더니 소나기에도 끄떡없었다. 유비무환이다."',
+      comic: [
+        panel('맑은 날, 주인공이 우산을 챙긴다.', '☀️🌂', '#DEE2E6'),
+        panel('친구는 "필요 없어" 하며 그냥 나간다.', '🙅', '#D0D6DE'),
+        panel('갑자기 쏟아지는 소나기!', '🌧️', '#C2CAD6'),
+        panel('주인공만 멀쩡하다. "유비무환!"', '😎🌂', '#F4C95D'),
+      ],
+      quiz: { question: '‘유비무환’의 교훈으로 알맞은 것은?', options: ['미리 대비하면 걱정이 없다', '지나치면 모자람만 못하다', '한 번에 두 이득을 본다', '꾸준하면 이룬다'], answerIndex: 0, explanation: '미리 준비해 두면 어떤 일이 닥쳐도 근심이 없다는 뜻이에요.' },
+    },
+    {
+      slug: 'jaeopjadeuk', hanja: '自業自得', reading: '자업자득', category: '인생', level: 1, day_index: 9,
+      meaning: '자기가 저지른 일의 결과를 자기가 받는다는 뜻으로, 자신의 행동에 대한 대가를 스스로 치름.',
+      origin: '불교에서 나온 말로, 스스로 지은 업(業)의 과보(果報)를 스스로 받는다는 인과응보 사상에서 비롯되었다. 비슷한 말로 자승자박(自繩自縛), 인과응보(因果應報)가 있다.',
+      modern_example: '"미루다 벼락치기로 밤을 새운 건 자업자득이지."',
+      comic: [
+        panel('주인공이 할 일을 자꾸 미룬다.', '🛋️', '#E6DEDA'),
+        panel('"내일 하면 되지~" 하며 논다.', '🎮', '#E0D2CC'),
+        panel('마감 전날, 산더미 같은 일이 쌓인다.', '😱📚', '#D6C2BE'),
+        panel('밤새 고생한다. "이게 자업자득…"', '😵', '#F4C95D'),
+      ],
+      quiz: { question: '‘자업자득’의 뜻으로 알맞은 것은?', options: ['남이 한 일로 손해 봄', '자기 행동의 결과를 자기가 받음', '우연히 이득을 봄', '함께 힘을 합침'], answerIndex: 1, explanation: '스스로 한 일의 결과는 결국 자신에게 돌아온다는 뜻이에요.' },
+    },
+    {
+      slug: 'gojingamrae', hanja: '苦盡甘來', reading: '고진감래', category: '노력', level: 1, day_index: 10,
+      meaning: '쓴 것이 다하면 단 것이 온다는 뜻으로, 고생 끝에 즐거움이나 좋은 일이 옴.',
+      origin: '민간에서 오래 전해 내려온 표현으로, 어려움을 견디면 반드시 좋은 날이 온다는 격려의 말이다. 반대말로는 흥진비래(興盡悲來)가 있다.',
+      modern_example: '"몇 년간 힘들었지만 마침내 가게가 자리를 잡았다. 고진감래다."',
+      comic: [
+        panel('주인공이 힘든 일을 묵묵히 견딘다.', '😖💦', '#DEE6E2'),
+        panel('포기하고 싶은 순간들이 이어진다.', '🌧️', '#D0E0D8'),
+        panel('그래도 한 걸음씩 나아간다.', '🚶', '#C2D6CC'),
+        panel('마침내 찾아온 달콤한 보상! "고진감래!"', '🍯😊', '#F4C95D'),
+      ],
+      quiz: { question: '‘고진감래’와 가장 어울리는 상황은?', options: ['오래 고생한 끝에 성공함', '갈피를 못 잡고 헤맴', '결심이 사흘 만에 무너짐', '준비 없이 일을 당함'], answerIndex: 0, explanation: '쓴맛(고생)이 다하면 단맛(좋은 일)이 온다는 희망의 말이에요.' },
+    },
+    {
+      slug: 'jaksimsamil', hanja: '作心三日', reading: '작심삼일', category: '처세', level: 1, day_index: 11,
+      meaning: '먹은 마음이 사흘을 못 간다는 뜻으로, 결심이 굳지 못해 오래가지 못함.',
+      origin: '맹자(孟子)의 "사람의 마음은 잡으면 보존되고 놓으면 사라진다"는 사상과 통하는 말로, 우리나라에서 널리 쓰이는 표현이다. 작심(作心)은 마음을 단단히 먹음을 뜻한다.',
+      modern_example: '"새해 운동 결심이 또 작심삼일로 끝났다."',
+      comic: [
+        panel('1일차: "오늘부터 매일 운동!"', '💪🔥', '#E6E2DA'),
+        panel('2일차: 조금 피곤하지만 해낸다.', '😅', '#DCD6CA'),
+        panel('3일차: "딱 하루만 쉬자…"', '🛏️', '#D2CABA'),
+        panel('운동화는 다시 신발장으로. "작심삼일…"', '👟💤', '#F4C95D'),
+      ],
+      quiz: { question: '‘작심삼일’의 뜻으로 알맞은 것은?', options: ['결심이 오래가지 못함', '준비가 철저함', '큰 인물은 늦게 이뤄짐', '한 번에 두 이득을 봄'], answerIndex: 0, explanation: '굳게 먹은 마음이 사흘을 넘기지 못한다는, 의지가 약함을 빗댄 말이에요.' },
+    },
+    {
+      slug: 'gungyeilhak', hanja: '群鷄一鶴', reading: '군계일학', category: '지혜', level: 3, day_index: 12,
+      meaning: '닭의 무리 가운데 한 마리의 학이라는 뜻으로, 평범한 여럿 가운데 유독 뛰어난 한 사람.',
+      origin: '진서(晉書)에 나온다. 혜소가 처음 낙양에 들어섰을 때, 그를 본 사람이 "닭 무리 속의 학처럼 우뚝하더라(群鷄一鶴)"고 한 데서 유래했다. 출중한 인물을 가리키는 말이 되었다.',
+      modern_example: '"평범한 지원자들 사이에서 그녀의 실력은 단연 군계일학이었다."',
+      comic: [
+        panel('마당에 닭들이 옹기종기 모여 있다.', '🐔🐔🐔', '#E2E6DA'),
+        panel('그 가운데 우아한 학 한 마리가 선다.', '🦢', '#D6E0CC'),
+        panel('학은 머리 하나만큼 우뚝 솟아 있다.', '✨', '#CAD6BE'),
+        panel('"무리 중 단연 돋보여. 군계일학!"', '👏', '#F4C95D'),
+      ],
+      quiz: { question: '‘군계일학’이 가리키는 대상은?', options: ['여럿 중 가장 뛰어난 사람', '갈피를 못 잡는 사람', '준비를 잘한 사람', '늦게 성공한 사람'], answerIndex: 0, explanation: '닭 무리 속의 학처럼, 평범한 여럿 가운데 단연 뛰어난 한 사람을 뜻해요.' },
+    },
+  ];
+
+  for (const it of idioms) {
+    // 패널에 imageKey(실제 PNG 슬롯) 부여: <slug>_<번호>.
+    const comic = (it.comic as any[]).map((p, i) => ({ ...p, imageKey: `${it.slug}_${i + 1}` }));
+    await client.query(
+      `INSERT INTO sj_idioms (slug, hanja, reading, meaning, origin, modern_example, category, level, day_index, comic, chars, quiz, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, TRUE)
+       ON CONFLICT (slug) DO NOTHING`,
+      [
+        it.slug, it.hanja, it.reading, it.meaning, it.origin, it.modern_example,
+        it.category, it.level, it.day_index, JSON.stringify(comic),
+        JSON.stringify(SAJA_CHARS[it.slug] ?? []), JSON.stringify(it.quiz),
+      ]
+    );
+  }
+
+  // 최초 시드 완료 표시 → 이후 부팅에선 시드를 다시 돌리지 않는다.
+  await client.query(
+    `INSERT INTO sj_meta (key, value) VALUES ('seeded', '1') ON CONFLICT (key) DO NOTHING`
+  );
+  console.log('✅ SajaToon idioms seeded (최초 1회)');
+}
+
+// [SAJA] 한자 한 글자씩 풀이 [{ c, hun(뜻), eum(음) }]. slug 별.
+const SAJA_CHARS: Record<string, Array<{ c: string; hun: string; eum: string }>> = {
+  oilmujung: [{ c: '五', hun: '다섯', eum: '오' }, { c: '里', hun: '마을', eum: '리' }, { c: '霧', hun: '안개', eum: '무' }, { c: '中', hun: '가운데', eum: '중' }],
+  ilseokijo: [{ c: '一', hun: '한', eum: '일' }, { c: '石', hun: '돌', eum: '석' }, { c: '二', hun: '두', eum: '이' }, { c: '鳥', hun: '새', eum: '조' }],
+  saeongjima: [{ c: '塞', hun: '변방', eum: '새' }, { c: '翁', hun: '늙은이', eum: '옹' }, { c: '之', hun: '어조사', eum: '지' }, { c: '馬', hun: '말', eum: '마' }],
+  ugongisan: [{ c: '愚', hun: '어리석을', eum: '우' }, { c: '公', hun: '공평할', eum: '공' }, { c: '移', hun: '옮길', eum: '이' }, { c: '山', hun: '메', eum: '산' }],
+  hwaryongjeongjeong: [{ c: '畵', hun: '그림', eum: '화' }, { c: '龍', hun: '용', eum: '룡' }, { c: '點', hun: '점찍을', eum: '점' }, { c: '睛', hun: '눈동자', eum: '정' }],
+  daegimanseong: [{ c: '大', hun: '큰', eum: '대' }, { c: '器', hun: '그릇', eum: '기' }, { c: '晩', hun: '늦을', eum: '만' }, { c: '成', hun: '이룰', eum: '성' }],
+  gwayubulgeup: [{ c: '過', hun: '지날', eum: '과' }, { c: '猶', hun: '오히려', eum: '유' }, { c: '不', hun: '아닐', eum: '불' }, { c: '及', hun: '미칠', eum: '급' }],
+  yubimuhwan: [{ c: '有', hun: '있을', eum: '유' }, { c: '備', hun: '갖출', eum: '비' }, { c: '無', hun: '없을', eum: '무' }, { c: '患', hun: '근심', eum: '환' }],
+  jaeopjadeuk: [{ c: '自', hun: '스스로', eum: '자' }, { c: '業', hun: '업', eum: '업' }, { c: '自', hun: '스스로', eum: '자' }, { c: '得', hun: '얻을', eum: '득' }],
+  gojingamrae: [{ c: '苦', hun: '쓸', eum: '고' }, { c: '盡', hun: '다할', eum: '진' }, { c: '甘', hun: '달', eum: '감' }, { c: '來', hun: '올', eum: '래' }],
+  jaksimsamil: [{ c: '作', hun: '지을', eum: '작' }, { c: '心', hun: '마음', eum: '심' }, { c: '三', hun: '석', eum: '삼' }, { c: '日', hun: '날', eum: '일' }],
+  gungyeilhak: [{ c: '群', hun: '무리', eum: '군' }, { c: '鷄', hun: '닭', eum: '계' }, { c: '一', hun: '한', eum: '일' }, { c: '鶴', hun: '학', eum: '학' }],
+};
+
+// [SAJA] 기존 사자성어(이미 시드됨)에 한자 풀이를 채운다. chars 가 비어 있을 때만 — 삭제/수정 보존.
+async function backfillSajatoonChars(client: any) {
+  for (const [slug, chars] of Object.entries(SAJA_CHARS)) {
+    await client.query(
+      `UPDATE sj_idioms SET chars = $2
+       WHERE slug = $1 AND (chars IS NULL OR chars = '[]'::jsonb)`,
+      [slug, JSON.stringify(chars)]
+    );
+  }
+}
+
+// [SAJA] quizzes 가 빈 사자성어에 퀴즈 리스트를 채운다.
+//   ① 기존 단일 quiz(뜻/상황) → 리스트 첫 항목  ② chars 로 '한자 의미' 퀴즈 자동 생성.
+//   정답 위치는 앱에서 매번 섞으므로 여기선 정답을 0번에 둔다.
+async function backfillSajatoonQuizzes(client: any) {
+  const hunPool = Array.from(new Set(Object.values(SAJA_CHARS).flat().map((c) => c.hun)));
+  const rows = await client.query(
+    `SELECT id, hanja, reading, quiz, chars FROM sj_idioms WHERE quizzes = '[]'::jsonb`
+  );
+  for (const row of rows.rows) {
+    const quizzes: any[] = [];
+    if (row.quiz) quizzes.push({ type: 'meaning', ...row.quiz });
+
+    const chars = Array.isArray(row.chars) ? row.chars : [];
+    if (chars.length > 0) {
+      // 변별력 위해 '훈이 가장 긴' 글자 선택.
+      const target = chars.slice().sort((a: any, b: any) => (b.hun || '').length - (a.hun || '').length)[0];
+      if (target && target.hun) {
+        const distractors = hunPool.filter((h) => h !== target.hun);
+        for (let i = distractors.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [distractors[i], distractors[j]] = [distractors[j], distractors[i]];
+        }
+        quizzes.push({
+          type: 'hanja',
+          question: `‘${row.reading}(${row.hanja})’에서 한자 ‘${target.c}’의 뜻은?`,
+          options: [target.hun, ...distractors.slice(0, 3)],
+          answerIndex: 0,
+          explanation: `‘${target.c}’은(는) '${target.hun} ${target.eum}'.`,
+        });
+      }
+    }
+
+    if (quizzes.length > 0) {
+      await client.query(`UPDATE sj_idioms SET quizzes = $2 WHERE id = $1`, [row.id, JSON.stringify(quizzes)]);
+    }
+  }
 }
 
 export function getPool() {
