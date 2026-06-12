@@ -84,6 +84,9 @@ class _SetScreenState extends State<SetScreen> {
   Timer? _countdownTimer;
   int _remainingSeconds = 120;
 
+  // 무한모드 — 타이머·6점 선취 없이 덱을 끝까지 소진. 진입화면 토글로 선택.
+  bool _isInfinite = false;
+
   @override
   void initState() {
     super.initState();
@@ -259,9 +262,11 @@ class _SetScreenState extends State<SetScreen> {
     });
 
     _socketListeners.on('set_start', (data) {
+      final infinite = data['infinite'] == true;
       final duration = (data['duration'] as num?)?.toInt() ?? 120000;
       setState(() {
         _status = SetGameStatus.playing;
+        _isInfinite = infinite;
         _board = List<int>.from(data['board'] ?? []);
         _scores = List<int>.from(data['scores'] ?? [0, 0]);
         _deckRemaining = (data['deckRemaining'] as num?)?.toInt() ?? 0;
@@ -271,7 +276,12 @@ class _SetScreenState extends State<SetScreen> {
         _lastClaimFailed = false;
         _isWaitingForReconnect = false;
       });
-      _startCountdown((duration / 1000).ceil());
+      // 무한모드는 카운트다운이 없다.
+      if (infinite) {
+        _stopCountdown();
+      } else {
+        _startCountdown((duration / 1000).ceil());
+      }
     });
 
     _socketListeners.on('set_claimed', (data) {
@@ -331,9 +341,11 @@ class _SetScreenState extends State<SetScreen> {
     });
 
     _socketListeners.on('set_resumed', (data) {
+      final infinite = data['infinite'] == true;
       final duration = (data['duration'] as num?)?.toInt() ?? 120000;
       setState(() {
         _status = SetGameStatus.playing;
+        _isInfinite = infinite;
         _board = List<int>.from(data['board'] ?? _board);
         _scores = List<int>.from(data['scores'] ?? _scores);
         _deckRemaining = (data['deckRemaining'] as num?)?.toInt() ?? _deckRemaining;
@@ -343,17 +355,23 @@ class _SetScreenState extends State<SetScreen> {
         _isReconnecting = false;
         _isWaitingForReconnect = false;
       });
-      _startCountdown((duration / 1000).ceil());
+      if (infinite) {
+        _stopCountdown();
+      } else {
+        _startCountdown((duration / 1000).ceil());
+      }
     });
 
     _socketListeners.on('rejoin_game_state', (data) {
       if (data['gameType'] != 'set') return;
       _reconnectTimer?.cancel();
       _myId = _socketService.socket?.id;
+      final infinite = data['infinite'] == true;
       final remainingMs = (data['remainingTimeMs'] as num?)?.toInt() ?? 120000;
       setState(() {
         _roomId = data['roomId'] as String?;
         _myPlayerIndex = (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
+        _isInfinite = infinite;
         _board = List<int>.from(data['board'] ?? _board);
         _scores = List<int>.from(data['scores'] ?? _scores);
         _deckRemaining = (data['deckRemaining'] as num?)?.toInt() ?? _deckRemaining;
@@ -365,7 +383,11 @@ class _SetScreenState extends State<SetScreen> {
         _isReconnecting = false;
         _isWaitingForReconnect = false;
       });
-      _startCountdown((remainingMs / 1000).ceil());
+      if (infinite) {
+        _stopCountdown();
+      } else {
+        _startCountdown((remainingMs / 1000).ceil());
+      }
       GameReconnectHelper.completeReconnect(context: context, onRecovered: () {});
     });
 
@@ -484,6 +506,7 @@ class _SetScreenState extends State<SetScreen> {
     _socketService.emit('find_match', {
       'gameType': AppConfig.gameTypeSet,
       'isHardcore': false,
+      'isInfinite': _isInfinite,
     });
     setState(() => _status = SetGameStatus.searching);
   }
@@ -492,6 +515,7 @@ class _SetScreenState extends State<SetScreen> {
     _socketService.emit('cancel_match', {
       'gameType': AppConfig.gameTypeSet,
       'isHardcore': false,
+      'isInfinite': _isInfinite,
     });
     setState(() => _status = SetGameStatus.idle);
   }
@@ -628,10 +652,20 @@ class _SetScreenState extends State<SetScreen> {
       accentColor: theme.primary,
       icon: Icons.style_rounded,
       title: 'Set',
-      descriptions: const [
-        '4속성이 모두 같거나 모두 다른 카드 3장!',
-        '먼저 6세트 승리 · 틀리면 -1점 (120초)',
-      ],
+      descriptions: _isInfinite
+          ? const [
+              '4속성이 모두 같거나 모두 다른 카드 3장!',
+              '타이머 없이 덱을 끝까지 · 더 많이 모은 쪽 승리',
+            ]
+          : const [
+              '4속성이 모두 같거나 모두 다른 카드 3장!',
+              '먼저 6세트 승리 · 틀리면 -1점 (120초)',
+            ],
+      extra: _SetInfiniteToggle(
+        value: _isInfinite,
+        accent: theme.primary,
+        onChanged: (v) => setState(() => _isInfinite = v),
+      ),
       onFindMatch: _findMatch,
       onInviteFriend: () => _showFriendInviteDialog(context),
     );
@@ -704,8 +738,8 @@ class _SetScreenState extends State<SetScreen> {
           GameDuelHeader(
             backgroundColors: const [Colors.white, Colors.white],
             accentColor: accent,
-            centerLabel: '$_remainingSeconds',
-            centerSubtitle: '남은 시간',
+            centerLabel: _isInfinite ? '$_deckRemaining' : '$_remainingSeconds',
+            centerSubtitle: _isInfinite ? '남은 카드' : '남은 시간',
             myName: _myNickname ?? '나',
             opponentName: _opponentNickname ?? '상대',
             myAvatarUrl: _myAvatarUrl,
@@ -1049,5 +1083,75 @@ class _SetScreenState extends State<SetScreen> {
       message: '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
       onExit: _leaveGame,
     ).then((_) => _isExitDialogOpen = false);
+  }
+}
+
+/// SET 진입 화면의 무한모드 토글. 켜지면 타이머·6점 선취 없이
+/// 덱을 끝까지 소진하는 변형으로 매칭한다(별도 큐).
+class _SetInfiniteToggle extends StatelessWidget {
+  final bool value;
+  final Color accent;
+  final ValueChanged<bool> onChanged;
+
+  const _SetInfiniteToggle({
+    required this.value,
+    required this.accent,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: value ? accent.withValues(alpha: 0.12) : Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: value ? accent.withValues(alpha: 0.5) : Colors.grey.shade300,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.all_inclusive_rounded,
+                color: value ? accent : Colors.grey,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '무한모드',
+                style: TextStyle(
+                  color: value ? accent : Colors.grey.shade700,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Switch(
+                value: value,
+                onChanged: onChanged,
+                activeThumbColor: accent,
+                activeTrackColor: accent.withValues(alpha: 0.4),
+              ),
+            ],
+          ),
+        ),
+        if (value)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '덱 81장을 끝까지 · 더 많이 모은 쪽 승리',
+              style: TextStyle(
+                fontSize: 12,
+                color: accent,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+      ],
+    );
   }
 }

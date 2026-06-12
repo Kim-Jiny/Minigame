@@ -11,6 +11,10 @@
  *   수학적으로 21장이면 반드시 세트가 존재한다(세트 없는 최대 조합 = 20장).
  * - 먼저 SCORE_TO_WIN 점에 도달하거나, 덱 소진 + 보드에 세트 없음이면 종료.
  *   종료 시 점수 높은 쪽 승리(동점 무승부). 제한시간 종료 시에도 점수로 판정.
+ *
+ * 무한모드(infinite):
+ * - 타이머도 6점 선취도 없다. 덱(81장)을 끝까지 소진하고 보드에 세트가
+ *   하나도 남지 않을 때까지 진행, 더 많이 집은 쪽이 승리(동점 무승부).
  */
 
 export interface SetClaimResult {
@@ -35,8 +39,16 @@ export class SetGame {
   private gameOver = false;
   private winner: number | null = null;
 
-  constructor() {
+  /** 무한모드 — 타이머·점수 선취 없이 덱을 끝까지 소진. */
+  private readonly infinite: boolean;
+
+  constructor(infinite: boolean = false) {
+    this.infinite = infinite;
     this.reset();
+  }
+
+  getIsInfinite(): boolean {
+    return this.infinite;
   }
 
   reset(): void {
@@ -153,7 +165,8 @@ export class SetGame {
     this.ensureSetExists();
 
     // 종료 판정
-    if (this.scores[playerIndex] >= SetGame.SCORE_TO_WIN) {
+    // 무한모드: 6점 선취로 끝내지 않는다. 덱 소진 + 보드에 세트 없음에서만 종료.
+    if (!this.infinite && this.scores[playerIndex] >= SetGame.SCORE_TO_WIN) {
       this.gameOver = true;
       this.winner = playerIndex;
     } else if (this.deck.length === 0 && !this.boardHasSet()) {

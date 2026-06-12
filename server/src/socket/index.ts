@@ -852,19 +852,24 @@ function startSet(io: Server, room: GameRoom) {
   room.pendingRoundStart = false;
 
   const game = room.game;
+  const infinite = game.getIsInfinite();
   io.to(room.id).emit('set_start', {
     board: game.getBoard(),
     scores: game.getScores(),
     deckRemaining: game.getDeckRemaining(),
-    scoreToWin: SetGame.SCORE_TO_WIN,
-    duration: SetGame.GAME_TIME,
+    scoreToWin: infinite ? null : SetGame.SCORE_TO_WIN,
+    duration: infinite ? null : SetGame.GAME_TIME,
+    infinite,
   });
 
-  console.log(`🃏 Set started`);
+  console.log(`🃏 Set started${infinite ? ' (무한)' : ''}`);
 
-  scheduleRoundTimer(room, SetGame.GAME_TIME, () => {
-    finishSetByTimeout(io, room);
-  });
+  // 무한모드는 타이머가 없다 — 덱 소진 + 보드에 세트 없음으로만 종료.
+  if (!infinite) {
+    scheduleRoundTimer(room, SetGame.GAME_TIME, () => {
+      finishSetByTimeout(io, room);
+    });
+  }
 }
 
 // Set 타임아웃 처리 — 점수 높은 쪽 승리
@@ -2339,14 +2344,16 @@ function emitRejoinState(socket: Socket, room: GameRoom, userId: number) {
     });
   } else if (room.gameType === 'set' && room.game instanceof SetGame) {
     const game = room.game;
+    const infinite = game.getIsInfinite();
     socket.emit('rejoin_game_state', {
       gameType: 'set',
       roomId: room.id,
       board: game.getBoard(),
       scores: game.getScores(),
       deckRemaining: game.getDeckRemaining(),
-      scoreToWin: SetGame.SCORE_TO_WIN,
-      remainingTimeMs: getRemainingMs(room.roundDeadlineAt, SetGame.GAME_TIME),
+      scoreToWin: infinite ? null : SetGame.SCORE_TO_WIN,
+      remainingTimeMs: infinite ? null : getRemainingMs(room.roundDeadlineAt, SetGame.GAME_TIME),
+      infinite,
       playerIndex,
     });
   } else if (room.gameType === 'mathrace' && room.game instanceof MathRaceGame) {
@@ -2601,14 +2608,19 @@ function resumePausedGame(io: Server, room: GameRoom) {
 
   if (room.gameType === 'set' && room.game instanceof SetGame) {
     const game = room.game;
+    const infinite = game.getIsInfinite();
     const remainingMs = Math.max(0, pausedRoundRemainingMs ?? SetGame.GAME_TIME);
     io.to(room.id).emit('set_resumed', {
       board: game.getBoard(),
       scores: game.getScores(),
       deckRemaining: game.getDeckRemaining(),
-      duration: remainingMs,
+      duration: infinite ? null : remainingMs,
+      infinite,
     });
-    scheduleRoundTimer(room, remainingMs, () => finishSetByTimeout(io, room));
+    // 무한모드는 타이머를 다시 걸지 않는다.
+    if (!infinite) {
+      scheduleRoundTimer(room, remainingMs, () => finishSetByTimeout(io, room));
+    }
     return;
   }
 
@@ -3886,7 +3898,9 @@ export function setupSocketHandlers(io: Server) {
         const roomId = `${gameType}_${isInfinite ? 'inf_' : ''}${isHardcore ? 'hc_' : ''}${Date.now()}`;
         const room: GameRoom = {
           id: roomId,
-          gameType: isInfinite ? 'infinite_tictactoe' : gameType,  // 무한모드면 게임타입 변경
+          // 무한모드 틱택토만 게임타입을 바꾼다. SET 등 다른 게임의 무한모드는
+          // gameType은 그대로 두고 isInfinite 플래그로 변형을 처리한다.
+          gameType: (gameType === 'tictactoe' && isInfinite) ? 'infinite_tictactoe' : gameType,
           players: [opponent, currentPlayer],
           game: null,
           status: 'waiting',
@@ -3912,7 +3926,7 @@ export function setupSocketHandlers(io: Server) {
         } else if (gameType === 'numberbattle') {
           room.game = new NumberBattleGame();
         } else if (gameType === 'set') {
-          room.game = new SetGame();
+          room.game = new SetGame(isInfinite);
         } else if (gameType === 'mathrace') {
           room.game = new MathRaceGame();
         } else if (gameType === 'arrowdash') {
@@ -6510,7 +6524,7 @@ export function setupSocketHandlers(io: Server) {
         } else if (room.gameType === 'numberbattle') {
           room.game = new NumberBattleGame();
         } else if (room.gameType === 'set') {
-          room.game = new SetGame();
+          room.game = new SetGame(room.isInfinite === true);
         } else if (room.gameType === 'mathrace') {
           room.game = new MathRaceGame();
         } else if (room.gameType === 'arrowdash') {
