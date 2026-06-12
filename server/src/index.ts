@@ -39,6 +39,13 @@ const io = new Server(httpServer, {
     origin: corsOrigin,
     methods: ['GET', 'POST'],
   },
+  // 연결 안정화 설정.
+  // - pingInterval/pingTimeout: 모바일에서 네트워크 전환·일시 지연 시 기본값(20s)으로는
+  //   pong 지연만으로도 끊김 판정이 나기 쉬워, 타임아웃을 30s로 늘려 불필요한 단절을 줄인다.
+  // - maxHttpBufferSize: 비정상적으로 큰 페이로드 방어(기본 1MB 명시).
+  pingInterval: 25000,
+  pingTimeout: 30000,
+  maxHttpBufferSize: 1e6,
 });
 
 // Middleware
