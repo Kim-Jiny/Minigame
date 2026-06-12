@@ -69,6 +69,12 @@ class _SetScreenState extends State<SetScreen> {
   final Set<int> _leftIndices = {}; // 도중 이탈한 플레이어 인덱스
   bool get _isMulti => _players.length > 2;
 
+  // 무한모드 게임 종료 합의 요청
+  bool _endRequestPending = false; // 종료 요청 진행 중(내가 보냈거나 받음)
+  int _endAgreed = 0; // 동의 인원
+  int _endTotal = 0; // 활성 전체 인원
+  bool _endDialogOpen = false; // 동의 다이얼로그 열림 여부
+
   // 게임 상태
   List<int> _board = []; // 카드 id 목록(12~18)
   List<int> _scores = [0, 0]; // 각자 모은 세트 수
@@ -272,6 +278,37 @@ class _SetScreenState extends State<SetScreen> {
       setState(() => _leftIndices.add(idx));
     });
 
+    // 무한모드 종료 합의 — 다른 사람이 종료를 요청 → 동의 다이얼로그.
+    _socketListeners.on('set_end_requested', (data) {
+      final nickname = (data['nickname'] as String?) ?? '상대';
+      setState(() => _endRequestPending = true);
+      _showEndRequestDialog(nickname);
+    });
+
+    _socketListeners.on('set_end_progress', (data) {
+      setState(() {
+        _endRequestPending = true;
+        _endAgreed = (data['agreed'] as num?)?.toInt() ?? _endAgreed;
+        _endTotal = (data['total'] as num?)?.toInt() ?? _endTotal;
+      });
+    });
+
+    _socketListeners.on('set_end_cancelled', (data) {
+      _dismissEndRequestDialog();
+      setState(() {
+        _endRequestPending = false;
+        _endAgreed = 0;
+        _endTotal = 0;
+      });
+      if (mounted) {
+        final by = (data['nickname'] as String?) ?? '상대';
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$by님이 종료 요청을 거절했어요')),
+        );
+      }
+    });
+
     _socketListeners.on('game_start', (data) {
       if (data['gameType'] != 'set') return;
       if (data['players'] != null) {
@@ -314,6 +351,10 @@ class _SetScreenState extends State<SetScreen> {
         _claimLocked = false;
         _lastClaimFailed = false;
         _isWaitingForReconnect = false;
+        // 새 게임 시작 시 종료 합의 상태 초기화.
+        _endRequestPending = false;
+        _endAgreed = 0;
+        _endTotal = 0;
       });
       // 솔로는 경과시간 카운트업, 무한/솔로는 카운트다운 없음.
       if (solo) {
@@ -471,7 +512,9 @@ class _SetScreenState extends State<SetScreen> {
       if (_status == SetGameStatus.finished) return;
       _stopCountdown();
       _stopSoloStopwatch();
+      _dismissEndRequestDialog();
       setState(() {
+        _endRequestPending = false;
         _status = SetGameStatus.finished;
         _winnerId = data['winner'];
         _isDraw = data['isDraw'] ?? false;
@@ -638,6 +681,61 @@ class _SetScreenState extends State<SetScreen> {
     setState(() => _status = SetGameStatus.idle);
   }
 
+  // ---- 무한모드 게임 종료 합의 ----
+  void _requestEnd() {
+    if (_roomId == null || _endRequestPending) return;
+    _socketService.emit('set_request_end', {'roomId': _roomId});
+    setState(() {
+      _endRequestPending = true; // 요청자는 자동 동의
+      _endAgreed = 1;
+      _endTotal = _isMulti ? (_players.length - _leftIndices.length) : 2;
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('종료 요청을 보냈어요 — 모두 동의하면 종료됩니다')),
+      );
+    }
+  }
+
+  void _showEndRequestDialog(String requester) {
+    if (_endDialogOpen || !mounted) return;
+    _endDialogOpen = true;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('게임 종료 요청'),
+        content: Text('$requester님이 게임 종료를 요청했어요.\n지금 점수로 종료하는 데 동의하시겠어요?'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _endDialogOpen = false;
+              _socketService.emit('set_end_vote', {'roomId': _roomId, 'agree': false});
+            },
+            child: const Text('거절'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _endDialogOpen = false;
+              _socketService.emit('set_end_vote', {'roomId': _roomId, 'agree': true});
+            },
+            child: const Text('동의'),
+          ),
+        ],
+      ),
+    ).then((_) => _endDialogOpen = false);
+  }
+
+  void _dismissEndRequestDialog() {
+    if (_endDialogOpen && mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+      _endDialogOpen = false;
+    }
+  }
+
   void _onCardTap(int cardId) {
     if (_status != SetGameStatus.playing || _claimLocked) return;
     setState(() {
@@ -718,7 +816,11 @@ class _SetScreenState extends State<SetScreen> {
       _isSolo = false;
       _players = [];
       _leftIndices.clear();
+      _endRequestPending = false;
+      _endAgreed = 0;
+      _endTotal = 0;
     });
+    _dismissEndRequestDialog();
   }
 
   @override
@@ -737,6 +839,7 @@ class _SetScreenState extends State<SetScreen> {
               title: 'Set',
               backgroundColor: theme.primary,
               onBack: () => _showExitDialog(theme),
+              actions: _endRequestActions(),
             ),
             body: Stack(
               children: [
@@ -756,6 +859,35 @@ class _SetScreenState extends State<SetScreen> {
         );
       },
     );
+  }
+
+  // 무한모드 대결 플레이 중에만 우측 상단에 '게임 종료 요청' 버튼/대기 표시.
+  List<Widget>? _endRequestActions() {
+    final canShow =
+        _status == SetGameStatus.playing && _isInfinite && !_isSolo;
+    if (!canShow) return null;
+    if (_endRequestPending) {
+      return [
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.only(right: 14),
+            child: Text(
+              '동의 대기 $_endAgreed/$_endTotal',
+              style: const TextStyle(
+                  fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white),
+            ),
+          ),
+        ),
+      ];
+    }
+    return [
+      TextButton.icon(
+        onPressed: _requestEnd,
+        icon: const Icon(Icons.flag_rounded, size: 18, color: Colors.white),
+        label: const Text('종료 요청',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+      ),
+    ];
   }
 
   Widget _buildBody(GameTheme theme) {

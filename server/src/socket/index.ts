@@ -86,6 +86,7 @@ interface GameRoom {
   isSolo?: boolean;  // 솔로 모드 여부
   soloStartAt?: number;  // [SET 솔로] 덱 소진 시간 측정 시작 시각(ms). 시간 기반 랭킹용.
   leftPlayerIds?: Set<string>;  // [SET 3·4인] 도중 이탈한 플레이어 소켓 id. 승자/보상에서 제외.
+  endRequest?: { requesterId: string; agreed: Set<string> };  // [SET 무한] 게임 종료 합의 요청(요청자 자동 동의)
   isRanked?: boolean;  // 랭크전 여부
   rankedGames?: string[];  // 랭크전 게임 목록 (3개)
   rankedResults?: { gameType: string; winnerId: number | null }[];  // 랭크전 각 게임 결과
@@ -894,6 +895,23 @@ async function finishSetByTimeout(io: Server, room: GameRoom) {
   await finishSetGame(io, room);
 }
 
+// [SET 무한] 종료 합의 진행상황(동의 인원 / 활성 전체)을 방에 알린다.
+function emitSetEndProgress(io: Server, room: GameRoom) {
+  if (!room.endRequest) return;
+  const active = room.players.filter(p => !room.leftPlayerIds?.has(p.id));
+  io.to(room.id).emit('set_end_progress', {
+    agreed: room.endRequest.agreed.size,
+    total: active.length,
+  });
+}
+
+// [SET 무한] 진행 중인 종료 요청을 취소하고 방에 알린다(이탈/끊김 시).
+function cancelSetEndRequest(io: Server, room: GameRoom, byNickname: string) {
+  if (!room.endRequest) return;
+  room.endRequest = undefined;
+  io.to(room.id).emit('set_end_cancelled', { nickname: byNickname });
+}
+
 // [SET 3·4인] 한 명이 도중 이탈했을 때의 처리.
 // 게임을 멈추거나 끝내지 않고 계속 진행한다. 이탈자는 즉시 패배(경험치 없음) 기록 후
 // 승자·보상 후보에서 제외하며, 활성 인원이 1명 이하가 되면 게임을 종료한다.
@@ -922,6 +940,9 @@ async function handleSetMultiLeave(io: Server, room: GameRoom, leavingSocketId: 
     nickname: leaver.nickname,
   });
 
+  // 종료 합의 진행 중이면 취소(투표 대상이 바뀌므로). 남은 사람이 다시 요청하면 됨.
+  cancelSetEndRequest(io, room, leaver.nickname);
+
   const active = room.players.length - room.leftPlayerIds.size;
   console.log(`🚪 SET ${room.players.length}인: ${leaver.nickname} 이탈 (활성 ${active}명)`);
 
@@ -935,6 +956,7 @@ async function handleSetMultiLeave(io: Server, room: GameRoom, leavingSocketId: 
 async function finishSetGame(io: Server, room: GameRoom) {
   if (!(room.game instanceof SetGame)) return;
   if (!markRoomFinishedOnce(room, 'set_game_end')) return;
+  room.endRequest = undefined; // 종료 합의 진행 중이었어도 게임이 끝나면 정리
   clearRoundTimer(room);
 
   const game = room.game;
@@ -4018,6 +4040,55 @@ export function setupSocketHandlers(io: Server) {
       } catch (err) {
         console.error('Failed to get set rankings:', err);
         socket.emit('set_rankings', { rankings: [] });
+      }
+    });
+
+    // [SET 무한] 게임 종료 합의 요청 — 무한모드 대결에서만. 요청자는 자동 동의,
+    // 나머지(활성 플레이어)가 모두 동의하면 현재 점수로 게임을 종료한다.
+    socket.on('set_request_end', (data: { roomId: string }) => {
+      const room = rooms.get(data.roomId);
+      if (!room || room.status !== 'playing') return;
+      if (room.gameType !== 'set' || !(room.game instanceof SetGame)) return;
+      if (!room.game.getIsInfinite() || room.isSolo) return; // 무한 대결만
+      if (room.players.length < 2 || room.endRequest) return;
+      const requester = room.players.find(p => p.id === socket.id);
+      if (!requester || room.leftPlayerIds?.has(socket.id)) return;
+
+      room.endRequest = { requesterId: socket.id, agreed: new Set([socket.id]) };
+      socket.to(room.id).emit('set_end_requested', {
+        requesterId: socket.id,
+        nickname: requester.nickname,
+      });
+      emitSetEndProgress(io, room);
+      console.log(`🛑 SET 종료요청: ${requester.nickname}`);
+    });
+
+    socket.on('set_end_vote', async (data: { roomId: string; agree: boolean }) => {
+      const room = rooms.get(data.roomId);
+      if (!room || !room.endRequest || room.status !== 'playing') return;
+      if (!(room.game instanceof SetGame)) return;
+      const voter = room.players.find(p => p.id === socket.id);
+      if (!voter || room.leftPlayerIds?.has(socket.id)) return;
+
+      if (!data.agree) {
+        // 한 명이라도 거절 → 요청 취소
+        room.endRequest = undefined;
+        io.to(room.id).emit('set_end_cancelled', { nickname: voter.nickname });
+        console.log(`🛑 SET 종료요청 거절: ${voter.nickname}`);
+        return;
+      }
+
+      room.endRequest.agreed.add(socket.id);
+      const active = room.players.filter(p => !room.leftPlayerIds?.has(p.id));
+      const allAgreed =
+        active.length > 0 && active.every(p => room.endRequest!.agreed.has(p.id));
+      if (allAgreed) {
+        room.endRequest = undefined;
+        if (!room.game.isGameOver()) room.game.setGameOver(); // 현재 점수로 승부 확정
+        console.log(`🛑 SET 종료요청 전원동의 → 종료`);
+        await finishSetGame(io, room);
+      } else {
+        emitSetEndProgress(io, room);
       }
     });
 
@@ -7147,6 +7218,10 @@ export function setupSocketHandlers(io: Server) {
 
       if (roomId) {
         const room = rooms.get(roomId);
+        // [SET 무한] 종료 합의 진행 중 누가 끊기면 요청 취소.
+        if (room && room.endRequest && room.gameType === 'set') {
+          cancelSetEndRequest(io, room, currentPlayer?.nickname ?? '상대');
+        }
         // [SET 3·4인] 게임 중 이탈 → 멈추지 않고 계속. 재연결 유예 없음(이탈자 제외하고 진행).
         if (room && room.status === 'playing' && room.gameType === 'set' && room.players.length > 2) {
           void handleSetMultiLeave(io, room, socket.id).catch(err =>
@@ -7183,6 +7258,11 @@ export function setupSocketHandlers(io: Server) {
     async function leaveRoom(socket: Socket, roomId: string) {
       const room = rooms.get(roomId);
       if (room) {
+        // [SET 무한] 종료 합의 진행 중 누가 나가면 요청 취소.
+        if (room.endRequest && room.gameType === 'set') {
+          const leaver = room.players.find(p => p.id === socket.id);
+          cancelSetEndRequest(io, room, leaver?.nickname ?? '상대');
+        }
         // [SET 3·4인] 게임 중 한 명 나감 → 게임은 계속(타이머 유지). 이탈 처리만 하고 종료.
         if (room.status === 'playing' && room.gameType === 'set' && room.players.length > 2) {
           await handleSetMultiLeave(io, room, socket.id);
