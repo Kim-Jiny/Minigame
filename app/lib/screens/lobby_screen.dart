@@ -312,11 +312,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   children: [
                     _buildGreeting(auth.nickname ?? '플레이어'),
                     const SizedBox(height: 28),
-                    _buildModeCard(PlayMode.duo, emphasized: true),
+                    _buildEntryCard(GameEntryMode.versus, emphasized: true),
                     const SizedBox(height: 14),
-                    _buildModeCard(PlayMode.solo),
-                    const SizedBox(height: 14),
-                    _buildModeCard(PlayMode.multi, locked: true),
+                    _buildEntryCard(GameEntryMode.solo),
                   ],
                 ),
               ),
@@ -362,86 +360,14 @@ class _LobbyScreenState extends State<LobbyScreen> {
     );
   }
 
-  Widget _buildModeCard(
-    PlayMode mode, {
+  Widget _buildEntryCard(
+    GameEntryMode entry, {
     bool emphasized = false,
-    bool locked = false,
   }) {
-    final count = GameRegistry.countForMode(mode);
-    final meta = locked ? '준비 중' : '$count개 게임 · ${mode.tagline}';
+    final count = GameRegistry.countForEntry(entry);
+    final meta = '$count개 게임 · ${entry.tagline}';
 
-    if (locked) {
-      return Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF1F1F5),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: const Color(0xFFE7E7EC)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300.withValues(alpha: 0.5),
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Icon(mode.icon, color: Colors.grey.shade500, size: 28),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    mode.title,
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.grey.shade500,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    meta,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.grey.shade400,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade200,
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.lock_rounded, size: 13, color: Colors.grey.shade500),
-                  const SizedBox(width: 4),
-                  Text(
-                    '준비 중',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.grey.shade500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final color = mode.color;
+    final color = entry.color;
     return Material(
       color: emphasized ? color : Colors.white,
       borderRadius: BorderRadius.circular(24),
@@ -450,7 +376,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
         onTap: () {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => ModeGamesScreen(mode: mode)),
+            MaterialPageRoute(builder: (_) => ModeGamesScreen(entry: entry)),
           );
         },
         child: Ink(
@@ -483,7 +409,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   borderRadius: BorderRadius.circular(18),
                 ),
                 child: Icon(
-                  mode.icon,
+                  entry.icon,
                   color: emphasized ? Colors.white : color,
                   size: 28,
                 ),
@@ -494,7 +420,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      mode.title,
+                      entry.title,
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w800,

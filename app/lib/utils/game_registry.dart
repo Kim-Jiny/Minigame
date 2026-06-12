@@ -1,28 +1,25 @@
 import 'package:flutter/material.dart';
 import 'game_catalog.dart';
 
-/// 플레이 모드 — 메인 랜딩의 3개 진입점과 게임 필터링에 사용
-enum PlayMode {
-  solo(
-    title: '혼자하기',
-    tagline: '연습하며 기록에 도전',
-    icon: Icons.self_improvement_rounded,
-    color: Color(0xFF0EA5A6),
-  ),
-  duo(
-    title: '둘이하기',
-    tagline: '실시간 1:1 대결',
+/// 게임 진입 맥락이자 메인 랜딩의 2개 진입점.
+/// 혼자 연습(solo)으로 들어오면 랭킹 도전/보기,
+/// 온라인 대결(versus)로 들어오면 대전/친구 초대(+인원 선택)만 노출한다.
+/// 인원 수(2·3·4)는 versus 안의 옵션이지 별도 진입점이 아니다.
+enum GameEntryMode {
+  versus(
+    title: '온라인 대결',
+    tagline: '실시간으로 겨루기',
     icon: Icons.people_alt_rounded,
     color: Color(0xFF6C5CE7),
   ),
-  multi(
-    title: '여럿이하기',
-    tagline: '곧 만나요',
-    icon: Icons.groups_rounded,
-    color: Color(0xFF94A3B8),
+  solo(
+    title: '혼자 연습',
+    tagline: '연습하며 기록에 도전',
+    icon: Icons.self_improvement_rounded,
+    color: Color(0xFF0EA5A6),
   );
 
-  const PlayMode({
+  const GameEntryMode({
     required this.title,
     required this.tagline,
     required this.icon,
@@ -33,16 +30,6 @@ enum PlayMode {
   final String tagline;
   final IconData icon;
   final Color color;
-}
-
-/// 게임 진입 맥락 — 혼자하기(solo)로 들어오면 랭킹 도전/보기,
-/// 둘이하기(versus)로 들어오면 대전/친구 초대 버튼만 노출한다.
-enum GameEntryMode {
-  solo,
-  versus;
-
-  static GameEntryMode fromPlayMode(PlayMode mode) =>
-      mode == PlayMode.solo ? GameEntryMode.solo : GameEntryMode.versus;
 }
 
 /// 게임의 진행 호흡(소요 시간대) — 시선 흐름을 위한 묶음 기준
@@ -59,13 +46,19 @@ enum GameTempo {
 
 /// 게임 한 종의 표시 메타데이터 + 지원 모드.
 /// 화면별로 흩어져 있던 아이콘/색/부제를 한 곳으로 통합한 단일 출처.
+///
+/// 지원 인원은 두 축으로 선언한다:
+///  - [solo]   : 혼자 연습(랭킹 도전) 지원 여부
+///  - [versus] : 온라인 대결에서 지원하는 인원 수 집합(예: {2}, {2,3,4}).
+///               비어 있으면 대결 미지원. 길이가 2 이상이면 진입 시 인원 칩을 노출한다.
 class GameMeta {
   final String id;
   final String tagline;
   final IconData icon;
   final Color color;
   final GameTempo tempo;
-  final Set<PlayMode> modes;
+  final bool solo;
+  final Set<int> versus;
 
   const GameMeta({
     required this.id,
@@ -73,19 +66,28 @@ class GameMeta {
     required this.icon,
     required this.color,
     required this.tempo,
-    required this.modes,
+    this.solo = false,
+    this.versus = const {},
   });
 
   String get name => GameCatalog.nameFor(id);
   String get route => GameCatalog.routeFor(id);
-  bool supports(PlayMode mode) => modes.contains(mode);
+
+  /// 온라인 대결 지원 여부.
+  bool get hasVersus => versus.isNotEmpty;
+
+  /// 해당 진입 맥락을 지원하는가.
+  bool supports(GameEntryMode entry) =>
+      entry == GameEntryMode.solo ? solo : hasVersus;
 }
 
 /// 전체 게임 메타데이터의 단일 출처.
 class GameRegistry {
   const GameRegistry._();
 
-  // 현재 서버에 솔로(연습) 이벤트가 구현된 게임. 추후 확장 시 modes에 solo 추가.
+  // 현재 모든 대결 게임은 2인(versus: {2}). 특정 게임을 3·4인으로 열 때
+  // 그 게임의 versus 집합에 인원을 추가하면 진입 화면에 인원 칩이 노출된다.
+  // solo: true 인 게임만 '혼자 연습' 그리드에 등장한다.
   static const List<GameMeta> all = [
     GameMeta(
       id: 'reaction',
@@ -93,7 +95,7 @@ class GameRegistry {
       icon: Icons.flash_on_rounded,
       color: Color(0xFFE17055),
       tempo: GameTempo.blitz,
-      modes: {PlayMode.duo},
+      versus: {2},
     ),
     GameMeta(
       id: 'rps',
@@ -101,7 +103,7 @@ class GameRegistry {
       icon: Icons.front_hand_rounded,
       color: Color(0xFF9B59B6),
       tempo: GameTempo.blitz,
-      modes: {PlayMode.duo},
+      versus: {2},
     ),
     GameMeta(
       id: 'speedtap',
@@ -109,7 +111,7 @@ class GameRegistry {
       icon: Icons.touch_app_rounded,
       color: Color(0xFF00CEC9),
       tempo: GameTempo.blitz,
-      modes: {PlayMode.duo},
+      versus: {2},
     ),
     GameMeta(
       id: 'sequence',
@@ -117,7 +119,7 @@ class GameRegistry {
       icon: Icons.psychology_rounded,
       color: Color(0xFFE056FD),
       tempo: GameTempo.blitz,
-      modes: {PlayMode.duo},
+      versus: {2},
     ),
     GameMeta(
       id: 'stroop',
@@ -125,7 +127,7 @@ class GameRegistry {
       icon: Icons.palette_rounded,
       color: Color(0xFF00B894),
       tempo: GameTempo.blitz,
-      modes: {PlayMode.duo},
+      versus: {2},
     ),
     GameMeta(
       id: 'numberbattle',
@@ -133,7 +135,7 @@ class GameRegistry {
       icon: Icons.grid_on_rounded,
       color: Color(0xFFFF6B6B),
       tempo: GameTempo.blitz,
-      modes: {PlayMode.duo},
+      versus: {2},
     ),
     GameMeta(
       id: 'mathrace',
@@ -141,7 +143,7 @@ class GameRegistry {
       icon: Icons.calculate_rounded,
       color: Color(0xFFE74C3C),
       tempo: GameTempo.blitz,
-      modes: {PlayMode.duo},
+      versus: {2},
     ),
     GameMeta(
       id: 'arrowdash',
@@ -149,7 +151,7 @@ class GameRegistry {
       icon: Icons.swipe_rounded,
       color: Color(0xFF00B894),
       tempo: GameTempo.blitz,
-      modes: {PlayMode.duo},
+      versus: {2},
     ),
     GameMeta(
       id: 'timing',
@@ -157,7 +159,7 @@ class GameRegistry {
       icon: Icons.timer_rounded,
       color: Color(0xFF6C5CE7),
       tempo: GameTempo.blitz,
-      modes: {PlayMode.duo},
+      versus: {2},
     ),
     GameMeta(
       id: 'tictactoe',
@@ -165,7 +167,7 @@ class GameRegistry {
       icon: Icons.grid_3x3_rounded,
       color: Color(0xFF6C5CE7),
       tempo: GameTempo.blitz,
-      modes: {PlayMode.duo},
+      versus: {2},
     ),
     GameMeta(
       id: 'set',
@@ -173,7 +175,7 @@ class GameRegistry {
       icon: Icons.style_rounded,
       color: Color(0xFF00897B),
       tempo: GameTempo.brain,
-      modes: {PlayMode.duo},
+      versus: {2},
     ),
     GameMeta(
       id: 'hunmin',
@@ -181,7 +183,7 @@ class GameRegistry {
       icon: Icons.translate_rounded,
       color: Color(0xFF1E88E5),
       tempo: GameTempo.word,
-      modes: {PlayMode.duo},
+      versus: {2},
     ),
     GameMeta(
       id: 'cardflip',
@@ -189,7 +191,7 @@ class GameRegistry {
       icon: Icons.style_rounded,
       color: Color(0xFF8E44AD),
       tempo: GameTempo.brain,
-      modes: {PlayMode.duo},
+      versus: {2},
     ),
     GameMeta(
       id: 'hexagon',
@@ -197,7 +199,8 @@ class GameRegistry {
       icon: Icons.hexagon_rounded,
       color: Color(0xFF0984E3),
       tempo: GameTempo.brain,
-      modes: {PlayMode.solo, PlayMode.duo},
+      solo: true,
+      versus: {2},
     ),
     GameMeta(
       id: 'pyramid',
@@ -205,7 +208,8 @@ class GameRegistry {
       icon: Icons.change_history_rounded,
       color: Color(0xFFE67E22),
       tempo: GameTempo.brain,
-      modes: {PlayMode.solo, PlayMode.duo},
+      solo: true,
+      versus: {2},
     ),
     GameMeta(
       id: 'infinite_tictactoe',
@@ -213,7 +217,7 @@ class GameRegistry {
       icon: Icons.all_inclusive_rounded,
       color: Color(0xFF2D3436),
       tempo: GameTempo.brain,
-      modes: {PlayMode.duo},
+      versus: {2},
     ),
     GameMeta(
       id: 'gomoku',
@@ -221,7 +225,7 @@ class GameRegistry {
       icon: Icons.circle_outlined,
       color: Color(0xFF636E72),
       tempo: GameTempo.strategy,
-      modes: {PlayMode.duo},
+      versus: {2},
     ),
   ];
 
@@ -238,13 +242,13 @@ class GameRegistry {
   static IconData iconOf(String id) =>
       _byId[id]?.icon ?? Icons.sports_esports_rounded;
 
-  /// 해당 모드를 지원하는 게임을, 호흡(빠른→전략) 순서로 반환.
-  static List<GameMeta> forMode(PlayMode mode) {
-    final list = all.where((g) => g.supports(mode)).toList();
+  /// 해당 진입 맥락(연습/대결)을 지원하는 게임을, 호흡(빠른→전략) 순서로 반환.
+  static List<GameMeta> forEntry(GameEntryMode entry) {
+    final list = all.where((g) => g.supports(entry)).toList();
     list.sort((a, b) => a.tempo.index.compareTo(b.tempo.index));
     return list;
   }
 
-  static int countForMode(PlayMode mode) =>
-      all.where((g) => g.supports(mode)).length;
+  static int countForEntry(GameEntryMode entry) =>
+      all.where((g) => g.supports(entry)).length;
 }
