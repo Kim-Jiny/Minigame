@@ -63,6 +63,12 @@ class _SetScreenState extends State<SetScreen> {
   UserProfileSettings? _myProfileSettings;
   UserProfileSettings? _opponentProfileSettings;
 
+  // 3·4인 — 전체 플레이어(인덱스 순서 = 점수 인덱스). 2인은 기존 _opponent* 그대로.
+  int _maxPlayers = 2; // 진입화면 인원 선택(2·3·4)
+  List<Map<String, dynamic>> _players = []; // match_found 전원 정보
+  final Set<int> _leftIndices = {}; // 도중 이탈한 플레이어 인덱스
+  bool get _isMulti => _players.length > 2;
+
   // 게임 상태
   List<int> _board = []; // 카드 id 목록(12~18)
   List<int> _scores = [0, 0]; // 각자 모은 세트 수
@@ -228,18 +234,23 @@ class _SetScreenState extends State<SetScreen> {
     });
 
     _socketListeners.on('match_found', (data) {
-      final players = data['players'] as List;
+      final players = (data['players'] as List)
+          .map((p) => Map<String, dynamic>.from(p as Map))
+          .toList();
       final opponent = players
           .cast<Map<String, dynamic>?>()
           .firstWhere((p) => p!['id'] != _myId, orElse: () => null);
       if (opponent == null) return;
       final me =
-          players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
+          players.firstWhere((p) => p['id'] == _myId, orElse: () => <String, dynamic>{});
       _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
 
       setState(() {
         _status = SetGameStatus.matched;
         _roomId = data['roomId'];
+        _players = players; // 인덱스 순서 = 점수 인덱스
+        _leftIndices.clear();
+        // 2인 표시용(기존 GameDuelHeader 경로)
         _opponentNickname = opponent['nickname'];
         _opponentAvatarUrl = opponent['avatarUrl'];
         _opponentUserId = opponent['userId'];
@@ -248,10 +259,16 @@ class _SetScreenState extends State<SetScreen> {
           _opponentProfileSettings =
               UserProfileSettings.fromJson(opponent['profileSettings']);
         }
-        if (me != null && me['profileSettings'] != null) {
+        if (me['profileSettings'] != null) {
           _myProfileSettings = UserProfileSettings.fromJson(me['profileSettings']);
         }
       });
+    });
+
+    _socketListeners.on('set_player_left', (data) {
+      final idx = (data['playerIndex'] as num?)?.toInt();
+      if (idx == null) return;
+      setState(() => _leftIndices.add(idx));
     });
 
     _socketListeners.on('game_start', (data) {
@@ -555,6 +572,7 @@ class _SetScreenState extends State<SetScreen> {
       'gameType': AppConfig.gameTypeSet,
       'isHardcore': false,
       'isInfinite': _isInfinite,
+      'maxPlayers': _maxPlayers,
     });
     setState(() => _status = SetGameStatus.searching);
   }
@@ -606,6 +624,7 @@ class _SetScreenState extends State<SetScreen> {
       'gameType': AppConfig.gameTypeSet,
       'isHardcore': false,
       'isInfinite': _isInfinite,
+      'maxPlayers': _maxPlayers,
     });
     setState(() => _status = SetGameStatus.idle);
   }
@@ -784,13 +803,26 @@ class _SetScreenState extends State<SetScreen> {
               '4속성이 모두 같거나 모두 다른 카드 3장!',
               '먼저 6세트 승리 · 틀리면 -1점 (120초)',
             ],
-      extra: _SetInfiniteToggle(
-        value: _isInfinite,
-        accent: theme.primary,
-        onChanged: (v) => setState(() => _isInfinite = v),
+      extra: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _SetPlayerCountSelector(
+            value: _maxPlayers,
+            accent: theme.primary,
+            onChanged: (n) => setState(() => _maxPlayers = n),
+          ),
+          const SizedBox(height: 12),
+          _SetInfiniteToggle(
+            value: _isInfinite,
+            accent: theme.primary,
+            onChanged: (v) => setState(() => _isInfinite = v),
+          ),
+        ],
       ),
+      // 3·4인은 친구 초대 미지원(랜덤 매칭 전용) — 2인일 때만 초대 버튼 노출.
       onFindMatch: _findMatch,
-      onInviteFriend: () => _showFriendInviteDialog(context),
+      onInviteFriend:
+          _maxPlayers == 2 ? () => _showFriendInviteDialog(context) : null,
     );
   }
 
@@ -837,7 +869,12 @@ class _SetScreenState extends State<SetScreen> {
               child: Icon(Icons.sports_esports, size: 64, color: accent),
             ),
             const SizedBox(height: 16),
-            Text(_isSolo ? '랭킹 도전 준비!' : '$_opponentNickname님과 매칭!',
+            Text(
+                _isSolo
+                    ? '랭킹 도전 준비!'
+                    : _isMulti
+                        ? '${_players.length}명 매칭 완료!'
+                        : '$_opponentNickname님과 매칭!',
                 style: TextStyle(
                     fontSize: 24, fontWeight: FontWeight.bold, color: accent)),
             const SizedBox(height: 8),
@@ -859,6 +896,19 @@ class _SetScreenState extends State<SetScreen> {
         child: Column(
           children: [
             _buildSoloHeader(accent),
+            Expanded(child: _buildBoard(accent)),
+          ],
+        ),
+      );
+    }
+
+    // 3·4인: 전원 점수 보드 + 중앙 타이머/덱.
+    if (_isMulti) {
+      return Container(
+        decoration: BoxDecoration(gradient: theme.backgroundGradient),
+        child: Column(
+          children: [
+            _buildMultiHeader(accent),
             Expanded(child: _buildBoard(accent)),
           ],
         ),
@@ -911,6 +961,226 @@ class _SetScreenState extends State<SetScreen> {
           ),
           Expanded(child: _buildBoard(accent)),
         ],
+      ),
+    );
+  }
+
+  // 3·4인 공용 보드 헤더: 중앙에 타이머/남은카드, 그 아래 전원 점수 칩.
+  Widget _buildMultiHeader(Color accent) {
+    return SafeArea(
+      bottom: false,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(12, 10, 12, 2),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 12,
+                offset: const Offset(0, 4)),
+          ],
+        ),
+        child: Column(
+          children: [
+            Text(
+              _isInfinite ? '남은 카드 $_deckRemaining장' : '$_remainingSeconds초',
+              style: TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.w800, color: accent),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: List.generate(_players.length, (i) {
+                final p = _players[i];
+                final isMe = i == _myPlayerIndex;
+                final left = _leftIndices.contains(i);
+                final score = i < _scores.length ? _scores[i] : 0;
+                final name = (p['nickname'] as String?) ?? '?';
+                return Expanded(
+                  child: Opacity(
+                    opacity: left ? 0.4 : 1,
+                    child: Column(
+                      children: [
+                        Text(
+                          isMe ? '나' : name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight:
+                                isMe ? FontWeight.w800 : FontWeight.w600,
+                            color: isMe ? accent : Colors.grey.shade600,
+                            decoration:
+                                left ? TextDecoration.lineThrough : null,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Container(
+                          width: 34,
+                          height: 34,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: isMe
+                                ? accent
+                                : accent.withValues(alpha: 0.10),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Text(
+                            '$score',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: isMe ? Colors.white : accent,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // 3·4인 결과 순위표.
+  Widget _buildMultiFinishedView(GameTheme theme) {
+    final accent = theme.primary;
+    // 점수 내림차순 정렬(인덱스 유지). 동점은 원래 순서.
+    final order = List<int>.generate(_players.length, (i) => i)
+      ..sort((a, b) {
+        final sa = a < _scores.length ? _scores[a] : 0;
+        final sb = b < _scores.length ? _scores[b] : 0;
+        return sb.compareTo(sa);
+      });
+    final myRank = order.indexOf(_myPlayerIndex) + 1;
+    final topScore = order.isNotEmpty && order.first < _scores.length
+        ? _scores[order.first]
+        : 0;
+    final myScore =
+        _myPlayerIndex < _scores.length ? _scores[_myPlayerIndex] : 0;
+    final isSoleWinner = myScore == topScore &&
+        order
+                .where((i) =>
+                    (i < _scores.length ? _scores[i] : 0) == topScore)
+                .length ==
+            1;
+
+    return Container(
+      decoration: BoxDecoration(gradient: theme.backgroundGradient),
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              GameResultHero(
+                icon: isSoleWinner
+                    ? Icons.emoji_events_rounded
+                    : Icons.flag_rounded,
+                color: isSoleWinner ? accent : Colors.grey,
+                title: isSoleWinner ? '승리!' : '$myRank등',
+                subtitle: '${_players.length}명 중 $myRank등 · $myScore세트',
+              ),
+              const SizedBox(height: 22),
+              ...List.generate(order.length, (rank) {
+                final i = order[rank];
+                final p = _players[i];
+                final isMe = i == _myPlayerIndex;
+                final left = _leftIndices.contains(i);
+                final score = i < _scores.length ? _scores[i] : 0;
+                final medal = ['🥇', '🥈', '🥉'];
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: isMe ? accent.withValues(alpha: 0.10) : Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: isMe
+                          ? accent.withValues(alpha: 0.4)
+                          : const Color(0xFFEDEDF2),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 30,
+                        child: Text(
+                          rank < 3 ? medal[rank] : '${rank + 1}',
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          isMe ? '나' : ((p['nickname'] as String?) ?? '?'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight:
+                                isMe ? FontWeight.w800 : FontWeight.w600,
+                            color: isMe ? accent : const Color(0xFF1F2430),
+                            decoration:
+                                left ? TextDecoration.lineThrough : null,
+                          ),
+                        ),
+                      ),
+                      if (left)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: Text('이탈',
+                              style: TextStyle(
+                                  fontSize: 11, color: Colors.grey.shade400)),
+                        ),
+                      Text('$score세트',
+                          style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: accent)),
+                    ],
+                  ),
+                );
+              }),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    _leaveGame();
+                    _findMatch();
+                  },
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('다시 매칭'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: accent,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextButton(
+                onPressed: () {
+                  _leaveGame();
+                  Navigator.pop(context);
+                },
+                child:
+                    Text('로비로', style: TextStyle(color: Colors.grey.shade600)),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1111,6 +1381,11 @@ class _SetScreenState extends State<SetScreen> {
           ),
         ),
       );
+    }
+
+    // 3·4인 결과: 전원 점수 순위표.
+    if (_isMulti) {
+      return _buildMultiFinishedView(theme);
     }
 
     String resultText;
@@ -1451,6 +1726,55 @@ class _SetScreenState extends State<SetScreen> {
       message: '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
       onExit: _leaveGame,
     ).then((_) => _isExitDialogOpen = false);
+  }
+}
+
+/// SET 진입 화면의 인원 선택(2·3·4인). 3·4인은 같은 공용 보드에서 다 같이 경쟁한다.
+class _SetPlayerCountSelector extends StatelessWidget {
+  final int value;
+  final Color accent;
+  final ValueChanged<int> onChanged;
+
+  const _SetPlayerCountSelector({
+    required this.value,
+    required this.accent,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [2, 3, 4].map((n) {
+          final selected = value == n;
+          return GestureDetector(
+            onTap: () => onChanged(n),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              decoration: BoxDecoration(
+                color: selected ? accent : Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '$n인',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: selected ? Colors.white : Colors.grey.shade600,
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
   }
 }
 

@@ -176,7 +176,7 @@ class GameRegistry {
       color: Color(0xFF00897B),
       tempo: GameTempo.brain,
       solo: true,
-      versus: {2},
+      versus: {2, 3, 4},
     ),
     GameMeta(
       id: 'hunmin',

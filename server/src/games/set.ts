@@ -21,7 +21,7 @@ export interface SetClaimResult {
   valid: boolean;
   reason?: 'not_on_board' | 'not_a_set' | 'game_over' | 'bad_input';
   board?: number[];
-  scores?: [number, number];
+  scores?: number[];
   deckRemaining?: number;
   claimedCards?: number[]; // 방금 집은 카드 id (애니메이션용)
 }
@@ -35,20 +35,28 @@ export class SetGame {
 
   private deck: number[] = [];
   private board: number[] = [];
-  private scores: [number, number] = [0, 0];
+  private scores: number[] = [0, 0];
   private gameOver = false;
   private winner: number | null = null;
 
   /** 무한모드 — 타이머·점수 선취 없이 덱을 끝까지 소진. */
   private readonly infinite: boolean;
 
-  constructor(infinite: boolean = false) {
+  /** 참가 인원 (2~4). 공용 보드 위에서 다 같이 경쟁한다. */
+  private readonly playerCount: number;
+
+  constructor(infinite: boolean = false, playerCount: number = 2) {
     this.infinite = infinite;
+    this.playerCount = Math.max(2, playerCount);
     this.reset();
   }
 
   getIsInfinite(): boolean {
     return this.infinite;
+  }
+
+  getPlayerCount(): number {
+    return this.playerCount;
   }
 
   reset(): void {
@@ -61,7 +69,7 @@ export class SetGame {
     for (let i = 0; i < SetGame.BOARD_SIZE && this.deck.length > 0; i++) {
       this.board.push(this.deck.pop()!);
     }
-    this.scores = [0, 0];
+    this.scores = new Array(this.playerCount).fill(0);
     this.gameOver = false;
     this.winner = null;
     this.ensureSetExists();
@@ -114,8 +122,8 @@ export class SetGame {
   getBoard(): number[] {
     return [...this.board];
   }
-  getScores(): [number, number] {
-    return [...this.scores] as [number, number];
+  getScores(): number[] {
+    return [...this.scores];
   }
   getDeckRemaining(): number {
     return this.deck.length;
@@ -184,9 +192,13 @@ export class SetGame {
 
   private finalizeByScore(): void {
     this.gameOver = true;
-    if (this.scores[0] > this.scores[1]) this.winner = 0;
-    else if (this.scores[1] > this.scores[0]) this.winner = 1;
-    else this.winner = null;
+    // 최다 득점자가 승리. 최고점이 둘 이상이면 무승부(null).
+    const max = Math.max(...this.scores);
+    const leaders = this.scores.reduce<number[]>((acc, s, i) => {
+      if (s === max) acc.push(i);
+      return acc;
+    }, []);
+    this.winner = leaders.length === 1 ? leaders[0] : null;
   }
 
   // 제한시간 종료 시 서버에서 호출 — 점수로 판정

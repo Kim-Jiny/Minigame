@@ -229,6 +229,58 @@ export const coinService = {
     };
   },
 
+  // 3·4인(멀티플레이) 게임 종료 보상.
+  // 상대가 여럿이라 1:1 일일매치 제한 로직을 적용할 수 없어, 결과(1등=win/그외=loss/
+  // 공동1등=draw) 기준으로만 코인·연승을 처리한다. 동일 상대 일일제한은 적용 안 함.
+  async processMultiplayerReward(
+    userId: number,
+    result: 'win' | 'loss' | 'draw'
+  ): Promise<GameRewardResult> {
+    const pool = getPool();
+    if (!pool) throw new Error('Database not connected');
+
+    const streakInfo = await this.getStreak(userId);
+    const streakBefore = streakInfo.currentStreak;
+
+    let coinsEarned =
+      result === 'win' ? COIN_REWARDS.WIN : result === 'loss' ? COIN_REWARDS.LOSE : COIN_REWARDS.DRAW;
+
+    let streakAfter = streakBefore;
+    let streakBonusEarned = false;
+    let streakCountedThisGame = false;
+    let message: string | undefined;
+
+    if (result === 'win') {
+      streakAfter = streakBefore + 1;
+      streakCountedThisGame = true;
+      if (streakAfter >= STREAK_CONFIG.BONUS_AT) {
+        coinsEarned += COIN_REWARDS.STREAK_BONUS;
+        streakBonusEarned = true;
+        streakAfter = 0;
+        message = `🔥 ${STREAK_CONFIG.BONUS_AT}연승 달성! +${COIN_REWARDS.STREAK_BONUS} 보너스!`;
+      }
+    } else {
+      if (result === 'loss' && streakBefore > 0) {
+        message = `💔 ${streakBefore}연승 끊김...`;
+      }
+      streakAfter = 0;
+    }
+
+    await this.updateStreak(userId, streakAfter);
+    const totalCoins = await this.addCoins(userId, coinsEarned, `game_multi_${result}`);
+
+    return {
+      coinsEarned,
+      totalCoins,
+      streakBefore,
+      streakAfter,
+      streakBonusEarned,
+      streakCountedThisGame,
+      dailyMatchCount: 0,
+      message,
+    };
+  },
+
   // 오래된 dm_daily_match_count 정리 (7일 이상)
   async cleanupOldMatchCounts(): Promise<void> {
     const pool = getPool();
