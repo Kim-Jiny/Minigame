@@ -10,6 +10,7 @@ import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
+import '../../utils/game_registry.dart';
 import '../common/game_rematch_preparing_view.dart';
 import '../common/game_intro_view.dart';
 import '../common/game_scaffold.dart';
@@ -28,7 +29,14 @@ enum SetGameStatus { idle, searching, matched, playing, finished }
 class SetScreen extends StatefulWidget {
   final bool isRanked;
 
-  const SetScreen({super.key, this.isRanked = false});
+  /// 진입 맥락. solo면 혼자 연습(시간 랭킹 도전), versus면 온라인 대결.
+  final GameEntryMode entryMode;
+
+  const SetScreen({
+    super.key,
+    this.isRanked = false,
+    this.entryMode = GameEntryMode.versus,
+  });
 
   @override
   State<SetScreen> createState() => _SetScreenState();
@@ -87,6 +95,14 @@ class _SetScreenState extends State<SetScreen> {
   // 무한모드 — 타이머·6점 선취 없이 덱을 끝까지 소진. 진입화면 토글로 선택.
   bool _isInfinite = false;
 
+  // 솔로(혼자 연습) — 덱 소진까지 걸린 시간으로 랭킹 도전.
+  bool _isSolo = false;
+  Timer? _soloStopwatch; // 경과시간 카운트업(표시용)
+  int _soloElapsedMs = 0; // 표시용 경과(클라 측정)
+  int? _soloResultMs; // 서버가 확정한 최종 시간(랭킹 기준)
+  int _soloSetsFound = 0;
+  List<Map<String, dynamic>> _rankings = [];
+
   @override
   void initState() {
     super.initState();
@@ -132,6 +148,7 @@ class _SetScreenState extends State<SetScreen> {
     _waitingReconnectTimer?.cancel();
     _penaltyTimer?.cancel();
     _claimWatchdog?.cancel();
+    _soloStopwatch?.cancel();
     _socketListeners.offAll();
     super.dispose();
   }
@@ -263,10 +280,12 @@ class _SetScreenState extends State<SetScreen> {
 
     _socketListeners.on('set_start', (data) {
       final infinite = data['infinite'] == true;
+      final solo = data['solo'] == true;
       final duration = (data['duration'] as num?)?.toInt() ?? 120000;
       setState(() {
         _status = SetGameStatus.playing;
         _isInfinite = infinite;
+        _isSolo = solo;
         _board = List<int>.from(data['board'] ?? []);
         _scores = List<int>.from(data['scores'] ?? [0, 0]);
         _deckRemaining = (data['deckRemaining'] as num?)?.toInt() ?? 0;
@@ -276,8 +295,11 @@ class _SetScreenState extends State<SetScreen> {
         _lastClaimFailed = false;
         _isWaitingForReconnect = false;
       });
-      // 무한모드는 카운트다운이 없다.
-      if (infinite) {
+      // 솔로는 경과시간 카운트업, 무한/솔로는 카운트다운 없음.
+      if (solo) {
+        _stopCountdown();
+        _startSoloStopwatch();
+      } else if (infinite) {
         _stopCountdown();
       } else {
         _startCountdown((duration / 1000).ceil());
@@ -428,6 +450,7 @@ class _SetScreenState extends State<SetScreen> {
     _socketListeners.on('game_end', (data) {
       if (_status == SetGameStatus.finished) return;
       _stopCountdown();
+      _stopSoloStopwatch();
       setState(() {
         _status = SetGameStatus.finished;
         _winnerId = data['winner'];
@@ -437,8 +460,33 @@ class _SetScreenState extends State<SetScreen> {
         if (data['scores'] != null) {
           _scores = List<int>.from(data['scores']);
         }
+        // 솔로 결과: 서버 확정 시간 + 찾은 세트 수.
+        if (data['isSolo'] == true) {
+          _isSolo = true;
+          _soloResultMs = (data['timeMs'] as num?)?.toInt();
+          _soloSetsFound = (data['setsFound'] as num?)?.toInt() ?? _scores[0];
+        }
       });
+      // 솔로 도전 직후 최신 랭킹 갱신.
+      if (data['isSolo'] == true) _fetchRankings();
       _waitingReconnectTimer?.cancel();
+    });
+
+    _socketListeners.on('set_solo_ready', (data) {
+      setState(() {
+        _roomId = data['roomId'] as String?;
+        _isSolo = true;
+        _myPlayerIndex = 0;
+        _status = SetGameStatus.matched;
+      });
+    });
+
+    _socketListeners.on('set_rankings', (data) {
+      final list = data['rankings'] as List<dynamic>? ?? [];
+      setState(() {
+        _rankings =
+            list.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+      });
     });
 
     _socketListeners.on('opponent_left', (data) {
@@ -509,6 +557,48 @@ class _SetScreenState extends State<SetScreen> {
       'isInfinite': _isInfinite,
     });
     setState(() => _status = SetGameStatus.searching);
+  }
+
+  // ---- 솔로(혼자 연습) ----
+  void _startSolo() {
+    _socketService.emit('set_solo_start', {});
+    setState(() {
+      _isSolo = true;
+      _soloResultMs = null;
+      _soloElapsedMs = 0;
+      _status = SetGameStatus.matched;
+    });
+  }
+
+  void _fetchRankings() {
+    _socketService.emit('set_get_rankings', {'limit': 20});
+  }
+
+  void _startSoloStopwatch() {
+    _soloStopwatch?.cancel();
+    _soloElapsedMs = 0;
+    _soloStopwatch = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      if (!mounted) return;
+      setState(() => _soloElapsedMs += 100);
+    });
+  }
+
+  void _stopSoloStopwatch() {
+    _soloStopwatch?.cancel();
+    _soloStopwatch = null;
+  }
+
+  /// ms → "분:초.십분의일" (예: 1:23.4). 1분 미만은 "초.십분의일".
+  static String _formatTime(int ms) {
+    final totalTenths = (ms / 100).round();
+    final tenths = totalTenths % 10;
+    final totalSec = totalTenths ~/ 10;
+    final sec = totalSec % 60;
+    final min = totalSec ~/ 60;
+    if (min > 0) {
+      return '$min:${sec.toString().padLeft(2, '0')}.$tenths';
+    }
+    return '$sec.$tenths초';
   }
 
   void _cancelMatch() {
@@ -647,6 +737,39 @@ class _SetScreenState extends State<SetScreen> {
   }
 
   Widget _buildIdleView(GameTheme theme) {
+    // 혼자 연습으로 진입 → 시간 랭킹 도전 + 랭킹 보기.
+    if (widget.entryMode == GameEntryMode.solo) {
+      return GameIntroView(
+        backgroundGradient: theme.backgroundGradient,
+        accentColor: theme.primary,
+        icon: Icons.style_rounded,
+        title: 'Set 솔로',
+        descriptions: const [
+          '4속성이 모두 같거나 모두 다른 카드 3장!',
+          '덱 81장을 모두 비우는 데 걸린 시간으로 랭킹 도전',
+        ],
+        extra: SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () {
+              _fetchRankings();
+              _showRankingSheet(theme);
+            },
+            icon: const Icon(Icons.leaderboard_rounded),
+            label: const Text('솔로 랭킹 보기'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: theme.primary,
+              side: BorderSide(color: theme.primary.withValues(alpha: 0.5)),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+            ),
+          ),
+        ),
+        findMatchLabel: '랭킹 도전 시작',
+        onFindMatch: _startSolo,
+      );
+    }
     return GameIntroView(
       backgroundGradient: theme.backgroundGradient,
       accentColor: theme.primary,
@@ -714,7 +837,7 @@ class _SetScreenState extends State<SetScreen> {
               child: Icon(Icons.sports_esports, size: 64, color: accent),
             ),
             const SizedBox(height: 16),
-            Text('$_opponentNickname님과 매칭!',
+            Text(_isSolo ? '랭킹 도전 준비!' : '$_opponentNickname님과 매칭!',
                 style: TextStyle(
                     fontSize: 24, fontWeight: FontWeight.bold, color: accent)),
             const SizedBox(height: 8),
@@ -728,6 +851,20 @@ class _SetScreenState extends State<SetScreen> {
 
   Widget _buildPlayingView(GameTheme theme) {
     final accent = theme.primary;
+
+    // 솔로(시간 랭킹): 상대 없이 경과시간·찾은 세트·남은 카드만 표시.
+    if (_isSolo) {
+      return Container(
+        decoration: BoxDecoration(gradient: theme.backgroundGradient),
+        child: Column(
+          children: [
+            _buildSoloHeader(accent),
+            Expanded(child: _buildBoard(accent)),
+          ],
+        ),
+      );
+    }
+
     final myScore = _scores.length > _myPlayerIndex ? _scores[_myPlayerIndex] : 0;
     final opScore = _scores.length > (1 - _myPlayerIndex) ? _scores[1 - _myPlayerIndex] : 0;
 
@@ -774,6 +911,57 @@ class _SetScreenState extends State<SetScreen> {
           ),
           Expanded(child: _buildBoard(accent)),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSoloHeader(Color accent) {
+    Widget stat(IconData icon, String label, String value, Color color) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(height: 4),
+          Text(value,
+              style: TextStyle(
+                  fontSize: 20, fontWeight: FontWeight.w800, color: color)),
+          const SizedBox(height: 2),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade500)),
+        ],
+      );
+    }
+
+    return SafeArea(
+      bottom: false,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(14, 10, 14, 2),
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            stat(Icons.timer_rounded, '경과 시간',
+                _formatTime(_soloElapsedMs), accent),
+            stat(Icons.check_circle_rounded, '찾은 세트',
+                '${_scores.isNotEmpty ? _scores[0] : 0}', Colors.grey.shade700),
+            stat(Icons.style_rounded, '남은 카드', '$_deckRemaining',
+                Colors.grey.shade700),
+          ],
+        ),
       ),
     );
   }
@@ -844,6 +1032,84 @@ class _SetScreenState extends State<SetScreen> {
         accentColor: accent,
         isWinner: isWinner,
         isDraw: _isDraw,
+      );
+    }
+
+    // 솔로(시간 랭킹) 결과
+    if (_isSolo) {
+      final ms = _soloResultMs ?? _soloElapsedMs;
+      return Container(
+        decoration: BoxDecoration(gradient: theme.backgroundGradient),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                GameResultHero(
+                  icon: Icons.timer_rounded,
+                  color: accent,
+                  title: _formatTime(ms),
+                  subtitle: '덱을 모두 비웠어요 · $_soloSetsFound세트',
+                ),
+                const SizedBox(height: 14),
+                GameResultStatusPill(
+                  icon: Icons.leaderboard_rounded,
+                  text: '랭킹에 기록되었어요',
+                  color: accent,
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _status = SetGameStatus.idle;
+                        _roomId = null;
+                        _soloResultMs = null;
+                      });
+                      _startSolo();
+                    },
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('다시 도전'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: accent,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      _fetchRankings();
+                      _showRankingSheet(theme);
+                    },
+                    icon: const Icon(Icons.leaderboard_rounded),
+                    label: const Text('솔로 랭킹 보기'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: accent,
+                      side: BorderSide(color: accent.withValues(alpha: 0.5)),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text('로비로',
+                      style: TextStyle(color: Colors.grey.shade600)),
+                ),
+              ],
+            ),
+          ),
+        ),
       );
     }
 
@@ -939,6 +1205,108 @@ class _SetScreenState extends State<SetScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  void _showRankingSheet(GameTheme theme) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          maxChildSize: 0.9,
+          minChildSize: 0.3,
+          expand: false,
+          builder: (_, scrollController) {
+            return Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
+                  child: Row(
+                    children: [
+                      Icon(Icons.leaderboard_rounded, color: theme.primary),
+                      const SizedBox(width: 8),
+                      Text('Set 솔로 랭킹',
+                          style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                              color: theme.primary)),
+                      const Spacer(),
+                      IconButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: _rankings.isEmpty
+                      ? Center(
+                          child: Text('아직 기록이 없어요. 첫 기록을 세워보세요!',
+                              style: TextStyle(color: Colors.grey.shade500)),
+                        )
+                      : ListView.builder(
+                          controller: scrollController,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          itemCount: _rankings.length,
+                          itemBuilder: (_, index) {
+                            final r = _rankings[index];
+                            final nickname = r['nickname'] as String? ?? '???';
+                            final timeMs =
+                                (r['time_ms'] as num?)?.toInt() ?? 0;
+                            final setsFound =
+                                (r['sets_found'] as num?)?.toInt() ?? 0;
+                            final isTop3 = index < 3;
+                            final badgeColor = isTop3
+                                ? [
+                                    const Color(0xFFFFC107),
+                                    const Color(0xFFB0BEC5),
+                                    const Color(0xFFBCAAA4),
+                                  ][index]
+                                : Colors.grey.shade200;
+                            return ListTile(
+                              leading: Container(
+                                width: 36,
+                                height: 36,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                    color: badgeColor, shape: BoxShape.circle),
+                                child: Text('${index + 1}',
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: isTop3
+                                            ? Colors.white
+                                            : Colors.grey.shade600)),
+                              ),
+                              title: Text(nickname,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w600)),
+                              subtitle: Text('$setsFound세트',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade500)),
+                              trailing: Text(
+                                _formatTime(timeMs),
+                                style: TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w800,
+                                    color: theme.primary),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 

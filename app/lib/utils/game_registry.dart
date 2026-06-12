@@ -175,6 +175,7 @@ class GameRegistry {
       icon: Icons.style_rounded,
       color: Color(0xFF00897B),
       tempo: GameTempo.brain,
+      solo: true,
       versus: {2},
     ),
     GameMeta(

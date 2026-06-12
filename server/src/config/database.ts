@@ -311,6 +311,19 @@ export async function setupDatabase() {
       );
       CREATE INDEX IF NOT EXISTS idx_dm_pyramid_rankings_score ON dm_pyramid_rankings(score DESC);
 
+      -- Set(셋) 솔로 랭킹 테이블 — 덱(81장) 전체를 소진하는 데 걸린 시간(ms) 기준.
+      -- 점수형(높을수록 좋음)인 다른 솔로 게임과 달리 시간형(낮을수록 좋음)이라
+      -- time_ms 오름차순 인덱스를 둔다. sets_found는 참고/표시용.
+      CREATE TABLE IF NOT EXISTS dm_set_rankings (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES dm_users(id),
+        time_ms INTEGER NOT NULL,
+        sets_found INTEGER NOT NULL DEFAULT 0,
+        nickname VARCHAR(50),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_dm_set_rankings_time ON dm_set_rankings(time_ms ASC);
+
       -- 한국어 단어 사전 (훈민정음 게임용)
       CREATE TABLE IF NOT EXISTS dm_korean_words (
         id SERIAL PRIMARY KEY,

@@ -84,6 +84,7 @@ interface GameRoom {
   skipTimer?: NodeJS.Timeout;  // 헥사곤 20초 스킵 활성화 타이머
   skipVotes?: Set<number>;     // 스킵 투표한 플레이어 인덱스
   isSolo?: boolean;  // 솔로 모드 여부
+  soloStartAt?: number;  // [SET 솔로] 덱 소진 시간 측정 시작 시각(ms). 시간 기반 랭킹용.
   isRanked?: boolean;  // 랭크전 여부
   rankedGames?: string[];  // 랭크전 게임 목록 (3개)
   rankedResults?: { gameType: string; winnerId: number | null }[];  // 랭크전 각 게임 결과
@@ -853,6 +854,9 @@ function startSet(io: Server, room: GameRoom) {
 
   const game = room.game;
   const infinite = game.getIsInfinite();
+  const solo = room.isSolo === true;
+  // 솔로(시간 랭킹): 보드가 노출되는 이 시점부터 시간을 측정한다.
+  if (solo) room.soloStartAt = Date.now();
   io.to(room.id).emit('set_start', {
     board: game.getBoard(),
     scores: game.getScores(),
@@ -860,9 +864,10 @@ function startSet(io: Server, room: GameRoom) {
     scoreToWin: infinite ? null : SetGame.SCORE_TO_WIN,
     duration: infinite ? null : SetGame.GAME_TIME,
     infinite,
+    solo,
   });
 
-  console.log(`🃏 Set started${infinite ? ' (무한)' : ''}`);
+  console.log(`🃏 Set started${solo ? ' (솔로)' : infinite ? ' (무한)' : ''}`);
 
   // 무한모드는 타이머가 없다 — 덱 소진 + 보드에 세트 없음으로만 종료.
   if (!infinite) {
@@ -956,6 +961,49 @@ async function finishSetGame(io: Server, room: GameRoom) {
   if (room.isRanked) {
     await handleRankedGameEnd(io, room, winnerIndex);
   }
+}
+
+// Set 솔로 종료 — 덱 소진까지 걸린 시간을 시간 랭킹(dm_set_rankings)에 저장.
+async function finishSetSolo(io: Server, room: GameRoom) {
+  if (!(room.game instanceof SetGame)) return;
+  if (!markRoomFinishedOnce(room, 'set_solo_end')) return;
+  clearRoundTimer(room);
+  room.status = 'finished';
+
+  const game = room.game;
+  const scores = game.getScores();
+  const setsFound = scores[0];
+  const timeMs = room.soloStartAt ? Math.max(0, Date.now() - room.soloStartAt) : 0;
+  const player = room.players[0];
+
+  if (player?.userId) {
+    try {
+      const pool = getPool();
+      if (pool) {
+        await pool.query(
+          `INSERT INTO dm_set_rankings (user_id, time_ms, sets_found, nickname)
+           VALUES ($1, $2, $3, $4)`,
+          [player.userId, timeMs, setsFound, player.nickname]
+        );
+      }
+    } catch (err) {
+      console.error('Failed to save set ranking:', err);
+    }
+    userRooms.delete(player.userId);
+  }
+
+  io.to(room.id).emit('game_end', {
+    winner: null,
+    winnerNickname: null,
+    isDraw: false,
+    scores,
+    isSolo: true,
+    timeMs,
+    setsFound,
+  });
+
+  rooms.delete(room.id);
+  console.log(`🃏 Set solo cleared: ${player?.nickname} ${setsFound}세트 ${timeMs}ms`);
 }
 
 // 사칙연산 스피드 게임 시작
@@ -3851,6 +3899,58 @@ export function setupSocketHandlers(io: Server) {
       }
     });
 
+    // Set 솔로 도전 시작 — 덱 끝까지 가는 무한모드 SetGame을 1인 방으로 구동.
+    socket.on('set_solo_start', async () => {
+      if (!currentPlayer) return;
+
+      const roomId = `set_solo_${socket.id}_${Date.now()}`;
+      const room: GameRoom = {
+        id: roomId,
+        gameType: 'set',
+        players: [currentPlayer],
+        game: new SetGame(true), // 무한: 6점 선취 없이 덱 소진까지
+        status: 'playing',
+        isSolo: true,
+      };
+      rooms.set(roomId, room);
+      socket.join(roomId);
+      currentRoomId = roomId;
+
+      if (currentPlayer.userId) userRooms.set(currentPlayer.userId, roomId);
+
+      socket.emit('set_solo_ready', { roomId });
+
+      // 보드 노출 + 시간 측정 시작(startSet 내부에서 soloStartAt 설정).
+      setTimeout(() => startSet(io, room), 1000);
+      console.log(`🃏 Set solo started: ${currentPlayer.nickname}`);
+    });
+
+    // Set 솔로 랭킹 조회 — 시간(ms) 오름차순, 유저별 최고 기록.
+    socket.on('set_get_rankings', async (data: { limit?: number }) => {
+      try {
+        const pool = getPool();
+        if (!pool) {
+          socket.emit('set_rankings', { rankings: [] });
+          return;
+        }
+        const limit = data?.limit || 50;
+        const result = await pool.query(
+          `SELECT * FROM (
+             SELECT DISTINCT ON (user_id) user_id, nickname, time_ms, sets_found, created_at
+             FROM dm_set_rankings
+             ORDER BY user_id, time_ms ASC
+           ) best
+           ORDER BY time_ms ASC
+           LIMIT $1`,
+          [limit]
+        );
+        socket.emit('set_rankings', { rankings: result.rows });
+      } catch (err) {
+        console.error('Failed to get set rankings:', err);
+        socket.emit('set_rankings', { rankings: [] });
+      }
+    });
+
     // 피라미드 라운드 스킵 요청
     socket.on('pyramid_skip_round', (data: { roomId: string }) => {
       const room = rooms.get(data.roomId);
@@ -4586,7 +4686,12 @@ export function setupSocketHandlers(io: Server) {
           });
 
           if (room.game.isGameOver()) {
-            await finishSetGame(io, room);
+            // 솔로(시간 랭킹)는 대전용 보상/전적 경로 대신 솔로 종료 경로로.
+            if (room.isSolo) {
+              await finishSetSolo(io, room);
+            } else {
+              await finishSetGame(io, room);
+            }
           }
         } else {
           // 거절: 오답이면 점수 -1이 반영됐을 수 있으니 방 전체에 점수 동기화 + 거절 알림.
