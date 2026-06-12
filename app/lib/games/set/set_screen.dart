@@ -705,6 +705,10 @@ class _SetScreenState extends State<SetScreen> {
       _isInvitationGame = false;
       _isReconnecting = false;
       _isWaitingForReconnect = false;
+      // 솔로/멀티 상태도 초기화(다음 매칭 전 잔상 방지). _maxPlayers는 사용자 선택 유지.
+      _isSolo = false;
+      _players = [];
+      _leftIndices.clear();
     });
   }
 
@@ -1052,16 +1056,28 @@ class _SetScreenState extends State<SetScreen> {
   Widget _buildMultiFinishedView(GameTheme theme) {
     final accent = theme.primary;
     int scoreOf(int i) => i < _scores.length ? _scores[i] : 0;
-    // 점수 내림차순 표시 순서. 등수는 동점을 같은 등수로 묶는다(공동 N등).
-    final order = List<int>.generate(_players.length, (i) => i)
-      ..sort((a, b) => scoreOf(b).compareTo(scoreOf(a)));
-    int rankOf(int i) => 1 + order.where((j) => scoreOf(j) > scoreOf(i)).length;
+    bool isLeft(int i) => _leftIndices.contains(i);
+    // 서버와 동일하게 이탈자는 승자·등수 후보에서 제외한다.
+    // 활성 플레이어만 점수로 정렬·등수를 매기고, 이탈자는 맨 아래에 둔다.
+    final active = [
+      for (var i = 0; i < _players.length; i++)
+        if (!isLeft(i)) i
+    ]..sort((a, b) => scoreOf(b).compareTo(scoreOf(a)));
+    final leftList = [
+      for (var i = 0; i < _players.length; i++)
+        if (isLeft(i)) i
+    ];
+    final order = [...active, ...leftList];
+    // 등수: 나보다 점수 높은 '활성' 인원 수 +1 → 동점은 같은 등수(공동 N등).
+    int rankOf(int i) => 1 + active.where((j) => scoreOf(j) > scoreOf(i)).length;
 
     final myScore = scoreOf(_myPlayerIndex);
-    final myRank = rankOf(_myPlayerIndex);
-    final topScore = order.isNotEmpty ? scoreOf(order.first) : 0;
-    final topCount = order.where((i) => scoreOf(i) == topScore).length;
-    final iAmTop = myScore == topScore;
+    final iAmActive = !isLeft(_myPlayerIndex);
+    final myRank =
+        iAmActive ? rankOf(_myPlayerIndex) : order.indexOf(_myPlayerIndex) + 1;
+    final topScore = active.isNotEmpty ? scoreOf(active.first) : 0;
+    final topCount = active.where((i) => scoreOf(i) == topScore).length;
+    final iAmTop = iAmActive && myScore == topScore;
     final isSoleWinner = iAmTop && topCount == 1; // 단독 1등
     final isTopDraw = iAmTop && topCount > 1; // 공동 1등(무승부)
 
@@ -1098,9 +1114,9 @@ class _SetScreenState extends State<SetScreen> {
                 final i = order[pos];
                 final p = _players[i];
                 final isMe = i == _myPlayerIndex;
-                final left = _leftIndices.contains(i);
+                final left = isLeft(i);
                 final score = scoreOf(i);
-                final r = rankOf(i); // 동점은 같은 등수
+                final r = left ? -1 : rankOf(i); // 이탈자는 등수 없음
                 final medal = ['🥇', '🥈', '🥉'];
                 return Container(
                   margin: const EdgeInsets.only(bottom: 8),
@@ -1120,7 +1136,7 @@ class _SetScreenState extends State<SetScreen> {
                       SizedBox(
                         width: 30,
                         child: Text(
-                          r <= 3 ? medal[r - 1] : '$r',
+                          left ? '–' : (r <= 3 ? medal[r - 1] : '$r'),
                           style: const TextStyle(
                               fontSize: 16, fontWeight: FontWeight.w700),
                         ),
