@@ -103,7 +103,8 @@ class _SetScreenState extends State<SetScreen> {
 
   // 솔로(혼자 연습) — 덱 소진까지 걸린 시간으로 랭킹 도전.
   bool _isSolo = false;
-  Timer? _soloStopwatch; // 경과시간 카운트업(표시용)
+  Timer? _soloStopwatch; // 경과시간 표시 갱신용 틱
+  final Stopwatch _soloClock = Stopwatch(); // 벽시계 기반 경과(틱 누락에도 정확)
   int _soloElapsedMs = 0; // 표시용 경과(클라 측정)
   int? _soloResultMs; // 서버가 확정한 최종 시간(랭킹 기준)
   int _soloSetsFound = 0;
@@ -595,15 +596,21 @@ class _SetScreenState extends State<SetScreen> {
   void _startSoloStopwatch() {
     _soloStopwatch?.cancel();
     _soloElapsedMs = 0;
+    _soloClock
+      ..reset()
+      ..start();
+    // 누적(+=100)이 아니라 매 틱마다 벽시계 경과를 읽어 표시 → 렌더링이 무거워
+    // 틱이 밀리거나 누락돼도 시간이 짧게 표시되지 않는다.
     _soloStopwatch = Timer.periodic(const Duration(milliseconds: 100), (_) {
       if (!mounted) return;
-      setState(() => _soloElapsedMs += 100);
+      setState(() => _soloElapsedMs = _soloClock.elapsedMilliseconds);
     });
   }
 
   void _stopSoloStopwatch() {
     _soloStopwatch?.cancel();
     _soloStopwatch = null;
+    _soloClock.stop();
   }
 
   /// ms → "분:초.십분의일" (예: 1:23.4). 1분 미만은 "초.십분의일".
