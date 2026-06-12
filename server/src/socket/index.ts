@@ -7222,10 +7222,34 @@ export function setupSocketHandlers(io: Server) {
         if (room && room.endRequest && room.gameType === 'set') {
           cancelSetEndRequest(io, room, currentPlayer?.nickname ?? '상대');
         }
-        // [SET 3·4인] 게임 중 이탈 → 멈추지 않고 계속. 재연결 유예 없음(이탈자 제외하고 진행).
+        // [SET 3·4인] 게임 중 끊김 → 게임은 멈추지 않고 계속 진행(2인처럼 일시정지하지 않음).
+        // 인증 유저는 유예시간 안에 돌아오면 진행 중인 게임에 합류(rejoin), 못 돌아오면 영구 이탈.
+        // 게스트는 재접속 추적이 불가하므로 바로 이탈 처리.
         if (room && room.status === 'playing' && room.gameType === 'set' && room.players.length > 2) {
-          void handleSetMultiLeave(io, room, socket.id).catch(err =>
-            console.error('[set multi leave]', err));
+          if (userId) {
+            const graceRoomId = roomId;
+            const leftSocketId = socket.id;
+            console.log(`⏳ SET ${room.players.length}인: user ${userId} 일시 끊김 — ${RECONNECT_GRACE_MS / 1000}s 유예(게임 계속)`);
+            disconnectGraceTimers.set(userId, setTimeout(() => {
+              try {
+                disconnectGraceTimers.delete(userId);
+                disconnectContexts.delete(userId);
+                expiredReconnectUsers.add(userId);
+                setTimeout(() => expiredReconnectUsers.delete(userId), 60000);
+                const r = rooms.get(graceRoomId);
+                if (r) {
+                  void handleSetMultiLeave(io, r, leftSocketId).catch(err =>
+                    console.error('[set multi leave]', err));
+                }
+              } catch (err) {
+                console.error('[set grace timer]', err);
+              }
+            }, RECONNECT_GRACE_MS));
+            disconnectContexts.set(userId, { socket, roomId });
+          } else {
+            void handleSetMultiLeave(io, room, socket.id).catch(err =>
+              console.error('[set multi leave]', err));
+          }
           return;
         }
         // 게임 중 + userId 있음 + 솔로 아님 → 재연결 유예 (20초)
