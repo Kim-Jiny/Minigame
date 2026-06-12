@@ -4108,7 +4108,7 @@ export function setupSocketHandlers(io: Server) {
           scheduleRoundStart(room, 1000, () => startSet(io, room));
         } else {
           q.push(currentPlayer);
-          socket.emit('match_waiting', { gameType: 'set', maxPlayers, waiting: q.length + 1 });
+          socket.emit('match_waiting', { gameType: 'set', maxPlayers, waiting: q.length });
           console.log(`⏳ SET ${maxPlayers}인 대기: ${currentPlayer.nickname} (${q.length}/${maxPlayers})`);
         }
         return;
