@@ -1051,25 +1051,19 @@ class _SetScreenState extends State<SetScreen> {
   // 3·4인 결과 순위표.
   Widget _buildMultiFinishedView(GameTheme theme) {
     final accent = theme.primary;
-    // 점수 내림차순 정렬(인덱스 유지). 동점은 원래 순서.
+    int scoreOf(int i) => i < _scores.length ? _scores[i] : 0;
+    // 점수 내림차순 표시 순서. 등수는 동점을 같은 등수로 묶는다(공동 N등).
     final order = List<int>.generate(_players.length, (i) => i)
-      ..sort((a, b) {
-        final sa = a < _scores.length ? _scores[a] : 0;
-        final sb = b < _scores.length ? _scores[b] : 0;
-        return sb.compareTo(sa);
-      });
-    final myRank = order.indexOf(_myPlayerIndex) + 1;
-    final topScore = order.isNotEmpty && order.first < _scores.length
-        ? _scores[order.first]
-        : 0;
-    final myScore =
-        _myPlayerIndex < _scores.length ? _scores[_myPlayerIndex] : 0;
-    final isSoleWinner = myScore == topScore &&
-        order
-                .where((i) =>
-                    (i < _scores.length ? _scores[i] : 0) == topScore)
-                .length ==
-            1;
+      ..sort((a, b) => scoreOf(b).compareTo(scoreOf(a)));
+    int rankOf(int i) => 1 + order.where((j) => scoreOf(j) > scoreOf(i)).length;
+
+    final myScore = scoreOf(_myPlayerIndex);
+    final myRank = rankOf(_myPlayerIndex);
+    final topScore = order.isNotEmpty ? scoreOf(order.first) : 0;
+    final topCount = order.where((i) => scoreOf(i) == topScore).length;
+    final iAmTop = myScore == topScore;
+    final isSoleWinner = iAmTop && topCount == 1; // 단독 1등
+    final isTopDraw = iAmTop && topCount > 1; // 공동 1등(무승부)
 
     return Container(
       decoration: BoxDecoration(gradient: theme.backgroundGradient),
@@ -1082,18 +1076,31 @@ class _SetScreenState extends State<SetScreen> {
               GameResultHero(
                 icon: isSoleWinner
                     ? Icons.emoji_events_rounded
-                    : Icons.flag_rounded,
-                color: isSoleWinner ? accent : Colors.grey,
-                title: isSoleWinner ? '승리!' : '$myRank등',
-                subtitle: '${_players.length}명 중 $myRank등 · $myScore세트',
+                    : isTopDraw
+                        ? Icons.handshake_rounded
+                        : Icons.flag_rounded,
+                color: isSoleWinner
+                    ? accent
+                    : isTopDraw
+                        ? const Color(0xFFEA8A00)
+                        : Colors.grey,
+                title: isSoleWinner
+                    ? '승리!'
+                    : isTopDraw
+                        ? '무승부!'
+                        : '$myRank등',
+                subtitle: isTopDraw
+                    ? '${_players.length}명 중 공동 1등 · $myScore세트'
+                    : '${_players.length}명 중 $myRank등 · $myScore세트',
               ),
               const SizedBox(height: 22),
-              ...List.generate(order.length, (rank) {
-                final i = order[rank];
+              ...List.generate(order.length, (pos) {
+                final i = order[pos];
                 final p = _players[i];
                 final isMe = i == _myPlayerIndex;
                 final left = _leftIndices.contains(i);
-                final score = i < _scores.length ? _scores[i] : 0;
+                final score = scoreOf(i);
+                final r = rankOf(i); // 동점은 같은 등수
                 final medal = ['🥇', '🥈', '🥉'];
                 return Container(
                   margin: const EdgeInsets.only(bottom: 8),
@@ -1113,7 +1120,7 @@ class _SetScreenState extends State<SetScreen> {
                       SizedBox(
                         width: 30,
                         child: Text(
-                          rank < 3 ? medal[rank] : '${rank + 1}',
+                          r <= 3 ? medal[r - 1] : '$r',
                           style: const TextStyle(
                               fontSize: 16, fontWeight: FontWeight.w700),
                         ),
