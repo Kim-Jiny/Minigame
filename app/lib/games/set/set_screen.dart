@@ -284,6 +284,8 @@ class _SetScreenState extends State<SetScreen> {
         _status = SetGameStatus.playing;
         _board = [];
         _scores = [0, 0];
+        _deckRemaining = 0; // 재경기 시 이전 게임의 남은 카드 수 잔상 방지
+        _scoreToWin = 6;
         _selected.clear();
         _claimLocked = false;
         _lastClaimFailed = false;

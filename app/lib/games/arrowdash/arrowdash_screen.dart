@@ -286,6 +286,7 @@ class _ArrowdashScreenState extends State<ArrowdashScreen>
       }
       setState(() {
         _status = ArrowdashGameStatus.playing;
+        _remainingSeconds = 60; // 재경기 시 이전 게임의 남은 시간 잔상 방지
         _arrows = [];
         _progress = [0, 0];
         _lastAnswerCorrect = null;

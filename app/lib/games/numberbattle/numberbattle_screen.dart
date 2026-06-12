@@ -237,6 +237,7 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
       }
       setState(() {
         _status = NumberBattleGameStatus.playing;
+        _remainingSeconds = 60; // 재경기 시 이전 게임의 남은 시간 잔상 방지
         _grid = [];
         _progress = [0, 0];
         _myTappedCells = {};
