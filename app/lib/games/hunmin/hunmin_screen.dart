@@ -15,6 +15,7 @@ import '../common/game_intro_view.dart';
 import '../common/game_scaffold.dart';
 import '../common/game_end_action_panel.dart';
 import '../common/game_reconnect_helper.dart';
+import '../common/game_result_summary.dart';
 
 enum HunminGameStatus {
   idle,
@@ -67,6 +68,22 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
   List<int> _scores = [0, 0];
   List<Map<String, dynamic>> _usedWords = []; // {word, playerIndex}
   int _currentTurnPlayer = 0;
+
+  // [N인] 멀티플레이 상태 (SET과 동일 — 2인은 기존 1:1 경로 유지)
+  int _maxPlayers = 2; // 진입화면 인원 선택(2·3·4)
+  List<Map<String, dynamic>> _players = []; // match_found 전원 정보(인덱스=점수 인덱스)
+  final Set<int> _leftIndices = {}; // 도중 영구 이탈한 플레이어 인덱스
+  final Set<int> _eliminatedThisRound = {}; // 이번 라운드 탈락(탈락제)
+  bool get _isMulti => _players.length > 2;
+
+  /// 플레이어 인덱스 → 표시 이름. 멀티는 _players, 2인은 기존 닉네임 사용.
+  String _nameForIndex(int i) {
+    if (i == _myPlayerIndex) return _myNickname ?? '나';
+    if (_isMulti && i >= 0 && i < _players.length) {
+      return (_players[i]['nickname'] as String?) ?? '?';
+    }
+    return _opponentNickname ?? '상대';
+  }
 
   // 입력
   final TextEditingController _wordController = TextEditingController();
@@ -198,6 +215,15 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
       _roomId = data['roomId'] as String?;
       _currentTurnPlayer = (data['currentTurnPlayer'] as num?)?.toInt() ?? 0;
       _usedWords = []; // 재연결 시 단어 목록은 리셋
+      // N인: 탈락/이탈 상태 복원(_players 는 match_found 이후 유지됨)
+      final elimData = data['eliminated'] as List<dynamic>? ?? [];
+      final leftData = data['leftPlayers'] as List<dynamic>? ?? [];
+      _eliminatedThisRound
+        ..clear()
+        ..addAll(elimData.map((e) => (e as num).toInt()));
+      _leftIndices
+        ..clear()
+        ..addAll(leftData.map((e) => (e as num).toInt()));
 
       // usedWords 복원 (서버에서 단어만 보내므로 playerIndex는 번갈아가며)
       for (int i = 0; i < usedWordsData.length; i++) {
@@ -231,6 +257,10 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
     _socketListeners.on('match_found', (data) {
       final players = data['players'] as List<dynamic>;
       _roomId = data['roomId'] as String?;
+      // 멀티(3·4인) 표시용 전원 정보. 인덱스 = 점수 인덱스.
+      _players = players.map((p) => Map<String, dynamic>.from(p as Map)).toList();
+      _leftIndices.clear();
+      _eliminatedThisRound.clear();
 
       // 내가 어떤 인덱스인지 찾기
       for (int i = 0; i < players.length; i++) {
@@ -263,6 +293,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
       // 재경기 시 플레이어 순서가 바뀌므로 인덱스 갱신
       if (data['players'] != null) {
         final players = data['players'] as List<dynamic>;
+        _players = players.map((p) => Map<String, dynamic>.from(p as Map)).toList();
         for (int i = 0; i < players.length; i++) {
           if (players[i]['id'] == _myId || players[i]['id'] == _socketService.socket?.id) {
             _myPlayerIndex = i;
@@ -279,17 +310,35 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
         _isDraw = false;
         _opponentLeft = false;
         _wonByForfeit = false;
+        // 재경기 시 hunmin_round_start 가 오기 전까지 이전 게임 내용이 잠깐
+        // 보이지 않도록 라운드 콘텐츠도 초기화한다(첫 게임 시작과 동일한 빈 상태).
+        _currentChosung = '';
+        _currentRound = 0;
+        _scores = List<int>.filled(_players.isNotEmpty ? _players.length : 2, 0);
+        _usedWords = [];
+        _currentTurnPlayer = 0;
+        _roundEndReason = null;
+        _roundEndWord = null;
+        _roundWinnerIndex = null;
+        _leftIndices.clear();
+        _eliminatedThisRound.clear();
+        _wordController.clear();
       });
     });
 
     // 라운드 시작
     _socketListeners.on('hunmin_round_start', (data) {
       final scoreData = data['scores'] as List<dynamic>? ?? [0, 0];
+      final eliminated = data['eliminated'] as List<dynamic>? ?? [];
       setState(() {
         _currentRound = (data['round'] as num?)?.toInt() ?? 0;
         _currentChosung = data['chosung'] as String? ?? '';
         _currentTurnPlayer = (data['firstPlayer'] as num?)?.toInt() ?? 0;
         _scores = scoreData.map((s) => (s as num).toInt()).toList();
+        // 이번 라운드 탈락자 = 영구 이탈자(서버가 eliminated로 내려줌)로 초기화
+        _eliminatedThisRound
+          ..clear()
+          ..addAll(eliminated.map((e) => (e as num).toInt()));
         _usedWords = [];
         _wordController.clear();
         _roundEndReason = null;
@@ -361,6 +410,34 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
       });
     });
 
+    // [N인] 라운드 도중 탈락 — 라운드는 계속, 탈락자 표시 후 다음 턴으로.
+    _socketListeners.on('hunmin_player_eliminated', (data) {
+      final playerIndex = (data['playerIndex'] as num?)?.toInt() ?? -1;
+      final nextPlayer = (data['nextPlayer'] as num?)?.toInt() ?? _currentTurnPlayer;
+      final reason = data['reason'] as String? ?? '';
+      final scoreData = data['scores'] as List<dynamic>?;
+      setState(() {
+        if (playerIndex >= 0) _eliminatedThisRound.add(playerIndex);
+        _currentTurnPlayer = nextPlayer;
+        if (scoreData != null) {
+          _scores = scoreData.map((s) => (s as num).toInt()).toList();
+        }
+        _isSubmitting = false;
+      });
+      final who = playerIndex == _myPlayerIndex ? '나' : _nameForIndex(playerIndex);
+      _showResultAnimation('$who 탈락 · ${_getRejectReasonText(reason)}', Colors.red);
+    });
+
+    // [N인] 도중 영구 이탈 — 표시만 갱신(게임은 계속 진행).
+    _socketListeners.on('hunmin_player_left', (data) {
+      final idx = (data['playerIndex'] as num?)?.toInt();
+      if (idx == null) return;
+      setState(() {
+        _leftIndices.add(idx);
+        _eliminatedThisRound.add(idx);
+      });
+    });
+
     // 게임 종료
     _socketListeners.on('game_end', (data) {
       if (_status == HunminGameStatus.finished ||
@@ -379,8 +456,9 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
       });
     });
 
-    // 상대 퇴장
+    // 상대 퇴장 (2인 전용 — 3·4인은 hunmin_player_left 로 게임 계속 진행)
     _socketListeners.on('opponent_left', (_) {
+      if (_isMulti) return;
       if (_status == HunminGameStatus.idle ||
           _status == HunminGameStatus.searching) {
         return;
@@ -473,12 +551,18 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
   // ====== 액션 ======
 
   void _findMatch() {
-    _socketService.emit('find_match', {'gameType': AppConfig.gameTypeHunmin});
+    _socketService.emit('find_match', {
+      'gameType': AppConfig.gameTypeHunmin,
+      'maxPlayers': _maxPlayers,
+    });
     setState(() => _status = HunminGameStatus.searching);
   }
 
   void _cancelMatch() {
-    _socketService.emit('cancel_match', {'gameType': AppConfig.gameTypeHunmin});
+    _socketService.emit('cancel_match', {
+      'gameType': AppConfig.gameTypeHunmin,
+      'maxPlayers': _maxPlayers,
+    });
     setState(() => _status = HunminGameStatus.idle);
   }
 
@@ -622,6 +706,32 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
     }
   }
 
+  /// 화면에 머문 채 방을 떠나 대기 상태로 초기화(멀티 '다시 매칭'용).
+  void _resetToIdle() {
+    _turnTimer?.cancel();
+    if (_roomId != null) {
+      _socketService.emit('leave_room', {'roomId': _roomId});
+    }
+    setState(() {
+      _status = HunminGameStatus.idle;
+      _roomId = null;
+      _players = [];
+      _leftIndices.clear();
+      _eliminatedThisRound.clear();
+      _scores = [0, 0];
+      _usedWords = [];
+      _currentChosung = '';
+      _currentRound = 0;
+      _currentTurnPlayer = 0;
+      _winnerId = null;
+      _isDraw = false;
+      _opponentLeft = false;
+      _wonByForfeit = false;
+      _rematchWaiting = false;
+      _opponentWantsRematch = false;
+    });
+  }
+
   bool get _isMyTurn => _currentTurnPlayer == _myPlayerIndex;
 
   // ====== UI ======
@@ -686,9 +796,18 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
       accentColor: _theme.primary,
       icon: Icons.translate_rounded,
       title: '훈민정음',
-      descriptions: const ['서버가 낸 초성으로 단어 배틀', '3판 2선승 · 한 턴 15초'],
+      descriptions: _maxPlayers > 2
+          ? const ['서버가 낸 초성으로 단어 배틀', '턴에 실패하면 탈락 · 마지막 1명이 라운드 승', '먼저 2라운드 선취 · 한 턴 15초']
+          : const ['서버가 낸 초성으로 단어 배틀', '3판 2선승 · 한 턴 15초'],
+      extra: _HunminPlayerCountSelector(
+        value: _maxPlayers,
+        accent: _theme.primary,
+        onChanged: (n) => setState(() => _maxPlayers = n),
+      ),
       onFindMatch: _findMatch,
-      onInviteFriend: () => _showFriendInviteDialog(context),
+      // 3·4인은 친구 초대 미지원(랜덤 매칭 전용) — 2인일 때만 초대 노출.
+      onInviteFriend:
+          _maxPlayers == 2 ? () => _showFriendInviteDialog(context) : null,
     );
   }
 
@@ -738,7 +857,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
           ),
           const SizedBox(height: 8),
           Text(
-            'vs $_opponentNickname',
+            _isMulti ? '${_players.length}명 매칭 완료!' : 'vs $_opponentNickname',
             style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 16),
@@ -794,6 +913,9 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
   }
 
   Widget _buildTopBar() {
+    final scoreText = _isMulti
+        ? '먼저 2라운드 선취'
+        : '${_scores.isNotEmpty ? _scores[0] : 0} : ${_scores.length > 1 ? _scores[1] : 0}';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
@@ -806,7 +928,9 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
-              'Round $_currentRound/3    ${_scores[0]} : ${_scores[1]}',
+              _isMulti
+                  ? 'Round $_currentRound    $scoreText'
+                  : 'Round $_currentRound/3    $scoreText',
               style: const TextStyle(
                 color: Color(0xFF1A1D23),
                 fontSize: 16,
@@ -819,7 +943,90 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
     );
   }
 
+  // [N인] 진행 중 플레이어 바 — 점수·현재턴·탈락/이탈 표시.
+  Widget _buildMultiPlayerBar() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: List.generate(_players.length, (i) {
+          final isMe = i == _myPlayerIndex;
+          final isTurn = _currentTurnPlayer == i;
+          final left = _leftIndices.contains(i);
+          final eliminated = _eliminatedThisRound.contains(i);
+          final score = i < _scores.length ? _scores[i] : 0;
+          final dim = left || eliminated;
+          return Expanded(
+            child: Opacity(
+              opacity: dim ? 0.4 : 1,
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                decoration: BoxDecoration(
+                  color: isTurn
+                      ? _theme.primary.withValues(alpha: 0.15)
+                      : const Color(0xFFF5F6F8),
+                  borderRadius: BorderRadius.circular(12),
+                  border: isTurn
+                      ? Border.all(color: _theme.primary, width: 2)
+                      : null,
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      isMe ? '나' : _nameForIndex(i),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: isMe ? FontWeight.w800 : FontWeight.w600,
+                        color: isTurn ? _theme.primary : Colors.grey.shade600,
+                        decoration: dim ? TextDecoration.lineThrough : null,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      width: 30,
+                      height: 30,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: isMe
+                            ? _theme.primary
+                            : _theme.primary.withValues(alpha: 0.10),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        '$score',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: isMe ? Colors.white : _theme.primary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      left ? '이탈' : (eliminated ? '탈락' : (isTurn ? '진행' : '대기')),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: left || eliminated
+                            ? Colors.red.shade300
+                            : (isTurn ? _theme.primary : Colors.grey.shade400),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
   Widget _buildPlayerProfiles() {
+    if (_isMulti) return _buildMultiPlayerBar();
     final isPlayer0 = _myPlayerIndex == 0;
     final myName = _myNickname ?? '나';
     final opName = _opponentNickname ?? '상대';
@@ -925,9 +1132,12 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
 
   Widget _buildWordList() {
     if (_usedWords.isEmpty) {
+      final turnName = _isMulti
+          ? '${_nameForIndex(_currentTurnPlayer)} 차례입니다...'
+          : '상대방 차례입니다...';
       return Center(
         child: Text(
-          _isMyTurn ? '단어를 입력하세요!' : '상대방 차례입니다...',
+          _isMyTurn ? '단어를 입력하세요!' : turnName,
           style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
         ),
       );
@@ -990,9 +1200,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
               ),
               const Spacer(),
               Text(
-                playerIndex == _myPlayerIndex
-                    ? (_myNickname ?? '나')
-                    : (_opponentNickname ?? '상대'),
+                playerIndex < 0 ? '' : _nameForIndex(playerIndex),
                 style: TextStyle(
                   color: isMyWord ? _theme.primary : Colors.grey.shade400,
                   fontSize: 12,
@@ -1080,7 +1288,13 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
               enabled: canInput,
               style: const TextStyle(color: Color(0xFF1A1D23), fontSize: 18),
               decoration: InputDecoration(
-                hintText: canInput ? '2글자 단어 입력' : (_isMyTurn ? '입력 중...' : '상대 차례입니다'),
+                hintText: canInput
+                    ? '2글자 단어 입력'
+                    : (_isMyTurn
+                        ? '입력 중...'
+                        : (_isMulti
+                            ? '${_nameForIndex(_currentTurnPlayer)} 차례입니다'
+                            : '상대 차례입니다')),
                 hintStyle: TextStyle(color: Colors.grey.shade600),
                 filled: true,
                 fillColor: canInput
@@ -1121,6 +1335,7 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
 
   // ====== 라운드 종료 ======
   Widget _buildRoundEndView() {
+    if (_isMulti) return _buildMultiRoundEndView();
     final isMyWin = _roundWinnerIndex == _myPlayerIndex;
     final reasonText = _getRejectReasonText(_roundEndReason ?? '');
 
@@ -1180,8 +1395,77 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
     );
   }
 
+  // [N인] 라운드 종료 — 생존자(라운드 승자) + 전원 점수.
+  Widget _buildMultiRoundEndView() {
+    final winnerIdx = _roundWinnerIndex;
+    final isMyWin = winnerIdx == _myPlayerIndex;
+    final winnerName = (winnerIdx != null && winnerIdx >= 0)
+        ? (isMyWin ? '나' : _nameForIndex(winnerIdx))
+        : null;
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            isMyWin ? Icons.celebration : Icons.flag_rounded,
+            size: 64,
+            color: isMyWin ? const Color(0xFFFFC107) : _theme.primary,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            winnerName != null ? '$winnerName 라운드 승!' : '라운드 종료',
+            style: TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.bold,
+              color: isMyWin ? const Color(0xFFFFC107) : const Color(0xFF1A1D23),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text('Round $_currentRound',
+              style: TextStyle(fontSize: 16, color: Colors.grey.shade500)),
+          const SizedBox(height: 12),
+          // 전원 점수
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: List.generate(_players.length, (i) {
+                final left = _leftIndices.contains(i);
+                final score = i < _scores.length ? _scores[i] : 0;
+                return Opacity(
+                  opacity: left ? 0.4 : 1,
+                  child: Column(
+                    children: [
+                      Text(i == _myPlayerIndex ? '나' : _nameForIndex(i),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 12, color: Colors.grey.shade600)),
+                      const SizedBox(height: 4),
+                      Text('$score',
+                          style: TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.w800,
+                              color: _theme.primary)),
+                    ],
+                  ),
+                );
+              }),
+            ),
+          ),
+          const SizedBox(height: 20),
+          CircularProgressIndicator(color: _theme.primary),
+          const SizedBox(height: 8),
+          Text('다음 라운드 준비 중...',
+              style: TextStyle(color: Colors.grey.shade500)),
+        ],
+      ),
+    );
+  }
+
   // ====== 게임 종료 ======
   Widget _buildFinishedView() {
+    if (_isMulti) return _buildMultiFinishedView();
     if (_rematchWaiting) {
       return GameRematchPreparingView(
         backgroundGradient: _theme.backgroundGradient,
@@ -1264,6 +1548,155 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
     );
   }
 
+  // [N인] 결과 순위표 — 라운드 승수 기준, 이탈자는 등수 제외(SET 결과와 동일 구조).
+  Widget _buildMultiFinishedView() {
+    final accent = _theme.primary;
+    int scoreOf(int i) => i < _scores.length ? _scores[i] : 0;
+    bool isLeft(int i) => _leftIndices.contains(i);
+    final active = [
+      for (var i = 0; i < _players.length; i++)
+        if (!isLeft(i)) i
+    ]..sort((a, b) => scoreOf(b).compareTo(scoreOf(a)));
+    final leftList = [
+      for (var i = 0; i < _players.length; i++)
+        if (isLeft(i)) i
+    ];
+    final order = [...active, ...leftList];
+    int rankOf(int i) => 1 + active.where((j) => scoreOf(j) > scoreOf(i)).length;
+
+    final myScore = scoreOf(_myPlayerIndex);
+    final iAmActive = !isLeft(_myPlayerIndex);
+    final myRank =
+        iAmActive ? rankOf(_myPlayerIndex) : order.indexOf(_myPlayerIndex) + 1;
+    final topScore = active.isNotEmpty ? scoreOf(active.first) : 0;
+    final topCount = active.where((i) => scoreOf(i) == topScore).length;
+    final iAmTop = iAmActive && myScore == topScore;
+    final isSoleWinner = iAmTop && topCount == 1;
+    final isTopDraw = iAmTop && topCount > 1;
+
+    return Container(
+      decoration: BoxDecoration(gradient: _theme.backgroundGradient),
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              GameResultHero(
+                icon: isSoleWinner
+                    ? Icons.emoji_events_rounded
+                    : isTopDraw
+                        ? Icons.handshake_rounded
+                        : Icons.flag_rounded,
+                color: isSoleWinner
+                    ? accent
+                    : isTopDraw
+                        ? const Color(0xFFEA8A00)
+                        : Colors.grey,
+                title: isSoleWinner
+                    ? '승리!'
+                    : isTopDraw
+                        ? '무승부!'
+                        : '$myRank등',
+                subtitle: isTopDraw
+                    ? '${_players.length}명 중 공동 1등 · $myScore승'
+                    : '${_players.length}명 중 $myRank등 · $myScore승',
+              ),
+              const SizedBox(height: 22),
+              ...List.generate(order.length, (pos) {
+                final i = order[pos];
+                final isMe = i == _myPlayerIndex;
+                final left = isLeft(i);
+                final score = scoreOf(i);
+                final r = left ? -1 : rankOf(i);
+                final medal = ['🥇', '🥈', '🥉'];
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: isMe ? accent.withValues(alpha: 0.10) : Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: isMe
+                          ? accent.withValues(alpha: 0.4)
+                          : const Color(0xFFEDEDF2),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 30,
+                        child: Text(
+                          left ? '–' : (r <= 3 ? medal[r - 1] : '$r'),
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          isMe ? '나' : _nameForIndex(i),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight:
+                                isMe ? FontWeight.w800 : FontWeight.w600,
+                            color: isMe ? accent : const Color(0xFF1F2430),
+                            decoration:
+                                left ? TextDecoration.lineThrough : null,
+                          ),
+                        ),
+                      ),
+                      if (left)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: Text('이탈',
+                              style: TextStyle(
+                                  fontSize: 11, color: Colors.grey.shade400)),
+                        ),
+                      Text('$score승',
+                          style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: accent)),
+                    ],
+                  ),
+                );
+              }),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    _resetToIdle();
+                    _findMatch();
+                  },
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('다시 매칭'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: accent,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextButton(
+                onPressed: _leaveGame,
+                child:
+                    Text('로비로', style: TextStyle(color: Colors.grey.shade600)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showLeaveConfirmDialog() {
     showDialog(
       context: context,
@@ -1283,6 +1716,56 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
             child: const Text('나가기', style: TextStyle(color: Colors.red)),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 훈민정음 진입 화면의 인원(2·3·4) 선택 토글. SET과 동일한 UX.
+/// 3·4인은 탈락제 랜덤 매칭(친구 초대 미지원).
+class _HunminPlayerCountSelector extends StatelessWidget {
+  final int value;
+  final Color accent;
+  final ValueChanged<int> onChanged;
+
+  const _HunminPlayerCountSelector({
+    required this.value,
+    required this.accent,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [2, 3, 4].map((n) {
+          final selected = value == n;
+          return GestureDetector(
+            onTap: () => onChanged(n),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              decoration: BoxDecoration(
+                color: selected ? accent : Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '$n인',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: selected ? Colors.white : Colors.grey.shade600,
+                ),
+              ),
+            ),
+          );
+        }).toList(),
       ),
     );
   }

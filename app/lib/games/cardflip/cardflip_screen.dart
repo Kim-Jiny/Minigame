@@ -244,6 +244,7 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
       }
       setState(() {
         _status = CardFlipGameStatus.playing;
+        _remainingSeconds = 10; // 재경기 시 이전 게임의 남은 시간 잔상 방지
         _revealedCards = {};
         _matchedPositions = {};
         _scores = [0, 0];

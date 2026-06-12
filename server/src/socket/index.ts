@@ -84,6 +84,9 @@ interface GameRoom {
   skipTimer?: NodeJS.Timeout;  // 헥사곤 20초 스킵 활성화 타이머
   skipVotes?: Set<number>;     // 스킵 투표한 플레이어 인덱스
   isSolo?: boolean;  // 솔로 모드 여부
+  soloStartAt?: number;  // [SET 솔로] 덱 소진 시간 측정 시작 시각(ms). 시간 기반 랭킹용.
+  leftPlayerIds?: Set<string>;  // [SET 3·4인] 도중 이탈한 플레이어 소켓 id. 승자/보상에서 제외.
+  endRequest?: { requesterId: string; agreed: Set<string> };  // [SET 무한] 게임 종료 합의 요청(요청자 자동 동의)
   isRanked?: boolean;  // 랭크전 여부
   rankedGames?: string[];  // 랭크전 게임 목록 (3개)
   rankedResults?: { gameType: string; winnerId: number | null }[];  // 랭크전 각 게임 결과
@@ -138,8 +141,9 @@ const disconnectContexts = new Map<number, { socket: Socket; roomId: string }>()
 const expiredReconnectUsers = new Set<number>();
 const RECONNECT_GRACE_MS = 20000; // 20초
 
-function getQueueKey(gameType: string, isHardcore: boolean, isInfinite: boolean = false): string {
+function getQueueKey(gameType: string, isHardcore: boolean, isInfinite: boolean = false, maxPlayers: number = 2): string {
   let key = gameType;
+  if (maxPlayers > 2) key += `_p${maxPlayers}`; // 3·4인 SET 등 인원별 큐 분리(2인은 기존 키 유지)
   if (isInfinite) key += '_infinite';
   if (isHardcore) key += '_hardcore';
   return key;
@@ -852,19 +856,28 @@ function startSet(io: Server, room: GameRoom) {
   room.pendingRoundStart = false;
 
   const game = room.game;
+  const infinite = game.getIsInfinite();
+  const solo = room.isSolo === true;
+  // 솔로(시간 랭킹): 보드가 노출되는 이 시점부터 시간을 측정한다.
+  if (solo) room.soloStartAt = Date.now();
   io.to(room.id).emit('set_start', {
     board: game.getBoard(),
     scores: game.getScores(),
     deckRemaining: game.getDeckRemaining(),
-    scoreToWin: SetGame.SCORE_TO_WIN,
-    duration: SetGame.GAME_TIME,
+    scoreToWin: infinite ? null : SetGame.SCORE_TO_WIN,
+    duration: infinite ? null : SetGame.GAME_TIME,
+    infinite,
+    solo,
   });
 
-  console.log(`🃏 Set started`);
+  console.log(`🃏 Set started${solo ? ' (솔로)' : infinite ? ' (무한)' : ''}`);
 
-  scheduleRoundTimer(room, SetGame.GAME_TIME, () => {
-    finishSetByTimeout(io, room);
-  });
+  // 무한모드는 타이머가 없다 — 덱 소진 + 보드에 세트 없음으로만 종료.
+  if (!infinite) {
+    scheduleRoundTimer(room, SetGame.GAME_TIME, () => {
+      finishSetByTimeout(io, room);
+    });
+  }
 }
 
 // Set 타임아웃 처리 — 점수 높은 쪽 승리
@@ -882,15 +895,86 @@ async function finishSetByTimeout(io: Server, room: GameRoom) {
   await finishSetGame(io, room);
 }
 
+// [SET 무한] 종료 합의 진행상황(동의 인원 / 활성 전체)을 방에 알린다.
+function emitSetEndProgress(io: Server, room: GameRoom) {
+  if (!room.endRequest) return;
+  const active = room.players.filter(p => !room.leftPlayerIds?.has(p.id));
+  io.to(room.id).emit('set_end_progress', {
+    agreed: room.endRequest.agreed.size,
+    total: active.length,
+  });
+}
+
+// [SET 무한] 진행 중인 종료 요청을 취소하고 방에 알린다(이탈/끊김 시).
+function cancelSetEndRequest(io: Server, room: GameRoom, byNickname: string) {
+  if (!room.endRequest) return;
+  room.endRequest = undefined;
+  io.to(room.id).emit('set_end_cancelled', { nickname: byNickname });
+}
+
+// [SET 3·4인] 한 명이 도중 이탈했을 때의 처리.
+// 게임을 멈추거나 끝내지 않고 계속 진행한다. 이탈자는 즉시 패배(경험치 없음) 기록 후
+// 승자·보상 후보에서 제외하며, 활성 인원이 1명 이하가 되면 게임을 종료한다.
+async function handleSetMultiLeave(io: Server, room: GameRoom, leavingSocketId: string) {
+  if (!(room.game instanceof SetGame)) return;
+  if (room.players.length <= 2) return;
+  if (!room.leftPlayerIds) room.leftPlayerIds = new Set();
+  if (room.leftPlayerIds.has(leavingSocketId)) return;
+
+  const idx = room.players.findIndex(p => p.id === leavingSocketId);
+  if (idx === -1) return;
+  const leaver = room.players[idx];
+  room.leftPlayerIds.add(leavingSocketId);
+  if (leaver.userId) {
+    userRooms.delete(leaver.userId);
+    try {
+      await statsService.recordGameResultNoExp(leaver.userId, room.gameType, 'loss');
+    } catch (err) {
+      console.error('Failed to record set multi leave:', err);
+    }
+  }
+
+  io.to(room.id).emit('set_player_left', {
+    playerId: leaver.id,
+    playerIndex: idx,
+    nickname: leaver.nickname,
+  });
+
+  // 종료 합의 진행 중이면 취소(투표 대상이 바뀌므로). 남은 사람이 다시 요청하면 됨.
+  cancelSetEndRequest(io, room, leaver.nickname);
+
+  const active = room.players.length - room.leftPlayerIds.size;
+  console.log(`🚪 SET ${room.players.length}인: ${leaver.nickname} 이탈 (활성 ${active}명)`);
+
+  if (active <= 1 && room.status === 'playing') {
+    if (!room.game.isGameOver()) room.game.setGameOver();
+    await finishSetGame(io, room);
+  }
+}
+
 // Set 게임 종료 처리
 async function finishSetGame(io: Server, room: GameRoom) {
   if (!(room.game instanceof SetGame)) return;
   if (!markRoomFinishedOnce(room, 'set_game_end')) return;
+  room.endRequest = undefined; // 종료 합의 진행 중이었어도 게임이 끝나면 정리
   clearRoundTimer(room);
 
   const game = room.game;
-  const winnerIndex = game.getWinner();
   const scores = game.getScores();
+
+  // 승자 = 최다 득점자. 단 3·4인에서 도중 이탈한 플레이어는 승자 후보에서 제외한다.
+  const left = room.leftPlayerIds;
+  let winnerIndex = game.getWinner();
+  if (left && left.size > 0) {
+    let best = -1;
+    let bestIdxs: number[] = [];
+    for (let i = 0; i < room.players.length; i++) {
+      if (left.has(room.players[i].id)) continue;
+      if (scores[i] > best) { best = scores[i]; bestIdxs = [i]; }
+      else if (scores[i] === best) bestIdxs.push(i);
+    }
+    winnerIndex = bestIdxs.length === 1 ? bestIdxs[0] : null;
+  }
 
   const winner = winnerIndex !== null ? room.players[winnerIndex] : null;
   const winnerId = winner?.id ?? null;
@@ -898,9 +982,14 @@ async function finishSetGame(io: Server, room: GameRoom) {
   const isDraw = winnerIndex === null;
 
   const rewardResults: { [key: string]: any } = {};
+  // 3·4인은 1:1 보상(상대 지정·일일제한·1:1 전적기록)이 성립하지 않으므로
+  // 결과기반 멀티 보상 경로를 쓰고, dm_game_records(1:1 전적)는 기록하지 않는다.
+  const isMulti = room.players.length > 2;
 
   for (let i = 0; i < room.players.length; i++) {
     const player = room.players[i];
+    // 이탈자는 이미 패배(경험치 없음)가 기록됐고 소켓도 없으므로 건너뛴다.
+    if (left?.has(player.id)) continue;
     const opponent = room.players[i === 0 ? 1 : 0];
     if (player.userId) {
       let gameResult: 'win' | 'loss' | 'draw';
@@ -914,16 +1003,9 @@ async function finishSetGame(io: Server, room: GameRoom) {
       try {
         const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
         player.socket.emit('stats_updated', { stats });
-        if (i === 0 && opponent.userId) {
-          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult, {
-            isRanked: room.isRanked,
-            rankedMatchId: room.isRanked ? room.id : undefined,
-            rankedGameIndex: room.isRanked ? room.rankedCurrentIndex : undefined,
-          });
-        }
 
-        if (opponent.userId) {
-          const reward = await coinService.processGameReward(player.userId, opponent.userId, gameResult);
+        if (isMulti) {
+          const reward = await coinService.processMultiplayerReward(player.userId, gameResult);
           rewardResults[player.id] = reward;
           player.socket.emit('coins_updated', {
             coins: reward.totalCoins,
@@ -931,6 +1013,24 @@ async function finishSetGame(io: Server, room: GameRoom) {
             streak: reward.streakAfter,
             streakBonus: reward.streakBonusEarned,
           });
+        } else {
+          if (i === 0 && opponent.userId) {
+            await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult, {
+              isRanked: room.isRanked,
+              rankedMatchId: room.isRanked ? room.id : undefined,
+              rankedGameIndex: room.isRanked ? room.rankedCurrentIndex : undefined,
+            });
+          }
+          if (opponent.userId) {
+            const reward = await coinService.processGameReward(player.userId, opponent.userId, gameResult);
+            rewardResults[player.id] = reward;
+            player.socket.emit('coins_updated', {
+              coins: reward.totalCoins,
+              earned: reward.coinsEarned,
+              streak: reward.streakAfter,
+              streakBonus: reward.streakBonusEarned,
+            });
+          }
         }
       } catch (err) {
         console.error('Failed to update stats:', err);
@@ -943,14 +1043,59 @@ async function finishSetGame(io: Server, room: GameRoom) {
     winnerNickname,
     isDraw,
     scores,
+    // N인: 클라가 점수↔플레이어를 인덱스로 매핑할 수 있게 순서대로 전달.
+    players: room.players.map(p => ({ id: p.id, nickname: p.nickname })),
     rewards: rewardResults,
   });
 
-  console.log(`🏆 Set game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores[0]} vs ${scores[1]})`);
+  console.log(`🏆 Set game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores.join('-')})`);
 
   if (room.isRanked) {
     await handleRankedGameEnd(io, room, winnerIndex);
   }
+}
+
+// Set 솔로 종료 — 덱 소진까지 걸린 시간을 시간 랭킹(dm_set_rankings)에 저장.
+async function finishSetSolo(io: Server, room: GameRoom) {
+  if (!(room.game instanceof SetGame)) return;
+  if (!markRoomFinishedOnce(room, 'set_solo_end')) return;
+  clearRoundTimer(room);
+  room.status = 'finished';
+
+  const game = room.game;
+  const scores = game.getScores();
+  const setsFound = scores[0];
+  const timeMs = room.soloStartAt ? Math.max(0, Date.now() - room.soloStartAt) : 0;
+  const player = room.players[0];
+
+  if (player?.userId) {
+    try {
+      const pool = getPool();
+      if (pool) {
+        await pool.query(
+          `INSERT INTO dm_set_rankings (user_id, time_ms, sets_found, nickname)
+           VALUES ($1, $2, $3, $4)`,
+          [player.userId, timeMs, setsFound, player.nickname]
+        );
+      }
+    } catch (err) {
+      console.error('Failed to save set ranking:', err);
+    }
+    userRooms.delete(player.userId);
+  }
+
+  io.to(room.id).emit('game_end', {
+    winner: null,
+    winnerNickname: null,
+    isDraw: false,
+    scores,
+    isSolo: true,
+    timeMs,
+    setsFound,
+  });
+
+  rooms.delete(room.id);
+  console.log(`🃏 Set solo cleared: ${player?.nickname} ${setsFound}세트 ${timeMs}ms`);
 }
 
 // 사칙연산 스피드 게임 시작
@@ -2060,13 +2205,14 @@ function startHunminRound(io: Server, room: GameRoom) {
   if (room.status === 'finished') return;
 
   const game = room.game;
-  const { round, chosung, firstPlayer, scores } = game.startRound();
+  const { round, chosung, firstPlayer, scores, eliminated } = game.startRound();
 
   io.to(room.id).emit('hunmin_round_start', {
     round,
     chosung,
     firstPlayer,
     scores,
+    eliminated, // 시작부터 탈락(영구 이탈) 인덱스
   });
 
   console.log(`📝 Hunmin Round ${round}: chosung=${chosung}, firstPlayer=${firstPlayer}`);
@@ -2095,10 +2241,34 @@ function startHunminTurnTimer(io: Server, room: GameRoom) {
     if (room.status !== 'playing') return;
 
     const result = game.handleTimeout();
-    console.log(`⏰ Hunmin timeout: player ${result.loserIndex} loses round ${game.getCurrentRound()}`);
+    console.log(`⏰ Hunmin timeout: player ${result.eliminatedIndex} 탈락 (round ${game.getCurrentRound()})`);
 
-    finishHunminRound(io, room, result.winnerIndex, result.loserIndex, 'timeout', result.scores);
+    handleHunminElimination(io, room, result, 'timeout');
   }, HunminGame.TURN_TIME_LIMIT);
+}
+
+// [N인 탈락제] 탈락 결과 처리: 활성 1명만 남으면 라운드 마무리, 아니면 탈락 알림 후 다음 턴.
+function handleHunminElimination(
+  io: Server,
+  room: GameRoom,
+  result: { eliminatedIndex: number; roundEnded: boolean; nextPlayer?: number; winnerIndex?: number; scores: number[] },
+  reason: string,
+  failedWord?: string
+) {
+  if (!(room.game instanceof HunminGame)) return;
+  if (result.roundEnded) {
+    finishHunminRound(io, room, result.winnerIndex ?? -1, result.eliminatedIndex, reason, result.scores, failedWord);
+  } else {
+    io.to(room.id).emit('hunmin_player_eliminated', {
+      playerIndex: result.eliminatedIndex,
+      reason,
+      failedWord: failedWord || null,
+      nextPlayer: result.nextPlayer,
+      scores: result.scores,
+    });
+    console.log(`💀 Hunmin: player ${result.eliminatedIndex} 탈락(${reason}) → 다음 턴 ${result.nextPlayer}`);
+    startHunminTurnTimer(io, room);
+  }
 }
 
 function finishHunminRound(
@@ -2146,9 +2316,13 @@ async function finishHunminGame(io: Server, room: GameRoom) {
   const isDraw = winnerIndex === null;
 
   const rewardResults: { [key: string]: any } = {};
+  // 3·4인은 1:1 보상(상대 지정·일일제한·1:1 전적)이 성립 안 하므로 결과기반 멀티 보상.
+  const isMulti = room.players.length > 2;
+  const left = new Set(game.getLeftPlayers());
 
   for (let i = 0; i < room.players.length; i++) {
     const player = room.players[i];
+    if (left.has(i)) continue; // 이탈자는 이탈 시점에 패배 기록됨
     const opponent = room.players[i === 0 ? 1 : 0];
     if (player.userId) {
       let gameResult: 'win' | 'loss' | 'draw';
@@ -2159,15 +2333,9 @@ async function finishHunminGame(io: Server, room: GameRoom) {
       try {
         const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
         player.socket.emit('stats_updated', { stats });
-        if (i === 0 && opponent.userId) {
-          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult, {
-            isRanked: room.isRanked,
-            rankedMatchId: room.isRanked ? room.id : undefined,
-            rankedGameIndex: room.isRanked ? room.rankedCurrentIndex : undefined,
-          });
-        }
-        if (opponent.userId) {
-          const reward = await coinService.processGameReward(player.userId, opponent.userId, gameResult);
+
+        if (isMulti) {
+          const reward = await coinService.processMultiplayerReward(player.userId, gameResult);
           rewardResults[player.id] = reward;
           player.socket.emit('coins_updated', {
             coins: reward.totalCoins,
@@ -2175,6 +2343,24 @@ async function finishHunminGame(io: Server, room: GameRoom) {
             streak: reward.streakAfter,
             streakBonus: reward.streakBonusEarned,
           });
+        } else {
+          if (i === 0 && opponent.userId) {
+            await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult, {
+              isRanked: room.isRanked,
+              rankedMatchId: room.isRanked ? room.id : undefined,
+              rankedGameIndex: room.isRanked ? room.rankedCurrentIndex : undefined,
+            });
+          }
+          if (opponent.userId) {
+            const reward = await coinService.processGameReward(player.userId, opponent.userId, gameResult);
+            rewardResults[player.id] = reward;
+            player.socket.emit('coins_updated', {
+              coins: reward.totalCoins,
+              earned: reward.coinsEarned,
+              streak: reward.streakAfter,
+              streakBonus: reward.streakBonusEarned,
+            });
+          }
         }
       } catch (err) {
         console.error('Failed to update stats:', err);
@@ -2187,14 +2373,53 @@ async function finishHunminGame(io: Server, room: GameRoom) {
     winnerNickname,
     isDraw,
     scores,
+    players: room.players.map(p => ({ id: p.id, nickname: p.nickname })),
     roundResults: game.getRoundResults(),
     rewards: rewardResults,
   });
 
-  console.log(`🏆 Hunmin game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores[0]}-${scores[1]})`);
+  console.log(`🏆 Hunmin game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores.join('-')})`);
 
   if (room.isRanked) {
     await handleRankedGameEnd(io, room, winnerIndex);
+  }
+}
+
+// [훈민정음 3·4인] 도중 영구 이탈 처리. 게임은 멈추지 않고 계속 진행한다.
+// 이탈자는 즉시 패배(경험치 없음) 기록 후 모든 라운드·승자에서 제외. 비이탈 1명 이하면 게임 종료.
+async function handleHunminMultiLeave(io: Server, room: GameRoom, leavingSocketId: string) {
+  if (!(room.game instanceof HunminGame)) return;
+  if (room.players.length <= 2) return;
+  const idx = room.players.findIndex(p => p.id === leavingSocketId);
+  if (idx === -1 || room.game.getLeftPlayers().includes(idx)) return;
+  const leaver = room.players[idx];
+
+  if (leaver.userId) {
+    userRooms.delete(leaver.userId);
+    try {
+      await statsService.recordGameResultNoExp(leaver.userId, room.gameType, 'loss');
+    } catch (err) {
+      console.error('Failed to record hunmin multi leave:', err);
+    }
+  }
+
+  const result = room.game.markLeft(idx); // 진행 중 라운드면 탈락 처리
+  io.to(room.id).emit('hunmin_player_left', {
+    playerId: leaver.id,
+    playerIndex: idx,
+    nickname: leaver.nickname,
+  });
+  console.log(`🚪 Hunmin ${room.players.length}인: ${leaver.nickname} 이탈`);
+
+  if (room.status !== 'playing') return;
+  if (room.game.checkGameOver()) {
+    clearHunminTimers(room);
+    await finishHunminGame(io, room);
+  } else if (result.roundEnded) {
+    finishHunminRound(io, room, result.winnerIndex ?? -1, idx, 'left', result.scores);
+  } else if (room.game.getRoundState() === 'playing') {
+    // 라운드 계속 — 현재(또는 넘어간) 턴 타이머 재시작
+    startHunminTurnTimer(io, room);
   }
 }
 
@@ -2325,6 +2550,8 @@ function emitRejoinState(socket: Socket, room: GameRoom, userId: number) {
       roundState: game.getRoundState(),
       usedWords: game.getUsedWords(),
       currentTurnPlayer: game.getCurrentTurnPlayer(),
+      eliminated: game.getEliminated(), // N인: 이번 라운드 탈락자
+      leftPlayers: game.getLeftPlayers(), // N인: 영구 이탈자
       playerIndex,
     });
   } else if (room.gameType === 'numberbattle' && room.game instanceof NumberBattleGame) {
@@ -2339,14 +2566,16 @@ function emitRejoinState(socket: Socket, room: GameRoom, userId: number) {
     });
   } else if (room.gameType === 'set' && room.game instanceof SetGame) {
     const game = room.game;
+    const infinite = game.getIsInfinite();
     socket.emit('rejoin_game_state', {
       gameType: 'set',
       roomId: room.id,
       board: game.getBoard(),
       scores: game.getScores(),
       deckRemaining: game.getDeckRemaining(),
-      scoreToWin: SetGame.SCORE_TO_WIN,
-      remainingTimeMs: getRemainingMs(room.roundDeadlineAt, SetGame.GAME_TIME),
+      scoreToWin: infinite ? null : SetGame.SCORE_TO_WIN,
+      remainingTimeMs: infinite ? null : getRemainingMs(room.roundDeadlineAt, SetGame.GAME_TIME),
+      infinite,
       playerIndex,
     });
   } else if (room.gameType === 'mathrace' && room.game instanceof MathRaceGame) {
@@ -2601,14 +2830,19 @@ function resumePausedGame(io: Server, room: GameRoom) {
 
   if (room.gameType === 'set' && room.game instanceof SetGame) {
     const game = room.game;
+    const infinite = game.getIsInfinite();
     const remainingMs = Math.max(0, pausedRoundRemainingMs ?? SetGame.GAME_TIME);
     io.to(room.id).emit('set_resumed', {
       board: game.getBoard(),
       scores: game.getScores(),
       deckRemaining: game.getDeckRemaining(),
-      duration: remainingMs,
+      duration: infinite ? null : remainingMs,
+      infinite,
     });
-    scheduleRoundTimer(room, remainingMs, () => finishSetByTimeout(io, room));
+    // 무한모드는 타이머를 다시 걸지 않는다.
+    if (!infinite) {
+      scheduleRoundTimer(room, remainingMs, () => finishSetByTimeout(io, room));
+    }
     return;
   }
 
@@ -3839,6 +4073,107 @@ export function setupSocketHandlers(io: Server) {
       }
     });
 
+    // Set 솔로 도전 시작 — 덱 끝까지 가는 무한모드 SetGame을 1인 방으로 구동.
+    socket.on('set_solo_start', async () => {
+      if (!currentPlayer) return;
+
+      const roomId = `set_solo_${socket.id}_${Date.now()}`;
+      const room: GameRoom = {
+        id: roomId,
+        gameType: 'set',
+        players: [currentPlayer],
+        game: new SetGame(true), // 무한: 6점 선취 없이 덱 소진까지
+        status: 'playing',
+        isSolo: true,
+      };
+      rooms.set(roomId, room);
+      socket.join(roomId);
+      currentRoomId = roomId;
+
+      if (currentPlayer.userId) userRooms.set(currentPlayer.userId, roomId);
+
+      socket.emit('set_solo_ready', { roomId });
+
+      // 보드 노출 + 시간 측정 시작(startSet 내부에서 soloStartAt 설정).
+      setTimeout(() => startSet(io, room), 1000);
+      console.log(`🃏 Set solo started: ${currentPlayer.nickname}`);
+    });
+
+    // Set 솔로 랭킹 조회 — 시간(ms) 오름차순, 유저별 최고 기록.
+    socket.on('set_get_rankings', async (data: { limit?: number }) => {
+      try {
+        const pool = getPool();
+        if (!pool) {
+          socket.emit('set_rankings', { rankings: [] });
+          return;
+        }
+        const limit = data?.limit || 50;
+        const result = await pool.query(
+          `SELECT * FROM (
+             SELECT DISTINCT ON (user_id) user_id, nickname, time_ms, sets_found, created_at
+             FROM dm_set_rankings
+             ORDER BY user_id, time_ms ASC
+           ) best
+           ORDER BY time_ms ASC
+           LIMIT $1`,
+          [limit]
+        );
+        socket.emit('set_rankings', { rankings: result.rows });
+      } catch (err) {
+        console.error('Failed to get set rankings:', err);
+        socket.emit('set_rankings', { rankings: [] });
+      }
+    });
+
+    // [SET 무한] 게임 종료 합의 요청 — 무한모드 대결에서만. 요청자는 자동 동의,
+    // 나머지(활성 플레이어)가 모두 동의하면 현재 점수로 게임을 종료한다.
+    socket.on('set_request_end', (data: { roomId: string }) => {
+      const room = rooms.get(data.roomId);
+      if (!room || room.status !== 'playing') return;
+      if (room.gameType !== 'set' || !(room.game instanceof SetGame)) return;
+      if (!room.game.getIsInfinite() || room.isSolo) return; // 무한 대결만
+      if (room.players.length < 2 || room.endRequest) return;
+      const requester = room.players.find(p => p.id === socket.id);
+      if (!requester || room.leftPlayerIds?.has(socket.id)) return;
+
+      room.endRequest = { requesterId: socket.id, agreed: new Set([socket.id]) };
+      socket.to(room.id).emit('set_end_requested', {
+        requesterId: socket.id,
+        nickname: requester.nickname,
+      });
+      emitSetEndProgress(io, room);
+      console.log(`🛑 SET 종료요청: ${requester.nickname}`);
+    });
+
+    socket.on('set_end_vote', async (data: { roomId: string; agree: boolean }) => {
+      const room = rooms.get(data.roomId);
+      if (!room || !room.endRequest || room.status !== 'playing') return;
+      if (!(room.game instanceof SetGame)) return;
+      const voter = room.players.find(p => p.id === socket.id);
+      if (!voter || room.leftPlayerIds?.has(socket.id)) return;
+
+      if (!data.agree) {
+        // 한 명이라도 거절 → 요청 취소
+        room.endRequest = undefined;
+        io.to(room.id).emit('set_end_cancelled', { nickname: voter.nickname });
+        console.log(`🛑 SET 종료요청 거절: ${voter.nickname}`);
+        return;
+      }
+
+      room.endRequest.agreed.add(socket.id);
+      const active = room.players.filter(p => !room.leftPlayerIds?.has(p.id));
+      const allAgreed =
+        active.length > 0 && active.every(p => room.endRequest!.agreed.has(p.id));
+      if (allAgreed) {
+        room.endRequest = undefined;
+        if (!room.game.isGameOver()) room.game.setGameOver(); // 현재 점수로 승부 확정
+        console.log(`🛑 SET 종료요청 전원동의 → 종료`);
+        await finishSetGame(io, room);
+      } else {
+        emitSetEndProgress(io, room);
+      }
+    });
+
     // 피라미드 라운드 스킵 요청
     socket.on('pyramid_skip_round', (data: { roomId: string }) => {
       const room = rooms.get(data.roomId);
@@ -3863,13 +4198,83 @@ export function setupSocketHandlers(io: Server) {
     });
 
     // 게임 매칭 요청
-    socket.on('find_match', async (data: { gameType: string; isHardcore?: boolean; isInfinite?: boolean }) => {
+    socket.on('find_match', async (data: { gameType: string; isHardcore?: boolean; isInfinite?: boolean; maxPlayers?: number }) => {
       if (!currentPlayer) {
         socket.emit('error', { message: 'Please join lobby first' });
         return;
       }
 
       const { gameType, isHardcore = false, isInfinite = false } = data;
+      const maxPlayers = Math.min(4, Math.max(2, data.maxPlayers ?? 2));
+
+      // [3·4인] N인 매칭 — 기존 2인 경로와 완전히 분리. SET·훈민정음이 maxPlayers>2 를 보낸다.
+      // 큐가 N명 찰 때까지 대기하다 방을 생성한다(랭크·친구초대 미지원, 랜덤매칭 전용).
+      if ((gameType === 'set' || gameType === 'hunmin') && maxPlayers > 2) {
+        const key = getQueueKey(gameType, isHardcore, isInfinite, maxPlayers);
+        if (!matchQueues.has(key)) matchQueues.set(key, []);
+        const q = matchQueues.get(key)!;
+        // 같은 소켓이 큐에 중복으로 들어가지 않게 방어
+        const dupIdx = q.findIndex(p => p.id === socket.id);
+        if (dupIdx !== -1) q.splice(dupIdx, 1);
+
+        if (q.length >= maxPlayers - 1) {
+          const others = q.splice(0, maxPlayers - 1);
+          const players = [...others, currentPlayer];
+          const roomId = `${gameType}_${isInfinite ? 'inf_' : ''}p${maxPlayers}_${Date.now()}`;
+          const game = gameType === 'hunmin'
+            ? new HunminGame(maxPlayers)
+            : new SetGame(isInfinite, maxPlayers);
+          const room: GameRoom = {
+            id: roomId,
+            gameType,
+            players,
+            game,
+            status: 'waiting',
+            isHardcore,
+            isInfinite,
+          };
+          rooms.set(roomId, room);
+          for (const p of players) {
+            p.socket.join(roomId);
+            if (p.userId) userRooms.set(p.userId, roomId);
+          }
+          currentRoomId = roomId;
+
+          const playerInfos = await Promise.all(players.map(async (p) => ({
+            id: p.id,
+            nickname: p.nickname,
+            userId: p.userId,
+            avatarUrl: p.avatarUrl,
+            streak: p.userId ? (await coinService.getStreak(p.userId)).currentStreak : 0,
+            profileSettings: p.userId ? await shopService.getUserProfileSettings(p.userId) : null,
+          })));
+
+          io.to(roomId).emit('match_found', {
+            roomId,
+            gameType,
+            isHardcore,
+            isInfinite,
+            maxPlayers,
+            players: playerInfos,
+            dailyMatchCount: 0,
+          });
+          console.log(`🎯 ${gameType.toUpperCase()} ${maxPlayers}인 매칭: ${players.map(p => p.nickname).join(', ')} ${isInfinite ? '(무한)' : ''}`);
+
+          room.status = 'playing';
+          if (gameType === 'hunmin') {
+            io.to(roomId).emit('game_start', { gameType: 'hunmin' });
+            scheduleRoundStart(room, 1000, () => startHunminRound(io, room));
+          } else {
+            scheduleRoundStart(room, 1000, () => startSet(io, room));
+          }
+        } else {
+          q.push(currentPlayer);
+          socket.emit('match_waiting', { gameType, maxPlayers, waiting: q.length });
+          console.log(`⏳ ${gameType.toUpperCase()} ${maxPlayers}인 대기: ${currentPlayer.nickname} (${q.length}/${maxPlayers})`);
+        }
+        return;
+      }
+
       const queueKey = getQueueKey(gameType, isHardcore, isInfinite);
 
       if (!matchQueues.has(queueKey)) {
@@ -3886,7 +4291,9 @@ export function setupSocketHandlers(io: Server) {
         const roomId = `${gameType}_${isInfinite ? 'inf_' : ''}${isHardcore ? 'hc_' : ''}${Date.now()}`;
         const room: GameRoom = {
           id: roomId,
-          gameType: isInfinite ? 'infinite_tictactoe' : gameType,  // 무한모드면 게임타입 변경
+          // 무한모드 틱택토만 게임타입을 바꾼다. SET 등 다른 게임의 무한모드는
+          // gameType은 그대로 두고 isInfinite 플래그로 변형을 처리한다.
+          gameType: (gameType === 'tictactoe' && isInfinite) ? 'infinite_tictactoe' : gameType,
           players: [opponent, currentPlayer],
           game: null,
           status: 'waiting',
@@ -3912,7 +4319,7 @@ export function setupSocketHandlers(io: Server) {
         } else if (gameType === 'numberbattle') {
           room.game = new NumberBattleGame();
         } else if (gameType === 'set') {
-          room.game = new SetGame();
+          room.game = new SetGame(isInfinite);
         } else if (gameType === 'mathrace') {
           room.game = new MathRaceGame();
         } else if (gameType === 'arrowdash') {
@@ -4096,9 +4503,10 @@ export function setupSocketHandlers(io: Server) {
     });
 
     // 매칭 취소
-    socket.on('cancel_match', (data: { gameType: string; isHardcore?: boolean; isInfinite?: boolean }) => {
+    socket.on('cancel_match', (data: { gameType: string; isHardcore?: boolean; isInfinite?: boolean; maxPlayers?: number }) => {
       const { gameType, isHardcore = false, isInfinite = false } = data;
-      const queueKey = getQueueKey(gameType, isHardcore, isInfinite);
+      const maxPlayers = Math.min(4, Math.max(2, data.maxPlayers ?? 2));
+      const queueKey = getQueueKey(gameType, isHardcore, isInfinite, maxPlayers);
       const queue = matchQueues.get(queueKey);
       if (queue) {
         const index = queue.findIndex(p => p.id === socket.id);
@@ -4572,7 +4980,12 @@ export function setupSocketHandlers(io: Server) {
           });
 
           if (room.game.isGameOver()) {
-            await finishSetGame(io, room);
+            // 솔로(시간 랭킹)는 대전용 보상/전적 경로 대신 솔로 종료 경로로.
+            if (room.isSolo) {
+              await finishSetSolo(io, room);
+            } else {
+              await finishSetGame(io, room);
+            }
           }
         } else {
           // 거절: 오답이면 점수 -1이 반영됐을 수 있으니 방 전체에 점수 동기화 + 거절 알림.
@@ -4939,8 +5352,8 @@ export function setupSocketHandlers(io: Server) {
             });
 
             clearHunminTimers(room);
-            const lossResult = game.handleRoundLoss(playerIndex, reason);
-            finishHunminRound(io, room, lossResult.winnerIndex, playerIndex, reason, lossResult.scores, word);
+            const elimResult = game.eliminate(playerIndex, reason);
+            handleHunminElimination(io, room, elimResult, reason, word);
             return;
           }
 
@@ -4948,7 +5361,7 @@ export function setupSocketHandlers(io: Server) {
           const dictResult = await dictionaryService.isValidWord(word);
 
           if (!dictResult.valid) {
-            // 사전에 없는 단어 → 패배
+            // 사전에 없는 단어 → 탈락
             io.to(data.roomId).emit('hunmin_word_rejected', {
               word,
               playerIndex,
@@ -4956,8 +5369,8 @@ export function setupSocketHandlers(io: Server) {
             });
 
             clearHunminTimers(room);
-            const lossResult = game.handleRoundLoss(playerIndex, 'not_in_dictionary');
-            finishHunminRound(io, room, lossResult.winnerIndex, playerIndex, 'not_in_dictionary', lossResult.scores, word);
+            const elimResult = game.eliminate(playerIndex, 'not_in_dictionary');
+            handleHunminElimination(io, room, elimResult, 'not_in_dictionary', word);
             return;
           }
 
@@ -6510,7 +6923,7 @@ export function setupSocketHandlers(io: Server) {
         } else if (room.gameType === 'numberbattle') {
           room.game = new NumberBattleGame();
         } else if (room.gameType === 'set') {
-          room.game = new SetGame();
+          room.game = new SetGame(room.isInfinite === true);
         } else if (room.gameType === 'mathrace') {
           room.game = new MathRaceGame();
         } else if (room.gameType === 'arrowdash') {
@@ -6895,6 +7308,43 @@ export function setupSocketHandlers(io: Server) {
 
       if (roomId) {
         const room = rooms.get(roomId);
+        // [SET 무한] 종료 합의 진행 중 누가 끊기면 요청 취소.
+        if (room && room.endRequest && room.gameType === 'set') {
+          cancelSetEndRequest(io, room, currentPlayer?.nickname ?? '상대');
+        }
+        // [SET·훈민정음 3·4인] 게임 중 끊김 → 게임은 멈추지 않고 계속 진행(2인처럼 일시정지하지 않음).
+        // 인증 유저는 유예시간 안에 돌아오면 진행 중인 게임에 합류(rejoin), 못 돌아오면 영구 이탈.
+        // 게스트는 재접속 추적이 불가하므로 바로 이탈 처리.
+        if (room && room.status === 'playing' &&
+            (room.gameType === 'set' || room.gameType === 'hunmin') && room.players.length > 2) {
+          const multiLeave = (r: GameRoom, sid: string) =>
+            r.gameType === 'hunmin' ? handleHunminMultiLeave(io, r, sid) : handleSetMultiLeave(io, r, sid);
+          if (userId) {
+            const graceRoomId = roomId;
+            const leftSocketId = socket.id;
+            console.log(`⏳ ${room.gameType.toUpperCase()} ${room.players.length}인: user ${userId} 일시 끊김 — ${RECONNECT_GRACE_MS / 1000}s 유예(게임 계속)`);
+            disconnectGraceTimers.set(userId, setTimeout(() => {
+              try {
+                disconnectGraceTimers.delete(userId);
+                disconnectContexts.delete(userId);
+                expiredReconnectUsers.add(userId);
+                setTimeout(() => expiredReconnectUsers.delete(userId), 60000);
+                const r = rooms.get(graceRoomId);
+                if (r) {
+                  void multiLeave(r, leftSocketId).catch(err =>
+                    console.error('[multi leave]', err));
+                }
+              } catch (err) {
+                console.error('[grace timer]', err);
+              }
+            }, RECONNECT_GRACE_MS));
+            disconnectContexts.set(userId, { socket, roomId });
+          } else {
+            void multiLeave(room, socket.id).catch(err =>
+              console.error('[multi leave]', err));
+          }
+          return;
+        }
         // 게임 중 + userId 있음 + 솔로 아님 → 재연결 유예 (20초)
         if (userId && room && room.status === 'playing' && !room.isSolo) {
           pauseRoomForReconnect(room);
@@ -6925,6 +7375,20 @@ export function setupSocketHandlers(io: Server) {
     async function leaveRoom(socket: Socket, roomId: string) {
       const room = rooms.get(roomId);
       if (room) {
+        // [SET 무한] 종료 합의 진행 중 누가 나가면 요청 취소.
+        if (room.endRequest && room.gameType === 'set') {
+          const leaver = room.players.find(p => p.id === socket.id);
+          cancelSetEndRequest(io, room, leaver?.nickname ?? '상대');
+        }
+        // [SET·훈민정음 3·4인] 게임 중 한 명 나감 → 게임은 계속. 이탈 처리만 하고 종료.
+        if (room.status === 'playing' &&
+            (room.gameType === 'set' || room.gameType === 'hunmin') && room.players.length > 2) {
+          if (room.gameType === 'hunmin') await handleHunminMultiLeave(io, room, socket.id);
+          else await handleSetMultiLeave(io, room, socket.id);
+          try { socket.leave(roomId); } catch (_) {}
+          return;
+        }
+
         const hadPendingRematch = !!room.rematchRequests?.size;
 
         // 타이머 정리

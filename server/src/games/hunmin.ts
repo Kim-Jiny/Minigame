@@ -24,14 +24,37 @@ export class HunminGame {
   ];
 
   // 상태
-  private scores: number[] = [0, 0];
+  private readonly playerCount: number;
+  private scores: number[];
   private currentRound: number = 0;
   private roundState: 'waiting' | 'playing' | 'finished' = 'waiting';
   private currentChosung: string = '';
   private usedWords: string[] = [];
-  private currentTurnPlayer: number = 0; // 0 또는 1
+  private currentTurnPlayer: number = 0;
   private lastRoundLoser: number | null = null;
   private roundResults: { round: number; winnerIndex: number | null; reason: string }[] = [];
+  // [N인 탈락제] 이번 라운드에서 탈락한 플레이어. 라운드마다 초기화(이탈자는 항상 포함).
+  private eliminatedThisRound: Set<number> = new Set();
+  // [N인] 도중 영구 이탈한 플레이어. 모든 라운드·승자·보상에서 제외.
+  private leftPlayers: Set<number> = new Set();
+
+  constructor(playerCount: number = 2) {
+    this.playerCount = Math.max(2, playerCount);
+    this.scores = new Array(this.playerCount).fill(0);
+  }
+
+  getPlayerCount(): number { return this.playerCount; }
+  getEliminated(): number[] { return [...this.eliminatedThisRound]; }
+  getLeftPlayers(): number[] { return [...this.leftPlayers]; }
+
+  /** loserIndex 다음의 '활성(미탈락)' 플레이어 인덱스를 순환하며 찾는다. */
+  private nextActivePlayer(from: number): number {
+    for (let step = 1; step <= this.playerCount; step++) {
+      const idx = (from + step) % this.playerCount;
+      if (!this.eliminatedThisRound.has(idx)) return idx;
+    }
+    return from; // 이론상 도달 안 함(최소 1명 활성)
+  }
 
   /**
    * 한글 단어에서 초성을 추출
@@ -52,20 +75,28 @@ export class HunminGame {
   /**
    * 새 라운드 시작
    */
-  startRound(): { round: number; chosung: string; firstPlayer: number; scores: number[] } {
+  startRound(): { round: number; chosung: string; firstPlayer: number; scores: number[]; eliminated: number[] } {
     this.currentRound++;
     this.roundState = 'playing';
     this.usedWords = [];
+    // 이번 라운드 탈락자 = 영구 이탈자만으로 초기화(이탈자는 라운드 시작부터 탈락 상태).
+    this.eliminatedThisRound = new Set(this.leftPlayers);
 
     // 초성 랜덤 선택
     const randomIndex = Math.floor(Math.random() * HunminGame.CHOSUNG_PATTERNS.length);
     this.currentChosung = HunminGame.CHOSUNG_PATTERNS[randomIndex];
 
-    // 선공 결정: 1라운드는 랜덤, 이후는 전 라운드 패자
-    if (this.currentRound === 1) {
-      this.currentTurnPlayer = Math.random() < 0.5 ? 0 : 1;
-    } else if (this.lastRoundLoser !== null) {
+    // 선공 결정: 활성(미탈락) 플레이어 중에서.
+    // 2인은 1라운드 랜덤·이후 전 라운드 패자(기존 규칙 유지), 3인+는 활성 중 랜덤.
+    const active: number[] = [];
+    for (let i = 0; i < this.playerCount; i++) {
+      if (!this.eliminatedThisRound.has(i)) active.push(i);
+    }
+    if (this.playerCount === 2 && this.currentRound > 1 && this.lastRoundLoser !== null &&
+        !this.eliminatedThisRound.has(this.lastRoundLoser)) {
       this.currentTurnPlayer = this.lastRoundLoser;
+    } else {
+      this.currentTurnPlayer = active[Math.floor(Math.random() * active.length)] ?? 0;
     }
 
     return {
@@ -73,6 +104,7 @@ export class HunminGame {
       chosung: this.currentChosung,
       firstPlayer: this.currentTurnPlayer,
       scores: [...this.scores],
+      eliminated: [...this.eliminatedThisRound],
     };
   }
 
@@ -130,7 +162,7 @@ export class HunminGame {
     nextPlayer: number;
   } {
     this.usedWords.push(word);
-    this.currentTurnPlayer = playerIndex === 0 ? 1 : 0;
+    this.currentTurnPlayer = this.nextActivePlayer(playerIndex); // 다음 생존 플레이어
 
     return {
       usedWords: [...this.usedWords],
@@ -139,72 +171,103 @@ export class HunminGame {
   }
 
   /**
-   * 라운드 패배 처리
+   * 라운드 탈락 처리 (탈락제).
+   * 해당 플레이어를 이번 라운드에서 탈락시키고, 활성 1명만 남으면 그 사람이 라운드 승(+1점).
+   * 2인이면 한 명 탈락 = 즉시 라운드 종료(기존 동작과 동일).
    */
-  handleRoundLoss(loserIndex: number, reason: string): {
-    winnerIndex: number;
+  eliminate(loserIndex: number, reason: string): {
+    eliminatedIndex: number;
+    roundEnded: boolean;
+    nextPlayer?: number; // 라운드 계속 시 다음 턴
+    winnerIndex?: number; // 라운드 종료 시 승자
     scores: number[];
-    roundResult: { round: number; winnerIndex: number; reason: string };
+    roundResult?: { round: number; winnerIndex: number; reason: string };
   } {
-    this.roundState = 'finished';
-    const winnerIndex = loserIndex === 0 ? 1 : 0;
-    this.scores[winnerIndex]++;
-    this.lastRoundLoser = loserIndex;
+    if (this.roundState !== 'playing' || this.eliminatedThisRound.has(loserIndex)) {
+      return { eliminatedIndex: loserIndex, roundEnded: false, scores: [...this.scores] };
+    }
+    this.eliminatedThisRound.add(loserIndex);
+    this.lastRoundLoser = loserIndex; // 2인 호환: 마지막 탈락자
 
-    const roundResult = {
-      round: this.currentRound,
-      winnerIndex,
-      reason,
-    };
-    this.roundResults.push(roundResult);
+    const active: number[] = [];
+    for (let i = 0; i < this.playerCount; i++) {
+      if (!this.eliminatedThisRound.has(i)) active.push(i);
+    }
 
+    if (active.length <= 1) {
+      // 라운드 종료 — 마지막 생존자 승리(전원 탈락이면 승자 없음)
+      this.roundState = 'finished';
+      const winnerIndex = active.length === 1 ? active[0] : -1;
+      if (winnerIndex >= 0) this.scores[winnerIndex]++;
+      const roundResult = { round: this.currentRound, winnerIndex, reason };
+      this.roundResults.push(roundResult);
+      return {
+        eliminatedIndex: loserIndex,
+        roundEnded: true,
+        winnerIndex: winnerIndex >= 0 ? winnerIndex : undefined,
+        scores: [...this.scores],
+        roundResult,
+      };
+    }
+
+    // 라운드 계속 — 탈락자가 '현재 턴'이었을 때만 다음 생존자로 턴 이동.
+    // (이탈 등으로 현재 턴이 아닌 사람이 탈락하면 진행 중인 턴은 유지)
+    if (loserIndex === this.currentTurnPlayer) {
+      this.currentTurnPlayer = this.nextActivePlayer(loserIndex);
+    }
     return {
-      winnerIndex,
+      eliminatedIndex: loserIndex,
+      roundEnded: false,
+      nextPlayer: this.currentTurnPlayer,
       scores: [...this.scores],
-      roundResult,
     };
   }
 
-  /**
-   * 타임아웃 처리 (현재 턴 플레이어가 패배)
-   */
-  handleTimeout(): {
-    loserIndex: number;
-    winnerIndex: number;
-    scores: number[];
-    roundResult: { round: number; winnerIndex: number; reason: string };
-  } {
-    const loserIndex = this.currentTurnPlayer;
-    const result = this.handleRoundLoss(loserIndex, 'timeout');
-    return {
-      loserIndex,
-      ...result,
-    };
+  /** 타임아웃 — 현재 턴 플레이어 탈락 */
+  handleTimeout() {
+    return this.eliminate(this.currentTurnPlayer, 'timeout');
+  }
+
+  /** [N인] 플레이어 영구 이탈(끊김/나감). 이후 모든 라운드·승자에서 제외. */
+  markLeft(index: number) {
+    this.leftPlayers.add(index);
+    // 진행 중인 라운드에서도 탈락 처리(턴이면 다음 사람으로 넘어감)
+    if (this.roundState === 'playing' && !this.eliminatedThisRound.has(index)) {
+      return this.eliminate(index, 'left');
+    }
+    return { eliminatedIndex: index, roundEnded: false, scores: [...this.scores] };
   }
 
   /**
    * 게임 종료 여부 확인
    */
   checkGameOver(): boolean {
-    return this.scores[0] >= HunminGame.ROUNDS_TO_WIN ||
-           this.scores[1] >= HunminGame.ROUNDS_TO_WIN ||
-           this.currentRound >= HunminGame.MAX_ROUNDS;
+    // 누가 2라운드 선취 / 비이탈 1명 이하 / (2인 한정)최대 라운드 도달
+    if (this.scores.some(s => s >= HunminGame.ROUNDS_TO_WIN)) return true;
+    if (this.playerCount - this.leftPlayers.size <= 1) return true;
+    if (this.playerCount === 2 && this.currentRound >= HunminGame.MAX_ROUNDS) return true;
+    return false;
   }
 
   /**
-   * 승자 반환 (null이면 무승부)
+   * 승자 반환 (null이면 무승부). 이탈자는 승자 후보에서 제외.
    */
   getWinner(): number | null {
-    if (this.scores[0] > this.scores[1]) return 0;
-    if (this.scores[1] > this.scores[0]) return 1;
-    return null;
+    let best = -1;
+    let leaders: number[] = [];
+    for (let i = 0; i < this.playerCount; i++) {
+      if (this.leftPlayers.has(i)) continue;
+      if (this.scores[i] > best) { best = this.scores[i]; leaders = [i]; }
+      else if (this.scores[i] === best) leaders.push(i);
+    }
+    return leaders.length === 1 ? leaders[0] : null;
   }
 
   /**
    * 게임 리셋
    */
   reset(): void {
-    this.scores = [0, 0];
+    this.scores = new Array(this.playerCount).fill(0);
     this.currentRound = 0;
     this.roundState = 'waiting';
     this.currentChosung = '';
@@ -212,6 +275,8 @@ export class HunminGame {
     this.currentTurnPlayer = 0;
     this.lastRoundLoser = null;
     this.roundResults = [];
+    this.eliminatedThisRound = new Set();
+    this.leftPlayers = new Set();
   }
 
   // Getters

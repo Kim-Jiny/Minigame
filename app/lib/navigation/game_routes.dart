@@ -31,6 +31,8 @@ class GameRoutes {
         return HexagonScreen(entryMode: mode);
       case 'pyramid':
         return PyramidScreen(entryMode: mode);
+      case 'set':
+        return SetScreen(entryMode: mode);
       default:
         return null;
     }

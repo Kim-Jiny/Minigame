@@ -3,18 +3,18 @@ import '../navigation/game_routes.dart';
 import '../utils/game_registry.dart';
 import 'ranked_screen.dart';
 
-/// 모드(혼자/둘이)별로 즐길 수 있는 게임 목록 화면.
+/// 진입 맥락(혼자 연습 / 온라인 대결)별로 즐길 수 있는 게임 목록 화면.
 /// 호흡(빠른→전략) 섹션으로 묶어 시선 흐름을 만든다.
 class ModeGamesScreen extends StatelessWidget {
-  final PlayMode mode;
+  final GameEntryMode entry;
 
-  const ModeGamesScreen({super.key, required this.mode});
+  const ModeGamesScreen({super.key, required this.entry});
 
   @override
   Widget build(BuildContext context) {
-    final games = GameRegistry.forMode(mode);
+    final games = GameRegistry.forEntry(entry);
     final sections = _groupByTempo(games);
-    final entryMode = GameEntryMode.fromPlayMode(mode);
+    final entryMode = entry;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F7FB),
@@ -31,7 +31,7 @@ class ModeGamesScreen extends StatelessWidget {
                 child: CustomScrollView(
                   slivers: [
                     SliverToBoxAdapter(child: _buildHeader(context, games.length)),
-                    if (mode == PlayMode.duo)
+                    if (entry == GameEntryMode.versus)
                       SliverToBoxAdapter(child: _buildRankedHighlight(context)),
                     for (final section in sections) ...[
                       SliverToBoxAdapter(
@@ -47,7 +47,7 @@ class ModeGamesScreen extends StatelessWidget {
                         ),
                       ),
                     ],
-                    if (mode == PlayMode.solo)
+                    if (entry == GameEntryMode.solo)
                       SliverToBoxAdapter(child: _buildSoloHint()),
                     SliverToBoxAdapter(
                       child: SizedBox(
@@ -88,10 +88,10 @@ class ModeGamesScreen extends StatelessWidget {
                   width: 52,
                   height: 52,
                   decoration: BoxDecoration(
-                    color: mode.color.withValues(alpha: 0.12),
+                    color: entry.color.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(18),
                   ),
-                  child: Icon(mode.icon, color: mode.color, size: 28),
+                  child: Icon(entry.icon, color: entry.color, size: 28),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -99,7 +99,7 @@ class ModeGamesScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        mode.title,
+                        entry.title,
                         style: const TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.w800,
@@ -109,7 +109,7 @@ class ModeGamesScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '$count개 게임 · ${mode.tagline}',
+                        '$count개 게임 · ${entry.tagline}',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w500,

@@ -85,8 +85,16 @@ class SocketService {
     _socket = io.io(
       _normalizeUrl(url),
       io.OptionBuilder()
-          .setTransports(['websocket'])
+          // websocket 우선, 실패 시 polling 으로 폴백. WS 가 모바일 네트워크 전환에서
+          // 끊겨도 polling 으로 세션을 이어 불필요한 단절을 줄인다.
+          .setTransports(['websocket', 'polling'])
+          // 재연결을 무한 재시도 + 예측 가능한 백오프로 명시.
           .enableReconnection()
+          .setReconnectionDelay(500)
+          .setReconnectionDelayMax(5000)
+          .setRandomizationFactor(0.5)
+          // 최초 연결 핸드셰이크 타임아웃(기본 20s → 15s).
+          .setTimeout(15000)
           .setAuth(_auth)
           .build(),
     );

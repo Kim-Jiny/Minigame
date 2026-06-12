@@ -287,6 +287,7 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> with SingleTickerProvid
         }
         setState(() {
           _status = SpeedTapGameStatus.playing;
+          _remainingSeconds = 10; // 재경기 시 이전 게임의 남은 시간 잔상 방지
           _currentRound = 0;
           _roundScores = [0, 0];
           _taps = [0, 0];
