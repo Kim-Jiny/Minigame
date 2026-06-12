@@ -2205,13 +2205,14 @@ function startHunminRound(io: Server, room: GameRoom) {
   if (room.status === 'finished') return;
 
   const game = room.game;
-  const { round, chosung, firstPlayer, scores } = game.startRound();
+  const { round, chosung, firstPlayer, scores, eliminated } = game.startRound();
 
   io.to(room.id).emit('hunmin_round_start', {
     round,
     chosung,
     firstPlayer,
     scores,
+    eliminated, // 시작부터 탈락(영구 이탈) 인덱스
   });
 
   console.log(`📝 Hunmin Round ${round}: chosung=${chosung}, firstPlayer=${firstPlayer}`);
@@ -2240,10 +2241,34 @@ function startHunminTurnTimer(io: Server, room: GameRoom) {
     if (room.status !== 'playing') return;
 
     const result = game.handleTimeout();
-    console.log(`⏰ Hunmin timeout: player ${result.loserIndex} loses round ${game.getCurrentRound()}`);
+    console.log(`⏰ Hunmin timeout: player ${result.eliminatedIndex} 탈락 (round ${game.getCurrentRound()})`);
 
-    finishHunminRound(io, room, result.winnerIndex, result.loserIndex, 'timeout', result.scores);
+    handleHunminElimination(io, room, result, 'timeout');
   }, HunminGame.TURN_TIME_LIMIT);
+}
+
+// [N인 탈락제] 탈락 결과 처리: 활성 1명만 남으면 라운드 마무리, 아니면 탈락 알림 후 다음 턴.
+function handleHunminElimination(
+  io: Server,
+  room: GameRoom,
+  result: { eliminatedIndex: number; roundEnded: boolean; nextPlayer?: number; winnerIndex?: number; scores: number[] },
+  reason: string,
+  failedWord?: string
+) {
+  if (!(room.game instanceof HunminGame)) return;
+  if (result.roundEnded) {
+    finishHunminRound(io, room, result.winnerIndex ?? -1, result.eliminatedIndex, reason, result.scores, failedWord);
+  } else {
+    io.to(room.id).emit('hunmin_player_eliminated', {
+      playerIndex: result.eliminatedIndex,
+      reason,
+      failedWord: failedWord || null,
+      nextPlayer: result.nextPlayer,
+      scores: result.scores,
+    });
+    console.log(`💀 Hunmin: player ${result.eliminatedIndex} 탈락(${reason}) → 다음 턴 ${result.nextPlayer}`);
+    startHunminTurnTimer(io, room);
+  }
 }
 
 function finishHunminRound(
@@ -2291,9 +2316,13 @@ async function finishHunminGame(io: Server, room: GameRoom) {
   const isDraw = winnerIndex === null;
 
   const rewardResults: { [key: string]: any } = {};
+  // 3·4인은 1:1 보상(상대 지정·일일제한·1:1 전적)이 성립 안 하므로 결과기반 멀티 보상.
+  const isMulti = room.players.length > 2;
+  const left = new Set(game.getLeftPlayers());
 
   for (let i = 0; i < room.players.length; i++) {
     const player = room.players[i];
+    if (left.has(i)) continue; // 이탈자는 이탈 시점에 패배 기록됨
     const opponent = room.players[i === 0 ? 1 : 0];
     if (player.userId) {
       let gameResult: 'win' | 'loss' | 'draw';
@@ -2304,15 +2333,9 @@ async function finishHunminGame(io: Server, room: GameRoom) {
       try {
         const stats = await statsService.recordGameResult(player.userId, room.gameType, gameResult);
         player.socket.emit('stats_updated', { stats });
-        if (i === 0 && opponent.userId) {
-          await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult, {
-            isRanked: room.isRanked,
-            rankedMatchId: room.isRanked ? room.id : undefined,
-            rankedGameIndex: room.isRanked ? room.rankedCurrentIndex : undefined,
-          });
-        }
-        if (opponent.userId) {
-          const reward = await coinService.processGameReward(player.userId, opponent.userId, gameResult);
+
+        if (isMulti) {
+          const reward = await coinService.processMultiplayerReward(player.userId, gameResult);
           rewardResults[player.id] = reward;
           player.socket.emit('coins_updated', {
             coins: reward.totalCoins,
@@ -2320,6 +2343,24 @@ async function finishHunminGame(io: Server, room: GameRoom) {
             streak: reward.streakAfter,
             streakBonus: reward.streakBonusEarned,
           });
+        } else {
+          if (i === 0 && opponent.userId) {
+            await statsService.saveGameRecord(player.userId, opponent.userId, room.gameType, gameResult, {
+              isRanked: room.isRanked,
+              rankedMatchId: room.isRanked ? room.id : undefined,
+              rankedGameIndex: room.isRanked ? room.rankedCurrentIndex : undefined,
+            });
+          }
+          if (opponent.userId) {
+            const reward = await coinService.processGameReward(player.userId, opponent.userId, gameResult);
+            rewardResults[player.id] = reward;
+            player.socket.emit('coins_updated', {
+              coins: reward.totalCoins,
+              earned: reward.coinsEarned,
+              streak: reward.streakAfter,
+              streakBonus: reward.streakBonusEarned,
+            });
+          }
         }
       } catch (err) {
         console.error('Failed to update stats:', err);
@@ -2332,14 +2373,53 @@ async function finishHunminGame(io: Server, room: GameRoom) {
     winnerNickname,
     isDraw,
     scores,
+    players: room.players.map(p => ({ id: p.id, nickname: p.nickname })),
     roundResults: game.getRoundResults(),
     rewards: rewardResults,
   });
 
-  console.log(`🏆 Hunmin game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores[0]}-${scores[1]})`);
+  console.log(`🏆 Hunmin game ended: ${isDraw ? 'Draw' : winnerNickname + ' wins'} (${scores.join('-')})`);
 
   if (room.isRanked) {
     await handleRankedGameEnd(io, room, winnerIndex);
+  }
+}
+
+// [훈민정음 3·4인] 도중 영구 이탈 처리. 게임은 멈추지 않고 계속 진행한다.
+// 이탈자는 즉시 패배(경험치 없음) 기록 후 모든 라운드·승자에서 제외. 비이탈 1명 이하면 게임 종료.
+async function handleHunminMultiLeave(io: Server, room: GameRoom, leavingSocketId: string) {
+  if (!(room.game instanceof HunminGame)) return;
+  if (room.players.length <= 2) return;
+  const idx = room.players.findIndex(p => p.id === leavingSocketId);
+  if (idx === -1 || room.game.getLeftPlayers().includes(idx)) return;
+  const leaver = room.players[idx];
+
+  if (leaver.userId) {
+    userRooms.delete(leaver.userId);
+    try {
+      await statsService.recordGameResultNoExp(leaver.userId, room.gameType, 'loss');
+    } catch (err) {
+      console.error('Failed to record hunmin multi leave:', err);
+    }
+  }
+
+  const result = room.game.markLeft(idx); // 진행 중 라운드면 탈락 처리
+  io.to(room.id).emit('hunmin_player_left', {
+    playerId: leaver.id,
+    playerIndex: idx,
+    nickname: leaver.nickname,
+  });
+  console.log(`🚪 Hunmin ${room.players.length}인: ${leaver.nickname} 이탈`);
+
+  if (room.status !== 'playing') return;
+  if (room.game.checkGameOver()) {
+    clearHunminTimers(room);
+    await finishHunminGame(io, room);
+  } else if (result.roundEnded) {
+    finishHunminRound(io, room, result.winnerIndex ?? -1, idx, 'left', result.scores);
+  } else if (room.game.getRoundState() === 'playing') {
+    // 라운드 계속 — 현재(또는 넘어간) 턴 타이머 재시작
+    startHunminTurnTimer(io, room);
   }
 }
 
@@ -2470,6 +2550,8 @@ function emitRejoinState(socket: Socket, room: GameRoom, userId: number) {
       roundState: game.getRoundState(),
       usedWords: game.getUsedWords(),
       currentTurnPlayer: game.getCurrentTurnPlayer(),
+      eliminated: game.getEliminated(), // N인: 이번 라운드 탈락자
+      leftPlayers: game.getLeftPlayers(), // N인: 영구 이탈자
       playerIndex,
     });
   } else if (room.gameType === 'numberbattle' && room.game instanceof NumberBattleGame) {
@@ -4125,10 +4207,10 @@ export function setupSocketHandlers(io: Server) {
       const { gameType, isHardcore = false, isInfinite = false } = data;
       const maxPlayers = Math.min(4, Math.max(2, data.maxPlayers ?? 2));
 
-      // [SET 3·4인] N인 매칭 — 기존 2인 경로와 완전히 분리. SET 만 maxPlayers>2 를 보낸다.
+      // [3·4인] N인 매칭 — 기존 2인 경로와 완전히 분리. SET·훈민정음이 maxPlayers>2 를 보낸다.
       // 큐가 N명 찰 때까지 대기하다 방을 생성한다(랭크·친구초대 미지원, 랜덤매칭 전용).
-      if (gameType === 'set' && maxPlayers > 2) {
-        const key = getQueueKey('set', isHardcore, isInfinite, maxPlayers);
+      if ((gameType === 'set' || gameType === 'hunmin') && maxPlayers > 2) {
+        const key = getQueueKey(gameType, isHardcore, isInfinite, maxPlayers);
         if (!matchQueues.has(key)) matchQueues.set(key, []);
         const q = matchQueues.get(key)!;
         // 같은 소켓이 큐에 중복으로 들어가지 않게 방어
@@ -4138,12 +4220,15 @@ export function setupSocketHandlers(io: Server) {
         if (q.length >= maxPlayers - 1) {
           const others = q.splice(0, maxPlayers - 1);
           const players = [...others, currentPlayer];
-          const roomId = `set_${isInfinite ? 'inf_' : ''}p${maxPlayers}_${Date.now()}`;
+          const roomId = `${gameType}_${isInfinite ? 'inf_' : ''}p${maxPlayers}_${Date.now()}`;
+          const game = gameType === 'hunmin'
+            ? new HunminGame(maxPlayers)
+            : new SetGame(isInfinite, maxPlayers);
           const room: GameRoom = {
             id: roomId,
-            gameType: 'set',
+            gameType,
             players,
-            game: new SetGame(isInfinite, maxPlayers),
+            game,
             status: 'waiting',
             isHardcore,
             isInfinite,
@@ -4166,21 +4251,26 @@ export function setupSocketHandlers(io: Server) {
 
           io.to(roomId).emit('match_found', {
             roomId,
-            gameType: 'set',
+            gameType,
             isHardcore,
             isInfinite,
             maxPlayers,
             players: playerInfos,
             dailyMatchCount: 0,
           });
-          console.log(`🎯 SET ${maxPlayers}인 매칭: ${players.map(p => p.nickname).join(', ')} ${isInfinite ? '(무한)' : ''}`);
+          console.log(`🎯 ${gameType.toUpperCase()} ${maxPlayers}인 매칭: ${players.map(p => p.nickname).join(', ')} ${isInfinite ? '(무한)' : ''}`);
 
           room.status = 'playing';
-          scheduleRoundStart(room, 1000, () => startSet(io, room));
+          if (gameType === 'hunmin') {
+            io.to(roomId).emit('game_start', { gameType: 'hunmin' });
+            scheduleRoundStart(room, 1000, () => startHunminRound(io, room));
+          } else {
+            scheduleRoundStart(room, 1000, () => startSet(io, room));
+          }
         } else {
           q.push(currentPlayer);
-          socket.emit('match_waiting', { gameType: 'set', maxPlayers, waiting: q.length });
-          console.log(`⏳ SET ${maxPlayers}인 대기: ${currentPlayer.nickname} (${q.length}/${maxPlayers})`);
+          socket.emit('match_waiting', { gameType, maxPlayers, waiting: q.length });
+          console.log(`⏳ ${gameType.toUpperCase()} ${maxPlayers}인 대기: ${currentPlayer.nickname} (${q.length}/${maxPlayers})`);
         }
         return;
       }
@@ -5262,8 +5352,8 @@ export function setupSocketHandlers(io: Server) {
             });
 
             clearHunminTimers(room);
-            const lossResult = game.handleRoundLoss(playerIndex, reason);
-            finishHunminRound(io, room, lossResult.winnerIndex, playerIndex, reason, lossResult.scores, word);
+            const elimResult = game.eliminate(playerIndex, reason);
+            handleHunminElimination(io, room, elimResult, reason, word);
             return;
           }
 
@@ -5271,7 +5361,7 @@ export function setupSocketHandlers(io: Server) {
           const dictResult = await dictionaryService.isValidWord(word);
 
           if (!dictResult.valid) {
-            // 사전에 없는 단어 → 패배
+            // 사전에 없는 단어 → 탈락
             io.to(data.roomId).emit('hunmin_word_rejected', {
               word,
               playerIndex,
@@ -5279,8 +5369,8 @@ export function setupSocketHandlers(io: Server) {
             });
 
             clearHunminTimers(room);
-            const lossResult = game.handleRoundLoss(playerIndex, 'not_in_dictionary');
-            finishHunminRound(io, room, lossResult.winnerIndex, playerIndex, 'not_in_dictionary', lossResult.scores, word);
+            const elimResult = game.eliminate(playerIndex, 'not_in_dictionary');
+            handleHunminElimination(io, room, elimResult, 'not_in_dictionary', word);
             return;
           }
 
@@ -7222,14 +7312,17 @@ export function setupSocketHandlers(io: Server) {
         if (room && room.endRequest && room.gameType === 'set') {
           cancelSetEndRequest(io, room, currentPlayer?.nickname ?? '상대');
         }
-        // [SET 3·4인] 게임 중 끊김 → 게임은 멈추지 않고 계속 진행(2인처럼 일시정지하지 않음).
+        // [SET·훈민정음 3·4인] 게임 중 끊김 → 게임은 멈추지 않고 계속 진행(2인처럼 일시정지하지 않음).
         // 인증 유저는 유예시간 안에 돌아오면 진행 중인 게임에 합류(rejoin), 못 돌아오면 영구 이탈.
         // 게스트는 재접속 추적이 불가하므로 바로 이탈 처리.
-        if (room && room.status === 'playing' && room.gameType === 'set' && room.players.length > 2) {
+        if (room && room.status === 'playing' &&
+            (room.gameType === 'set' || room.gameType === 'hunmin') && room.players.length > 2) {
+          const multiLeave = (r: GameRoom, sid: string) =>
+            r.gameType === 'hunmin' ? handleHunminMultiLeave(io, r, sid) : handleSetMultiLeave(io, r, sid);
           if (userId) {
             const graceRoomId = roomId;
             const leftSocketId = socket.id;
-            console.log(`⏳ SET ${room.players.length}인: user ${userId} 일시 끊김 — ${RECONNECT_GRACE_MS / 1000}s 유예(게임 계속)`);
+            console.log(`⏳ ${room.gameType.toUpperCase()} ${room.players.length}인: user ${userId} 일시 끊김 — ${RECONNECT_GRACE_MS / 1000}s 유예(게임 계속)`);
             disconnectGraceTimers.set(userId, setTimeout(() => {
               try {
                 disconnectGraceTimers.delete(userId);
@@ -7238,17 +7331,17 @@ export function setupSocketHandlers(io: Server) {
                 setTimeout(() => expiredReconnectUsers.delete(userId), 60000);
                 const r = rooms.get(graceRoomId);
                 if (r) {
-                  void handleSetMultiLeave(io, r, leftSocketId).catch(err =>
-                    console.error('[set multi leave]', err));
+                  void multiLeave(r, leftSocketId).catch(err =>
+                    console.error('[multi leave]', err));
                 }
               } catch (err) {
-                console.error('[set grace timer]', err);
+                console.error('[grace timer]', err);
               }
             }, RECONNECT_GRACE_MS));
             disconnectContexts.set(userId, { socket, roomId });
           } else {
-            void handleSetMultiLeave(io, room, socket.id).catch(err =>
-              console.error('[set multi leave]', err));
+            void multiLeave(room, socket.id).catch(err =>
+              console.error('[multi leave]', err));
           }
           return;
         }
@@ -7287,9 +7380,11 @@ export function setupSocketHandlers(io: Server) {
           const leaver = room.players.find(p => p.id === socket.id);
           cancelSetEndRequest(io, room, leaver?.nickname ?? '상대');
         }
-        // [SET 3·4인] 게임 중 한 명 나감 → 게임은 계속(타이머 유지). 이탈 처리만 하고 종료.
-        if (room.status === 'playing' && room.gameType === 'set' && room.players.length > 2) {
-          await handleSetMultiLeave(io, room, socket.id);
+        // [SET·훈민정음 3·4인] 게임 중 한 명 나감 → 게임은 계속. 이탈 처리만 하고 종료.
+        if (room.status === 'playing' &&
+            (room.gameType === 'set' || room.gameType === 'hunmin') && room.players.length > 2) {
+          if (room.gameType === 'hunmin') await handleHunminMultiLeave(io, room, socket.id);
+          else await handleSetMultiLeave(io, room, socket.id);
           try { socket.leave(roomId); } catch (_) {}
           return;
         }
