@@ -279,6 +279,17 @@ class _HunminScreenState extends State<HunminScreen> with TickerProviderStateMix
         _isDraw = false;
         _opponentLeft = false;
         _wonByForfeit = false;
+        // 재경기 시 hunmin_round_start 가 오기 전까지 이전 게임 내용이 잠깐
+        // 보이지 않도록 라운드 콘텐츠도 초기화한다(첫 게임 시작과 동일한 빈 상태).
+        _currentChosung = '';
+        _currentRound = 0;
+        _scores = [0, 0];
+        _usedWords = [];
+        _currentTurnPlayer = 0;
+        _roundEndReason = null;
+        _roundEndWord = null;
+        _roundWinnerIndex = null;
+        _wordController.clear();
       });
     });
 
