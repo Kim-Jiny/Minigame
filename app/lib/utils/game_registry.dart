@@ -184,7 +184,7 @@ class GameRegistry {
       icon: Icons.translate_rounded,
       color: Color(0xFF1E88E5),
       tempo: GameTempo.word,
-      versus: {2},
+      versus: {2, 3, 4},
     ),
     GameMeta(
       id: 'cardflip',
