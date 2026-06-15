@@ -115,6 +115,10 @@ class _SetScreenState extends State<SetScreen> {
   int? _soloResultMs; // 서버가 확정한 최종 시간(랭킹 기준)
   int _soloSetsFound = 0;
   List<Map<String, dynamic>> _rankings = [];
+  // 랭킹 시트는 모달(별도 라우트)이라 화면 setState로는 갱신되지 않는다.
+  // 비동기 응답이 도착하면 시트를 다시 그리도록 ValueNotifier로 구동한다.
+  final ValueNotifier<List<Map<String, dynamic>>> _rankingsListenable =
+      ValueNotifier<List<Map<String, dynamic>>>([]);
 
   @override
   void initState() {
@@ -163,6 +167,7 @@ class _SetScreenState extends State<SetScreen> {
     _claimWatchdog?.cancel();
     _soloStopwatch?.cancel();
     _socketListeners.offAll();
+    _rankingsListenable.dispose();
     super.dispose();
   }
 
@@ -550,6 +555,7 @@ class _SetScreenState extends State<SetScreen> {
         _rankings =
             list.map((r) => Map<String, dynamic>.from(r as Map)).toList();
       });
+      _rankingsListenable.value = _rankings; // 열려 있는 랭킹 시트 갱신
     });
 
     _socketListeners.on('opponent_left', (data) {
@@ -1648,6 +1654,8 @@ class _SetScreenState extends State<SetScreen> {
   }
 
   void _showRankingSheet(GameTheme theme) {
+    _fetchRankings(); // 시트를 열 때마다 최신 랭킹 요청(응답 도착 시 아래 빌더가 갱신)
+    _rankingsListenable.value = _rankings;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1685,7 +1693,10 @@ class _SetScreenState extends State<SetScreen> {
                 ),
                 const Divider(height: 1),
                 Expanded(
-                  child: _rankings.isEmpty
+                  child: ValueListenableBuilder<List<Map<String, dynamic>>>(
+                    valueListenable: _rankingsListenable,
+                    builder: (context, rankings, _) {
+                      return rankings.isEmpty
                       ? Center(
                           child: Text('아직 기록이 없어요. 첫 기록을 세워보세요!',
                               style: TextStyle(color: Colors.grey.shade500)),
@@ -1693,9 +1704,9 @@ class _SetScreenState extends State<SetScreen> {
                       : ListView.builder(
                           controller: scrollController,
                           padding: const EdgeInsets.symmetric(vertical: 8),
-                          itemCount: _rankings.length,
+                          itemCount: rankings.length,
                           itemBuilder: (_, index) {
-                            final r = _rankings[index];
+                            final r = rankings[index];
                             final nickname = r['nickname'] as String? ?? '???';
                             final timeMs =
                                 (r['time_ms'] as num?)?.toInt() ?? 0;
@@ -1739,7 +1750,9 @@ class _SetScreenState extends State<SetScreen> {
                               ),
                             );
                           },
-                        ),
+                        );
+                    },
+                  ),
                 ),
               ],
             );
