@@ -112,6 +112,10 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
 
   // 랭킹
   List<Map<String, dynamic>> _rankings = [];
+  // 랭킹 시트는 모달(별도 라우트)이라 화면 setState로는 갱신되지 않는다.
+  // 비동기 응답이 도착하면 시트를 다시 그리도록 ValueNotifier로 구동한다.
+  final ValueNotifier<List<Map<String, dynamic>>> _rankingsListenable =
+      ValueNotifier<List<Map<String, dynamic>>>([]);
 
   // 플레이어 정보
   String? _myId;
@@ -202,6 +206,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
   @override
   void dispose() {
     _socketListeners.offAll();
+    _rankingsListenable.dispose();
     _memorizeTimer?.cancel();
     _idleTimer?.cancel();
     _buzzTimer?.cancel();
@@ -625,6 +630,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
       setState(() {
         _rankings = rankingsData.map((r) => Map<String, dynamic>.from(r as Map)).toList();
       });
+      _rankingsListenable.value = _rankings; // 열려 있는 랭킹 시트 갱신
     });
 
     _socketListeners.on('error', (data) {
@@ -1520,6 +1526,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
 
   void _showRankingSheet(GameTheme theme) {
     _fetchRankings();
+    _rankingsListenable.value = _rankings;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1552,13 +1559,16 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
                 ),
                 const Divider(height: 1),
                 Expanded(
-                  child: _rankings.isEmpty
+                  child: ValueListenableBuilder<List<Map<String, dynamic>>>(
+                    valueListenable: _rankingsListenable,
+                    builder: (context, rankings, _) {
+                      return rankings.isEmpty
                       ? const Center(child: Text('아직 기록이 없습니다', style: TextStyle(color: Colors.grey)))
                       : ListView.builder(
                           controller: scrollController,
-                          itemCount: _rankings.length,
+                          itemCount: rankings.length,
                           itemBuilder: (_, index) {
-                            final r = _rankings[index];
+                            final r = rankings[index];
                             final nickname = r['nickname'] as String? ?? '???';
                             final score = r['score'] as int? ?? 0;
                             final isTop3 = index < 3;
@@ -1588,7 +1598,9 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
                               ),
                             );
                           },
-                        ),
+                        );
+                    },
+                  ),
                 ),
               ],
             );
