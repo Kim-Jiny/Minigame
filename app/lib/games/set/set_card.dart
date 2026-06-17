@@ -9,6 +9,7 @@ class SetCard extends StatelessWidget {
   final int cardId;
   final bool selected;
   final bool failed;
+  final bool matched; // 누군가 세트로 집어 노란 테두리로 강조 중
   final Color accent;
   final VoidCallback onTap;
 
@@ -17,9 +18,12 @@ class SetCard extends StatelessWidget {
     required this.cardId,
     required this.selected,
     required this.failed,
+    this.matched = false,
     required this.accent,
     required this.onTap,
   });
+
+  static const Color _matchGold = Color(0xFFFFC107); // 세트 성공 강조 노랑
 
   static const List<Color> _palette = [
     Color(0xFFE53935), // red
@@ -34,11 +38,13 @@ class SetCard extends StatelessWidget {
     final fill = (cardId ~/ 3) % 3;
     final color = _palette[cardId % 3];
 
-    final Color borderColor = failed
-        ? const Color(0xFFE53935)
-        : selected
-            ? accent
-            : const Color(0xFFE7E8EC);
+    final Color borderColor = matched
+        ? _matchGold
+        : failed
+            ? const Color(0xFFE53935)
+            : selected
+                ? accent
+                : const Color(0xFFE7E8EC);
 
     return GestureDetector(
       onTap: onTap,
@@ -46,18 +52,24 @@ class SetCard extends StatelessWidget {
         duration: const Duration(milliseconds: 120),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
         decoration: BoxDecoration(
-          color: failed ? const Color(0xFFFDECEC) : Colors.white,
+          color: matched
+              ? const Color(0xFFFFFBEB)
+              : failed
+                  ? const Color(0xFFFDECEC)
+                  : Colors.white,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: borderColor,
-            width: (selected || failed) ? 2.4 : 1.2,
+            width: (matched || selected || failed) ? 2.8 : 1.2,
           ),
           boxShadow: [
             BoxShadow(
-              color: selected
-                  ? accent.withValues(alpha: 0.16)
-                  : Colors.black.withValues(alpha: 0.03),
-              blurRadius: selected ? 14 : 8,
+              color: matched
+                  ? _matchGold.withValues(alpha: 0.45)
+                  : selected
+                      ? accent.withValues(alpha: 0.16)
+                      : Colors.black.withValues(alpha: 0.03),
+              blurRadius: matched ? 16 : (selected ? 14 : 8),
               offset: const Offset(0, 4),
             ),
           ],

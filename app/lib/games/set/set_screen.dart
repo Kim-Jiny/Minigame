@@ -86,6 +86,11 @@ class _SetScreenState extends State<SetScreen> {
   Timer? _penaltyTimer;
   Timer? _claimWatchdog; // 클레임 응답 유실 시 잠금 해제 안전장치
 
+  // 세트 성공 시 — 방금 집은 3장을 노란 테두리로 잠깐 강조 후 다음 보드로 교체.
+  List<int> _highlightCards = []; // 현재 노란 테두리로 강조 중인 카드 id
+  List<int>? _pendingBoard; // 강조가 끝나면 적용할 다음 보드
+  Timer? _highlightTimer;
+
   // 게임 결과
   String? _winnerId;
   bool _isDraw = false;
@@ -165,6 +170,7 @@ class _SetScreenState extends State<SetScreen> {
     _waitingReconnectTimer?.cancel();
     _penaltyTimer?.cancel();
     _claimWatchdog?.cancel();
+    _highlightTimer?.cancel();
     _soloStopwatch?.cancel();
     _socketListeners.offAll();
     _rankingsListenable.dispose();
@@ -322,9 +328,12 @@ class _SetScreenState extends State<SetScreen> {
         if (updatedIndex != -1) _myPlayerIndex = updatedIndex;
       }
       if (mounted) ScaffoldMessenger.of(context).clearSnackBars();
+      _highlightTimer?.cancel();
       setState(() {
         _status = SetGameStatus.playing;
         _board = [];
+        _highlightCards = [];
+        _pendingBoard = null;
         _scores = [0, 0];
         _deckRemaining = 0; // 재경기 시 이전 게임의 남은 카드 수 잔상 방지
         _scoreToWin = 6;
@@ -344,10 +353,13 @@ class _SetScreenState extends State<SetScreen> {
       final infinite = data['infinite'] == true;
       final solo = data['solo'] == true;
       final duration = (data['duration'] as num?)?.toInt() ?? 120000;
+      _highlightTimer?.cancel();
       setState(() {
         _status = SetGameStatus.playing;
         _isInfinite = infinite;
         _isSolo = solo;
+        _highlightCards = [];
+        _pendingBoard = null;
         _board = List<int>.from(data['board'] ?? []);
         _scores = List<int>.from(data['scores'] ?? [0, 0]);
         _deckRemaining = (data['deckRemaining'] as num?)?.toInt() ?? 0;
@@ -375,14 +387,38 @@ class _SetScreenState extends State<SetScreen> {
     _socketListeners.on('set_claimed', (data) {
       _penaltyTimer?.cancel();
       _claimWatchdog?.cancel();
+      final newBoard = List<int>.from(data['board'] ?? _board);
+      final claimed = List<int>.from(data['claimedCards'] ?? const []);
       setState(() {
-        _board = List<int>.from(data['board'] ?? _board);
+        // 직전 성공 강조가 아직 남아 있으면 그 보드를 먼저 확정하고 새 강조로 교체.
+        if (_pendingBoard != null) _board = _pendingBoard!;
         _scores = List<int>.from(data['scores'] ?? _scores);
         _deckRemaining = (data['deckRemaining'] as num?)?.toInt() ?? _deckRemaining;
         _selected.clear();
         _claimLocked = false;
         _lastClaimFailed = false;
+        // 방금 집은 3장이 모두 현재 보드에 있으면 노란 테두리로 강조하고
+        // 보드 교체는 잠시 미룬다. 아니면 곧장 새 보드로.
+        if (claimed.length == 3 && claimed.every(_board.contains)) {
+          _highlightCards = claimed;
+          _pendingBoard = newBoard;
+        } else {
+          _board = newBoard;
+          _highlightCards = [];
+          _pendingBoard = null;
+        }
       });
+      _highlightTimer?.cancel();
+      if (_pendingBoard != null) {
+        _highlightTimer = Timer(const Duration(milliseconds: 1000), () {
+          if (!mounted) return;
+          setState(() {
+            if (_pendingBoard != null) _board = _pendingBoard!;
+            _pendingBoard = null;
+            _highlightCards = [];
+          });
+        });
+      }
     });
 
     _socketListeners.on('set_claim_rejected', (data) {
@@ -431,9 +467,12 @@ class _SetScreenState extends State<SetScreen> {
     _socketListeners.on('set_resumed', (data) {
       final infinite = data['infinite'] == true;
       final duration = (data['duration'] as num?)?.toInt() ?? 120000;
+      _highlightTimer?.cancel();
       setState(() {
         _status = SetGameStatus.playing;
         _isInfinite = infinite;
+        _highlightCards = [];
+        _pendingBoard = null;
         _board = List<int>.from(data['board'] ?? _board);
         _scores = List<int>.from(data['scores'] ?? _scores);
         _deckRemaining = (data['deckRemaining'] as num?)?.toInt() ?? _deckRemaining;
@@ -456,10 +495,13 @@ class _SetScreenState extends State<SetScreen> {
       _myId = _socketService.socket?.id;
       final infinite = data['infinite'] == true;
       final remainingMs = (data['remainingTimeMs'] as num?)?.toInt() ?? 120000;
+      _highlightTimer?.cancel();
       setState(() {
         _roomId = data['roomId'] as String?;
         _myPlayerIndex = (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
         _isInfinite = infinite;
+        _highlightCards = [];
+        _pendingBoard = null;
         _board = List<int>.from(data['board'] ?? _board);
         _scores = List<int>.from(data['scores'] ?? _scores);
         _deckRemaining = (data['deckRemaining'] as num?)?.toInt() ?? _deckRemaining;
@@ -744,6 +786,9 @@ class _SetScreenState extends State<SetScreen> {
 
   void _onCardTap(int cardId) {
     if (_status != SetGameStatus.playing || _claimLocked) return;
+    // 세트 성공 강조(노란 테두리)가 유지되는 동안에는 입력을 막는다.
+    // 이미 제거된 카드 탭 → 서버 not_on_board 거절 같은 혼란 방지.
+    if (_pendingBoard != null) return;
     setState(() {
       _lastClaimFailed = false;
       if (_selected.contains(cardId)) {
@@ -798,6 +843,7 @@ class _SetScreenState extends State<SetScreen> {
   void _reset() {
     _waitingReconnectTimer?.cancel();
     _penaltyTimer?.cancel();
+    _highlightTimer?.cancel();
     setState(() {
       _status = SetGameStatus.idle;
       _roomId = null;
@@ -806,6 +852,8 @@ class _SetScreenState extends State<SetScreen> {
       _opponentUserId = null;
       _board = [];
       _scores = [0, 0];
+      _highlightCards = [];
+      _pendingBoard = null;
       _selected.clear();
       _claimLocked = false;
       _lastClaimFailed = false;
@@ -1440,6 +1488,7 @@ class _SetScreenState extends State<SetScreen> {
               cardId: id,
               selected: selected,
               failed: selected && _lastClaimFailed,
+              matched: _highlightCards.contains(id),
               accent: accent,
               onTap: () => _onCardTap(id),
             );

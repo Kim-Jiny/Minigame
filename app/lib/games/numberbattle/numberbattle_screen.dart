@@ -15,6 +15,7 @@ import '../common/game_intro_view.dart';
 import '../common/game_scaffold.dart';
 import '../common/game_duel_header.dart';
 import '../common/game_event_helper.dart';
+import '../common/game_hardcore_toggle.dart';
 import '../common/game_exit_helper.dart';
 import '../common/game_reconnect_helper.dart';
 import '../common/game_result_action_buttons.dart';
@@ -63,7 +64,9 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
   // 게임 상태
   List<List<int>> _grid = [];
   List<int> _progress = [0, 0]; // 각 플레이어 진행도
-  Set<String> _myTappedCells = {}; // 내가 탭한 셀 (row,col)
+  Set<String> _myTappedCells = {}; // 내가 탭한 셀 (row,col) — 일반 모드 dim 표시용
+  bool _isHardcore = false; // 하드모드: 1~100, 누른 칸은 +25로 교체
+  int get _total => _isHardcore ? 100 : 25; // 목표 숫자
 
   // 게임 결과
   String? _winnerId;
@@ -211,6 +214,7 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
         _opponentAvatarUrl = opponent['avatarUrl'];
         _opponentUserId = opponent['userId'];
         _isInvitationGame = data['isInvitation'] == true;
+        _isHardcore = data['isHardcore'] == true;
         if (opponent['profileSettings'] != null) {
           _opponentProfileSettings = UserProfileSettings.fromJson(opponent['profileSettings']);
         }
@@ -254,6 +258,7 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
       final duration = data['duration'] as int? ?? 60000;
       setState(() {
         _status = NumberBattleGameStatus.playing;
+        _isHardcore = data['hardMode'] == true;
         _grid = gridData.map<List<int>>((row) => List<int>.from(row)).toList();
         _progress = [0, 0];
         _myTappedCells = {};
@@ -266,10 +271,19 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
       setState(() {
         _progress = List<int>.from(data['progress']);
         final playerIndex = data['playerIndex'] as int;
+        // 내 탭만 내 보드에 반영(상대 보드는 별개). 진행도는 둘 다 갱신.
         if (playerIndex == _myPlayerIndex) {
           final row = data['row'] as int;
           final col = data['col'] as int;
-          _myTappedCells.add('$row,$col');
+          if (_isHardcore) {
+            // 누른 칸을 서버가 내려준 다음 숫자(+25, 0이면 빈 칸)로 교체.
+            final newNumber = (data['newNumber'] as num?)?.toInt() ?? 0;
+            if (row < _grid.length && col < _grid[row].length) {
+              _grid[row][col] = newNumber;
+            }
+          } else {
+            _myTappedCells.add('$row,$col');
+          }
         }
       });
     });
@@ -283,23 +297,19 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
     });
 
     _socketListeners.on('numberbattle_resumed', (data) {
-      final gridData = data['grid'] as List;
       final duration = data['duration'] as int? ?? 60000;
       setState(() {
         _status = NumberBattleGameStatus.playing;
-        _grid = gridData.map<List<int>>((row) => List<int>.from(row)).toList();
+        _isHardcore = data['hardMode'] == true;
+        // 하드모드는 플레이어별 보드 → grids[내인덱스], 없으면 grid(일반) 폴백.
+        final grids = data['grids'] as List?;
+        final myGrid = (grids != null && _myPlayerIndex < grids.length)
+            ? grids[_myPlayerIndex]
+            : data['grid'];
+        _grid = (myGrid as List).map<List<int>>((row) => List<int>.from(row)).toList();
         _progress = List<int>.from(data['progress']);
         _isWaitingForReconnect = false;
-        // 재접속 시 이미 탭한 셀 복원
-        _myTappedCells = {};
-        final myProg = _progress[_myPlayerIndex];
-        for (int r = 0; r < _grid.length; r++) {
-          for (int c = 0; c < _grid[r].length; c++) {
-            if (_grid[r][c] <= myProg) {
-              _myTappedCells.add('$r,$c');
-            }
-          }
-        }
+        _restoreTappedCells();
       });
       _startCountdown((duration / 1000).ceil());
     });
@@ -313,20 +323,12 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
       setState(() {
         _roomId = data['roomId'] as String?;
         _myPlayerIndex = (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
+        _isHardcore = data['hardMode'] == true;
         if (gridData != null) {
           _grid = gridData.map<List<int>>((row) => List<int>.from(row)).toList();
         }
         _progress = List<int>.from(data['progress'] ?? _progress);
-        // 재접속 시 이미 탭한 셀 복원
-        _myTappedCells = {};
-        final myProg = _progress[_myPlayerIndex];
-        for (int r = 0; r < _grid.length; r++) {
-          for (int c = 0; c < _grid[r].length; c++) {
-            if (_grid[r][c] <= myProg) {
-              _myTappedCells.add('$r,$c');
-            }
-          }
-        }
+        _restoreTappedCells();
         _status = NumberBattleGameStatus.playing;
         _isReconnecting = false;
         _isWaitingForReconnect = false;
@@ -455,7 +457,7 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
   void _findMatch() {
     _socketService.emit('find_match', {
       'gameType': AppConfig.gameTypeNumberBattle,
-      'isHardcore': false,
+      'isHardcore': _isHardcore,
     });
     setState(() => _status = NumberBattleGameStatus.searching);
   }
@@ -463,9 +465,25 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
   void _cancelMatch() {
     _socketService.emit('cancel_match', {
       'gameType': AppConfig.gameTypeNumberBattle,
-      'isHardcore': false,
+      'isHardcore': _isHardcore,
     });
     setState(() => _status = NumberBattleGameStatus.idle);
+  }
+
+  // 재접속/재개 시 dim 표시할 탭 완료 셀 복원.
+  // 하드모드는 누른 칸이 새 숫자로 교체돼 dim이 없으므로 비운다.
+  // 일반 모드는 현재 진행도 이하 숫자 칸을 완료로 표시한다.
+  void _restoreTappedCells() {
+    _myTappedCells = {};
+    if (_isHardcore) return;
+    final myProg = _progress[_myPlayerIndex];
+    for (int r = 0; r < _grid.length; r++) {
+      for (int c = 0; c < _grid[r].length; c++) {
+        if (_grid[r][c] <= myProg) {
+          _myTappedCells.add('$r,$c');
+        }
+      }
+    }
   }
 
   void _tapCell(int row, int col) {
@@ -689,7 +707,7 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
                                   friendProvider.inviteToGame(
                                     friend.id,
                                     AppConfig.gameTypeNumberBattle,
-                                    isHardcore: false,
+                                    isHardcore: _isHardcore,
                                   );
                                   Navigator.pop(dialogContext);
                                   ScaffoldMessenger.of(context).clearSnackBars();
@@ -723,14 +741,24 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
   }
 
   Widget _buildIdleView(GameTheme theme) {
+    final accent = _isHardcore ? Colors.red : theme.primary;
     return GameIntroView(
       backgroundGradient: theme.backgroundGradient,
-      accentColor: theme.primary,
+      accentColor: accent,
       icon: Icons.grid_on,
       title: '숫자배틀',
-      descriptions: const ['1부터 25까지 순서대로 터치!', '먼저 완성하면 승리! (60초 제한)'],
+      descriptions: _isHardcore
+          ? const ['1부터 100까지 순서대로 터치!', '누른 칸엔 다음 숫자가 채워져요 (120초 제한)']
+          : const ['1부터 25까지 순서대로 터치!', '먼저 완성하면 승리! (60초 제한)'],
+      findMatchLabel: _isHardcore ? '하드코어 상대 찾기' : '상대 찾기',
       onFindMatch: _findMatch,
       onInviteFriend: () => _showFriendInviteDialog(context),
+      extra: GameHardcoreToggle(
+        value: _isHardcore,
+        onChanged: (v) => setState(() => _isHardcore = v),
+        durationLabel: '(1~100)',
+        activeHint: '5x5 보드에서 100까지!',
+      ),
     );
   }
 
@@ -899,7 +927,7 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
               ),
             ),
             Text(
-              '$progress/25',
+              '$progress/$_total',
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
@@ -912,7 +940,7 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
         ClipRRect(
           borderRadius: BorderRadius.circular(4),
           child: LinearProgressIndicator(
-            value: progress / 25,
+            value: progress / _total,
             backgroundColor: Colors.grey.shade200,
             valueColor: AlwaysStoppedAnimation<Color>(color),
             minHeight: 6,
@@ -923,8 +951,6 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
   }
 
   Widget _buildGrid(Color accentColor) {
-    final myTarget = _progress[_myPlayerIndex] + 1;
-
     return LayoutBuilder(
       builder: (context, constraints) {
         final gridSize = constraints.maxWidth < constraints.maxHeight
@@ -951,48 +977,38 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
                   final col = index % 5;
                   final number = _grid[row][col];
                   final isTapped = _myTappedCells.contains('$row,$col');
-                  final isTarget = number == myTarget;
+                  // 하드모드: 0 = 다 소진된 빈 칸(누른 숫자가 100을 넘어 채울 게 없음).
+                  final isEmpty = number == 0;
 
                   return GestureDetector(
-                    onTap: isTarget && !isTapped ? () => _tapCell(row, col) : null,
+                    // 다음 숫자 힌트(컬러 강조) 없음 — 모든 미탭·비어있지 않은 칸을 탭 가능하게
+                    // 두고, 정답 숫자만 _tapCell 에서 통과시킨다.
+                    onTap: (!isTapped && !isEmpty) ? () => _tapCell(row, col) : null,
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 150),
                       decoration: BoxDecoration(
-                        color: isTapped
-                            ? accentColor.withValues(alpha: 0.15)
-                            : isTarget
-                                ? accentColor
+                        color: isEmpty
+                            ? Colors.grey.shade100
+                            : isTapped
+                                ? accentColor.withValues(alpha: 0.15)
                                 : Colors.white,
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(
                           color: isTapped
                               ? accentColor.withValues(alpha: 0.3)
-                              : isTarget
-                                  ? accentColor
-                                  : Colors.grey.shade300,
-                          width: isTarget ? 2 : 1,
+                              : Colors.grey.shade300,
+                          width: 1,
                         ),
-                        boxShadow: isTarget
-                            ? [
-                                BoxShadow(
-                                  color: accentColor.withValues(alpha: 0.3),
-                                  blurRadius: 8,
-                                  spreadRadius: 1,
-                                ),
-                              ]
-                            : null,
                       ),
                       child: Center(
                         child: Text(
-                          '$number',
+                          isEmpty ? '' : '$number',
                           style: TextStyle(
                             fontSize: cellSize * 0.35,
-                            fontWeight: isTarget ? FontWeight.w900 : FontWeight.w600,
+                            fontWeight: FontWeight.w600,
                             color: isTapped
                                 ? accentColor.withValues(alpha: 0.4)
-                                : isTarget
-                                    ? Colors.white
-                                    : Colors.grey.shade800,
+                                : Colors.grey.shade800,
                           ),
                         ),
                       ),
@@ -1079,9 +1095,9 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
               const SizedBox(height: 22),
               GameResultMatchupRow(
                 leftLabel: '나',
-                leftValue: '${_progress[_myPlayerIndex]}/25',
+                leftValue: '${_progress[_myPlayerIndex]}/$_total',
                 rightLabel: _opponentNickname ?? '상대',
-                rightValue: '${_progress[1 - _myPlayerIndex]}/25',
+                rightValue: '${_progress[1 - _myPlayerIndex]}/$_total',
                 accentColor: resultColor,
               ),
               const SizedBox(height: 24),
