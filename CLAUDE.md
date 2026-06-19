@@ -7,9 +7,10 @@
 | 듀오 아레나 (DUO) | `dm_` | 이 리포 `app/` (Flutter) | `/duo/*` |
 | CatchTheRule (규칙찾기) | `ctr_` | **별도 리포** `~/Documents/Jiny/CatchTheRule` (iOS Swift / Android Kotlin) | `/ctr/*` |
 | 사자툰 (SajaToon) | `sj_` | **별도 리포** `~/Documents/Jiny/SajaToon` (Android Kotlin / 추후 iOS) | `/saja/*` |
+| 성인의 수학 (MathForAdults) | `mfa_` | **별도 리포** `~/Documents/Jiny/MathForAdults` | `/mfa/*` |
 | 라비린스 (Labyrinth) | `lab_` | **별도 리포 + 별도 서버** `~/Documents/Jiny/LabyrinthOnline` (서버 독립 컨테이너 / iOS SwiftUI / Android Compose) | 라비린스 서버가 자체 제공 |
 
-서버 DB 테이블·라우트·정적페이지는 **프리픽스로 소유권을 구분**한다. `dm_` = 듀오, `ctr_` = 규칙찾기, `sj_` = 사자툰, `lab_` = 라비린스.
+서버 DB 테이블·라우트·정적페이지는 **프리픽스로 소유권을 구분**한다. `dm_` = 듀오, `ctr_` = 규칙찾기, `sj_` = 사자툰, `mfa_` = 성인의 수학, `lab_` = 라비린스.
 단, **라비린스만 서버 코드가 이 리포에 없다** — 별도 리포의 독립 컨테이너로 배포되고, 이 리포와는 같은 PostgreSQL(`lab_*` 테이블)과 `JWT_SECRET` 만 공유한다. 아래 [LAB] 섹션 참고.
 
 ---
@@ -66,6 +67,32 @@
 | `server/public/saja/` | 만화 이미지(`/saja/comics/*`)·약관 정적 자산. SajaToon 소유. |
 
 각 위치에는 `[SAJA]` 마커 주석이 달려 있다. `git grep -n "\[SAJA\]"` 로 전체를 확인할 수 있다.
+
+---
+
+## ⚠️ MathForAdults(mfa) 자산 — 삭제·리팩터링 금지
+
+> **듀오 아레나/다른 제품 작업 중 아래 파일/구역을 "안 쓰는 것 같다"고 지우지 말 것.**
+> 성인의 수학 앱(별도 리포 `~/Documents/Jiny/MathForAdults`)이 운영 중 호출하는 라이브 백엔드다.
+> 삭제 후 배포되면 서비스가 깨진다. 성인의 수학 관련 변경이 필요하면 먼저 사용자에게 확인할 것.
+
+### MFA 전용 파일 (파일 전체가 성인의 수학 소유)
+
+| 파일 | 용도 |
+|------|------|
+| `server/src/routes/mathforadults.ts` | 앱용 공개 API — 문의 등록/조회(`inquiries`), 답변 읽음 처리(`inquiries/read`). 로그인 없이 deviceId 기반. |
+
+### 공용 파일 안의 MFA 구역 (해당 줄/블록만 성인의 수학 소유)
+
+| 파일 | MFA 구역 |
+|------|----------|
+| `server/src/index.ts` | `import mathForAdultsRouter`, `app.use('/api/mathforadults', ...)`, `app.use('/mfa', static ...)` |
+| `server/src/config/database.ts` | `mfa_inquiries` 등 `mfa_` 테이블 생성 블록 |
+| `server/src/routes/admin.ts` | `/api/admin/mfa/*` 엔드포인트(문의 목록·답변·삭제) |
+| `server/public/admin/index.html` | `GAMES` 배열의 `{ id: 'mfa', ... }` 카드 + `#mfaDashboard` 섹션 + `#mfaInquiryModal` 모달 + `loadMfaInquiries`/`replyMfaInquiry` 등 `mfa*` JS 함수 |
+| `server/public/mfa/` | 약관·개인정보·고객지원 정적 페이지(`/mfa/privacy`, `/mfa/support`). 성인의 수학 소유. |
+
+각 위치에는 `[MFA]` 마커 주석이 달려 있다. `git grep -n "\[MFA\]"` 로 전체를 확인할 수 있다.
 
 ---
 

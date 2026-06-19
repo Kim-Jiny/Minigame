@@ -747,14 +747,17 @@ function startNumberBattle(io: Server, room: GameRoom) {
   room.pendingRoundStart = false;
 
   const game = room.game;
+  const gameTime = game.getGameTime();
   io.to(room.id).emit('numberbattle_start', {
-    grid: game.getGrid(),
-    duration: NumberBattleGame.GAME_TIME,
+    grid: game.getGrid(0), // 시작 시 두 플레이어 그리드 동일
+    duration: gameTime,
+    hardMode: game.getIsHardMode(),
+    totalNumbers: game.getTotalNumbers(),
   });
 
-  console.log(`🔢 NumberBattle started`);
+  console.log(`🔢 NumberBattle started${game.getIsHardMode() ? ' (하드)' : ''}`);
 
-  scheduleRoundTimer(room, NumberBattleGame.GAME_TIME, () => {
+  scheduleRoundTimer(room, gameTime, () => {
     finishNumberBattleByTimeout(io, room);
   });
 }
@@ -2559,9 +2562,11 @@ function emitRejoinState(socket: Socket, room: GameRoom, userId: number) {
     socket.emit('rejoin_game_state', {
       gameType: 'numberbattle',
       roomId: room.id,
-      grid: game.getGrid(),
+      grid: game.getGrid(playerIndex), // 하드모드는 플레이어마다 보드가 다르다
       progress: game.getProgress(),
-      remainingTimeMs: getRemainingMs(room.roundDeadlineAt, NumberBattleGame.GAME_TIME),
+      remainingTimeMs: getRemainingMs(room.roundDeadlineAt, game.getGameTime()),
+      hardMode: game.getIsHardMode(),
+      totalNumbers: game.getTotalNumbers(),
       playerIndex,
     });
   } else if (room.gameType === 'set' && room.game instanceof SetGame) {
@@ -2818,11 +2823,15 @@ function resumePausedGame(io: Server, room: GameRoom) {
 
   if (room.gameType === 'numberbattle' && room.game instanceof NumberBattleGame) {
     const game = room.game;
-    const remainingMs = Math.max(0, pausedRoundRemainingMs ?? NumberBattleGame.GAME_TIME);
+    const remainingMs = Math.max(0, pausedRoundRemainingMs ?? game.getGameTime());
+    // 하드모드는 플레이어별 보드가 다르므로 둘 다 보내고 클라가 자기 인덱스로 고른다.
     io.to(room.id).emit('numberbattle_resumed', {
-      grid: game.getGrid(),
+      grid: game.getGrid(0),
+      grids: [game.getGrid(0), game.getGrid(1)],
       progress: game.getProgress(),
       duration: remainingMs,
+      hardMode: game.getIsHardMode(),
+      totalNumbers: game.getTotalNumbers(),
     });
     scheduleRoundTimer(room, remainingMs, () => finishNumberBattleByTimeout(io, room));
     return;
@@ -4317,7 +4326,7 @@ export function setupSocketHandlers(io: Server) {
         } else if (gameType === 'speedtap') {
           room.game = new SpeedTapGame();
         } else if (gameType === 'numberbattle') {
-          room.game = new NumberBattleGame();
+          room.game = new NumberBattleGame(isHardcore); // 하드모드 = 1~100
         } else if (gameType === 'set') {
           room.game = new SetGame(isInfinite);
         } else if (gameType === 'mathrace') {
@@ -4954,10 +4963,11 @@ export function setupSocketHandlers(io: Server) {
             playerIndex,
             row,
             col,
+            newNumber: result.newNumber, // 하드모드 리필 숫자(0 = 빈 칸). 일반 모드는 미사용.
             progress: room.game.getProgress(),
           });
 
-          // 25 완성 시 게임 종료
+          // 목표(25 또는 100) 완성 시 게임 종료
           if (room.game.isGameOver()) {
             await finishNumberBattleGame(io, room);
           }
@@ -5863,7 +5873,7 @@ export function setupSocketHandlers(io: Server) {
         } else if (invitation.gameType === 'speedtap') {
           room.game = new SpeedTapGame();
         } else if (invitation.gameType === 'numberbattle') {
-          room.game = new NumberBattleGame();
+          room.game = new NumberBattleGame(isHardcore); // 하드모드 = 1~100
         } else if (invitation.gameType === 'set') {
           room.game = new SetGame();
         } else if (invitation.gameType === 'mathrace') {
@@ -6921,7 +6931,7 @@ export function setupSocketHandlers(io: Server) {
         } else if (room.gameType === 'speedtap') {
           room.game = new SpeedTapGame();
         } else if (room.gameType === 'numberbattle') {
-          room.game = new NumberBattleGame();
+          room.game = new NumberBattleGame(room.isHardcore === true); // 재대결도 모드 유지
         } else if (room.gameType === 'set') {
           room.game = new SetGame(room.isInfinite === true);
         } else if (room.gameType === 'mathrace') {

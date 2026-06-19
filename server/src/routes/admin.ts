@@ -878,6 +878,85 @@ router.delete('/ctr/inquiries/:id', verifyAdminToken, async (req: Request, res: 
   }
 });
 
+// ==================================================================
+// [MFA] 성인의 수학(Math for Adults) — /api/admin/mfa/* 엔드포인트.
+// 별도 리포(MathForAdults) 앱의 문의 관리. 삭제·리팩터링 금지.
+// ==================================================================
+
+// GET /api/admin/mfa/inquiries?status=pending|replied|all - MFA 문의 목록
+router.get('/mfa/inquiries', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const status = typeof req.query.status === 'string' ? req.query.status : 'all';
+    const where = status === 'pending' || status === 'replied' ? 'WHERE status = $1' : '';
+    const params = where ? [status] : [];
+    const result = await pool.query(
+      `SELECT id, device_id, nickname, content, status, reply, replied_at, is_read, created_at
+       FROM mfa_inquiries ${where}
+       ORDER BY (status = 'pending') DESC, created_at DESC
+       LIMIT 300`,
+      params
+    );
+    const pending = await pool.query(`SELECT COUNT(*) FROM mfa_inquiries WHERE status = 'pending'`);
+    res.json({ inquiries: result.rows, pendingCount: parseInt(pending.rows[0].count, 10) });
+  } catch (error) {
+    console.error('MFA admin list inquiries error:', error);
+    res.status(500).json({ error: 'Failed to load inquiries' });
+  }
+});
+
+// PUT /api/admin/mfa/inquiries/:id/reply - MFA 문의 답변
+router.put('/mfa/inquiries/:id/reply', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { reply } = req.body;
+    if (!reply?.trim()) {
+      res.status(400).json({ error: 'Reply is required' });
+      return;
+    }
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const result = await pool.query(
+      `UPDATE mfa_inquiries
+       SET reply = $1, status = 'replied', replied_at = CURRENT_TIMESTAMP, is_read = FALSE
+       WHERE id = $2 RETURNING *`,
+      [reply.trim(), id]
+    );
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Inquiry not found' });
+      return;
+    }
+    res.json({ success: true, inquiry: result.rows[0] });
+  } catch (error) {
+    console.error('MFA admin reply error:', error);
+    res.status(500).json({ error: 'Failed to reply' });
+  }
+});
+
+// DELETE /api/admin/mfa/inquiries/:id - MFA 문의 삭제
+router.delete('/mfa/inquiries/:id', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    await pool.query('DELETE FROM mfa_inquiries WHERE id = $1', [id]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('MFA admin delete inquiry error:', error);
+    res.status(500).json({ error: 'Failed to delete' });
+  }
+});
+
 // GET /api/admin/ctr/rankings?mode=timeAttack - CTR 랭킹 목록(운영 관리용)
 router.get('/ctr/rankings', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
   try {

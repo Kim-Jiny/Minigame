@@ -555,6 +555,22 @@ export async function setupDatabase() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
+      -- [MFA] 성인의 수학(Math for Adults, 별도 리포 ~/Documents/Jiny/MathForAdults) 소유.
+      --       로그인 없는 deviceId 기반 문의. mfa_* 테이블 — 삭제·리팩터링 금지.
+      CREATE TABLE IF NOT EXISTS mfa_inquiries (
+        id SERIAL PRIMARY KEY,
+        device_id VARCHAR(64) NOT NULL,
+        nickname VARCHAR(20),
+        content TEXT NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',   -- pending | replied
+        reply TEXT,
+        replied_at TIMESTAMP,
+        is_read BOOLEAN DEFAULT FALSE,           -- 사용자가 답변을 읽었는지
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_mfa_inquiries_device ON mfa_inquiries(device_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_mfa_inquiries_status ON mfa_inquiries(status, created_at DESC);
+
       -- [LAB] 참고: 이 공유 DB 에는 라비린스 온라인 소유의 lab_* 테이블
       --       (lab_matches, lab_match_players, lab_user_stats)도 존재한다.
       --       그러나 그 테이블은 "별도 리포·별도 서버"(~/Documents/Jiny/LabyrinthOnline,

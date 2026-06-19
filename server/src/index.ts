@@ -13,6 +13,7 @@ import inquiryRouter from './routes/inquiry';
 import adminRouter from './routes/admin';
 import catchTheRuleRouter from './routes/catchtherule'; // [CTR] CatchTheRule 소유 — 삭제 금지
 import sajatoonRouter from './routes/sajatoon'; // [SAJA] 사자툰 소유 — 삭제 금지
+import mathForAdultsRouter from './routes/mathforadults'; // [MFA] 성인의 수학 소유 — 삭제 금지
 import path from 'path';
 
 // 전역 에러 안전망: 비동기 소켓 핸들러/타이머 콜백에서 발생한 에러가
@@ -74,6 +75,10 @@ app.use('/api/catchtherule', catchTheRuleRouter);
 // "매일 한 편의 만화로 배우는 사자성어" 앱(별도 리포). 로그인 없는 deviceId 기반.
 app.use('/api/sajatoon', sajatoonRouter);
 
+// [MFA] 성인의 수학(Math for Adults) 공개 API — 별도 리포(MathForAdults) 소유. 삭제·리팩터링 금지.
+// 로그인 없는 deviceId 기반 문의.
+app.use('/api/mathforadults', mathForAdultsRouter);
+
 // 관리자 페이지 — /backstage 로만 접근 (기존 /admin 경로는 제거).
 app.use('/backstage', express.static(path.join(__dirname, '../public/admin')));
 
@@ -83,6 +88,8 @@ app.use('/ctr', express.static(path.join(__dirname, '../public/ctr'), { extensio
 app.use('/duo', express.static(path.join(__dirname, '../public/duo'), { extensions: ['html'] }));
 // [SAJA] 사자툰 정적 자산 — 만화 이미지(/saja/comics/*.png 등)와 약관(/saja/*). SajaToon 소유, 삭제 금지.
 app.use('/saja', express.static(path.join(__dirname, '../public/saja'), { extensions: ['html'] }));
+// [MFA] 성인의 수학 약관/개인정보/지원 정적 페이지 (/mfa/privacy, /mfa/support). 성인의 수학 소유.
+app.use('/mfa', express.static(path.join(__dirname, '../public/mfa'), { extensions: ['html'] }));
 
 // Socket.io 핸들러 설정
 setupSocketHandlers(io);
