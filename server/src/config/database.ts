@@ -571,6 +571,23 @@ export async function setupDatabase() {
       CREATE INDEX IF NOT EXISTS idx_mfa_inquiries_device ON mfa_inquiries(device_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_mfa_inquiries_status ON mfa_inquiries(status, created_at DESC);
 
+      -- [MFA] 소셜 로그인 사용자 + 진도 동기화 (선택적 로그인). 삭제·리팩터링 금지.
+      CREATE TABLE IF NOT EXISTS mfa_users (
+        id SERIAL PRIMARY KEY,
+        provider VARCHAR(10) NOT NULL,          -- apple | google
+        provider_uid VARCHAR(255) NOT NULL,     -- 소셜 고유 식별자(sub)
+        email VARCHAR(255),
+        nickname VARCHAR(40),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_login TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (provider, provider_uid)
+      );
+      CREATE TABLE IF NOT EXISTS mfa_progress (
+        user_id INTEGER PRIMARY KEY REFERENCES mfa_users(id) ON DELETE CASCADE,
+        data JSONB NOT NULL,                    -- 앱 진도/통계 직렬화(JSON)
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
       -- [LAB] 참고: 이 공유 DB 에는 라비린스 온라인 소유의 lab_* 테이블
       --       (lab_matches, lab_match_players, lab_user_stats)도 존재한다.
       --       그러나 그 테이블은 "별도 리포·별도 서버"(~/Documents/Jiny/LabyrinthOnline,
