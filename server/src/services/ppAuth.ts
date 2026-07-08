@@ -19,6 +19,7 @@ export interface PpUser {
   provider_uid: string;
   email: string | null;
   nickname: string;
+  nickname_set: boolean;
   avatar_url: string | null;
   status: string;
 }
