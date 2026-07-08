@@ -588,6 +588,103 @@ export async function setupDatabase() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
+      -- [PP] PerlerPixel(비즈픽셀) 커뮤니티 게시판 — 별도 리포 ~/Documents/Jiny/PerlerPixel 소유.
+      --      도안 공유 게시판. 소셜 로그인(pp_users), 오리지널만 정책 + 사후 신고 기반 모더레이션.
+      --      pp_* 테이블 — 삭제·리팩터링 금지. 소유권: 리포 루트 CLAUDE.md 의 [PP] 섹션.
+      CREATE TABLE IF NOT EXISTS pp_users (
+        id SERIAL PRIMARY KEY,
+        provider VARCHAR(10) NOT NULL,          -- apple | google | kakao
+        provider_uid VARCHAR(255) NOT NULL,     -- 소셜 고유 식별자(sub)
+        email VARCHAR(255),
+        nickname VARCHAR(40) NOT NULL,
+        avatar_url TEXT,
+        status VARCHAR(10) DEFAULT 'active',    -- active | deleted(탈퇴 익명화)
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (provider, provider_uid)
+      );
+      CREATE TABLE IF NOT EXISTS pp_posts (
+        id SERIAL PRIMARY KEY,
+        author_id INTEGER REFERENCES pp_users(id) ON DELETE SET NULL,  -- NULL=익명화(탈퇴)
+        title VARCHAR(120) NOT NULL,
+        description TEXT DEFAULT '',
+        tags TEXT[] DEFAULT '{}',
+        visibility VARCHAR(10) DEFAULT 'public',  -- public | unlisted(링크 전용)
+        status VARCHAR(10) DEFAULT 'active',      -- active | pending(신고누적) | hidden(관리자) | deleted
+        share_code VARCHAR(16) UNIQUE,            -- unlisted 접근용
+        pattern_data BYTEA NOT NULL,              -- PatternCodec compact 바이너리
+        preview_path TEXT,                        -- /pp/uploads/<file>.png
+        width INTEGER NOT NULL,
+        height INTEGER NOT NULL,
+        bead_count INTEGER NOT NULL,
+        like_count INTEGER DEFAULT 0,
+        download_count INTEGER DEFAULT 0,
+        report_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_pp_posts_public_recent
+        ON pp_posts(created_at DESC) WHERE visibility = 'public' AND status = 'active';
+      CREATE INDEX IF NOT EXISTS idx_pp_posts_author ON pp_posts(author_id);
+      CREATE TABLE IF NOT EXISTS pp_likes (
+        user_id INTEGER REFERENCES pp_users(id) ON DELETE CASCADE,
+        post_id INTEGER REFERENCES pp_posts(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, post_id)
+      );
+      CREATE TABLE IF NOT EXISTS pp_downloads (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES pp_users(id) ON DELETE SET NULL,
+        post_id INTEGER REFERENCES pp_posts(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS pp_reports (
+        id SERIAL PRIMARY KEY,
+        reporter_id INTEGER REFERENCES pp_users(id) ON DELETE SET NULL,
+        post_id INTEGER REFERENCES pp_posts(id) ON DELETE CASCADE,
+        reason VARCHAR(20) NOT NULL,              -- copyright|illegal|sexual|violence|spam|other
+        detail TEXT DEFAULT '',
+        status VARCHAR(10) DEFAULT 'open',        -- open | resolved | rejected
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        resolved_at TIMESTAMP,
+        resolver VARCHAR(40),
+        UNIQUE (reporter_id, post_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_pp_reports_status ON pp_reports(status, created_at DESC);
+      CREATE TABLE IF NOT EXISTS pp_blocks (
+        blocker_id INTEGER REFERENCES pp_users(id) ON DELETE CASCADE,
+        blocked_id INTEGER REFERENCES pp_users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (blocker_id, blocked_id)
+      );
+      CREATE TABLE IF NOT EXISTS pp_hidden (
+        user_id INTEGER REFERENCES pp_users(id) ON DELETE CASCADE,
+        post_id INTEGER REFERENCES pp_posts(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, post_id)
+      );
+      CREATE TABLE IF NOT EXISTS pp_user_bans (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES pp_users(id) ON DELETE CASCADE,
+        ban_type VARCHAR(10) NOT NULL,            -- upload | full
+        reason TEXT,
+        banned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_pp_user_bans_user ON pp_user_bans(user_id);
+      CREATE TABLE IF NOT EXISTS pp_admin_logs (
+        id SERIAL PRIMARY KEY,
+        admin VARCHAR(40),
+        action VARCHAR(40) NOT NULL,
+        target_type VARCHAR(20),
+        target_id INTEGER,
+        memo TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS pp_banned_keywords (
+        word VARCHAR(60) PRIMARY KEY
+      );
+
       -- [LAB] 참고: 이 공유 DB 에는 라비린스 온라인 소유의 lab_* 테이블
       --       (lab_matches, lab_match_players, lab_user_stats)도 존재한다.
       --       그러나 그 테이블은 "별도 리포·별도 서버"(~/Documents/Jiny/LabyrinthOnline,
