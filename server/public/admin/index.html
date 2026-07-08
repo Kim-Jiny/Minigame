@@ -280,6 +280,125 @@
     .game-links { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #eee; }
     .game-links a { font-size: 12px; color: #6C5CE7; text-decoration: none; }
     .game-links a:hover { text-decoration: underline; }
+
+    /* =====================================================================
+       Redesign 2026 — 밝은 모던 + 사이드바. 아래 규칙은 소스 순서상 위 규칙을
+       덮어써서(같은 우선순위 → 나중 선언 승) 로그인/허브/목록 전반을 통일한다.
+       클래스 이름(.data-table, .stat-card, .nav-tabs, .badge …)은 그대로라
+       듀오·CTR·사자·MFA 모든 제품 목록이 자동으로 같은 스타일을 입는다.
+       ===================================================================== */
+    :root {
+      --bg: #f5f6fa;
+      --surface: #ffffff;
+      --border: #e9ebf2;
+      --text: #1f2330;
+      --muted: #8a90a2;
+      --brand: #6C5CE7;
+      --brand-weak: #f1eeff;
+      --radius: 14px;
+      --shadow: 0 1px 2px rgba(24,26,42,.04), 0 4px 16px rgba(24,26,42,.05);
+    }
+    body { background: var(--bg); color: var(--text); }
+
+    /* ---- Login ---- */
+    .login-container { display: none; }           /* 기본 숨김 → JS가 토큰 판단 후 표시(FOUC 제거) */
+    .login-container.show { display: flex; }
+    .login-box { border: 1px solid var(--border); box-shadow: 0 10px 40px rgba(24,26,42,.10); border-radius: 18px; }
+    .login-box h1 { color: var(--text); letter-spacing: -.02em; }
+    .login-box input { border: 1px solid var(--border); border-radius: 10px; background: #fbfbfe; }
+    .login-box input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-weak); }
+    .login-box button { border-radius: 10px; font-weight: 600; }
+
+    /* ---- Sidebar shell ---- */
+    #sidebar {
+      position: fixed; top: 0; left: 0; bottom: 0; width: 232px; z-index: 50;
+      background: var(--surface); border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; padding: 18px 14px;
+    }
+    .sidebar-brand {
+      display: flex; align-items: center; gap: 9px;
+      font-size: 18px; font-weight: 800; letter-spacing: -.02em; color: var(--text);
+      padding: 6px 10px 18px;
+    }
+    .sidebar-brand .logo {
+      width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
+      background: linear-gradient(135deg, #6C5CE7, #A29BFE);
+      display: flex; align-items: center; justify-content: center; font-size: 16px;
+    }
+    .sidebar-nav { flex: 1; display: flex; flex-direction: column; gap: 3px; overflow-y: auto; }
+    .side-section { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+      color: #b3b8c6; padding: 14px 12px 6px; }
+    .side-item {
+      display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+      padding: 10px 12px; border: none; background: none; cursor: pointer;
+      border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--muted);
+      transition: background .12s, color .12s;
+    }
+    .side-item:hover { background: #f4f5fa; color: var(--text); }
+    .side-item.active { background: var(--brand-weak); color: var(--brand); }
+    .side-item .ico { width: 22px; text-align: center; font-size: 17px; flex-shrink: 0; }
+    .sidebar-foot { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 6px; }
+    .side-logout:hover { background: #fdecec; color: #e74c3c; }
+
+    /* ---- Main area: 대시보드를 사이드바 오른쪽으로 ---- */
+    .dashboard { margin-left: 232px; min-height: 100vh; }
+    .dashboard > .header { display: none; }        /* 옛 상단 헤더(게임명+뒤로+로그아웃) 숨김 — 사이드바가 대체 */
+    #gameHub { padding: 28px 32px; }
+    /* 헤더 제거 후 콘텐츠 여백 확보 (duo는 .tab-content 가 이미 패딩 보유) */
+    .ctr-tab-content, .saja-tab-content { padding: 24px; }
+    #mfaDashboard { padding: 24px; }
+
+    /* ---- Nav tabs (제품 내부 탭) ---- */
+    .nav-tabs { position: sticky; top: 0; z-index: 5; background: var(--surface);
+      border-bottom: 1px solid var(--border); padding: 4px 24px 0; gap: 4px; }
+    .nav-tabs button { color: var(--muted); font-weight: 600; border-bottom-width: 2px; }
+    .nav-tabs button.active { color: var(--brand); border-bottom-color: var(--brand); }
+
+    /* ---- Stat cards ---- */
+    .stat-card { border: 1px solid var(--border); box-shadow: var(--shadow); border-radius: var(--radius); }
+    .stat-card h3 { color: var(--muted); font-weight: 600; }
+    .chart-container { border: 1px solid var(--border); box-shadow: var(--shadow); border-radius: var(--radius); }
+
+    /* ---- Tables (모든 제품 공통) ---- */
+    .data-table { border: 1px solid var(--border); box-shadow: var(--shadow); border-radius: var(--radius); overflow: hidden; }
+    .data-table th { background: #fafbfd; color: var(--muted); font-weight: 600; text-transform: uppercase;
+      letter-spacing: .04em; font-size: 11px; border-bottom: 1px solid var(--border); }
+    .data-table td { border-bottom: 1px solid var(--border); color: var(--text); }
+    .data-table tr:hover td { background: #f8f9ff; }
+    .data-table tbody tr:last-child td, .data-table tr:last-child td { border-bottom: none; }
+
+    /* ---- Toolbar / search ---- */
+    .toolbar input[type="text"] { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+    .toolbar input[type="text"]:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-weak); }
+
+    /* ---- Filter pills ---- */
+    .filter-tabs button { background: #eef0f6; color: #5b6070; border-radius: 999px; font-weight: 600; }
+    .filter-tabs button.active { background: var(--brand); color: #fff; }
+
+    /* ---- Pagination ---- */
+    .pagination button { border: 1px solid var(--border); border-radius: 8px; }
+
+    /* ---- Game landing cards ---- */
+    #gameHub h2 { font-size: 22px; letter-spacing: -.02em; margin: 4px 2px 22px !important; }
+    .game-card { border: 1px solid var(--border); box-shadow: var(--shadow); border-radius: 16px; }
+
+    /* ---- Mobile: 사이드바를 상단 바로 ---- */
+    @media (max-width: 768px) {
+      #sidebar { position: sticky; top: 0; left: 0; width: auto; flex-direction: row; align-items: center;
+        gap: 4px; padding: 8px 10px; border-right: none; border-bottom: 1px solid var(--border);
+        overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      #sidebar::-webkit-scrollbar { display: none; }
+      .sidebar-brand { padding: 0 6px 0 4px; font-size: 15px; flex-shrink: 0; }
+      .sidebar-brand .logo { width: 26px; height: 26px; }
+      .sidebar-nav { flex-direction: row; gap: 4px; overflow: visible; }
+      .side-section { display: none; }
+      .side-item { white-space: nowrap; padding: 8px 12px; flex-shrink: 0; }
+      .sidebar-foot { border-top: none; margin: 0; padding: 0 0 0 6px; border-left: 1px solid var(--border); flex-shrink: 0; }
+      .dashboard { margin-left: 0; }
+      #gameHub { padding: 18px 14px; }
+      .ctr-tab-content, .saja-tab-content, #mfaDashboard { padding: 16px 12px; }
+      .data-table { overflow-x: auto; }
+    }
   </style>
 </head>
 <body>
@@ -293,6 +412,19 @@
       <button onclick="login()">Login</button>
     </div>
   </div>
+
+  <!-- Sidebar (로그인 후 표시) — 게임 전환 + 로그아웃. 각 제품 대시보드의 옛 헤더를 대체 -->
+  <aside id="sidebar" style="display:none">
+    <div class="sidebar-brand"><span class="logo">🎛️</span> Backstage</div>
+    <nav class="sidebar-nav">
+      <button class="side-item" id="side-home" onclick="showHub()"><span class="ico">🏠</span> 홈</button>
+      <div class="side-section">게임</div>
+      <div id="sideGames"></div>
+    </nav>
+    <div class="sidebar-foot">
+      <button class="side-item side-logout" onclick="logout()"><span class="ico">⎋</span> 로그아웃</button>
+    </div>
+  </aside>
 
   <!-- Game Hub (게임 선택) -->
   <div class="dashboard" id="gameHub" style="display:none">
@@ -847,7 +979,7 @@
         privacy: '/mfa/privacy', terms: '/mfa/support' },
     ];
 
-    if (token) showHub();
+    if (token) showHub(); else showLogin();
 
     // ============================================================
     // Auth
@@ -875,24 +1007,47 @@
       }
     }
 
+    // 모든 대시보드 숨기기 (공통)
+    function hideAllDashboards() {
+      ['gameHub','dashboard','ctrDashboard','sajaDashboard','mfaDashboard']
+        .forEach(id => document.getElementById(id).style.display = 'none');
+    }
+
+    // 사이드바 게임 목록 렌더 + 활성 표시 (activeId: 'home' | 게임 id)
+    function renderSidebar(activeId) {
+      document.getElementById('sideGames').innerHTML = GAMES.map(g => `
+        <button class="side-item" data-side="${g.id}" onclick="enterGame('${g.id}')">
+          <span class="ico">${g.icon}</span> ${g.name}
+        </button>`).join('');
+      setSidebarActive(activeId);
+    }
+    function setSidebarActive(activeId) {
+      document.querySelectorAll('#sidebar .side-item').forEach(b => b.classList.remove('active'));
+      const el = activeId === 'home'
+        ? document.getElementById('side-home')
+        : document.querySelector(`#sidebar .side-item[data-side="${activeId}"]`);
+      if (el) el.classList.add('active');
+    }
+
+    // 로그인 화면 표시 (미인증 상태)
+    function showLogin() {
+      hideAllDashboards();
+      document.getElementById('sidebar').style.display = 'none';
+      document.getElementById('loginContainer').classList.add('show');
+    }
+
     function logout() {
       token = null;
       localStorage.removeItem('adminToken');
-      document.getElementById('loginContainer').style.display = 'flex';
-      document.getElementById('gameHub').style.display = 'none';
-      document.getElementById('dashboard').style.display = 'none';
-      document.getElementById('ctrDashboard').style.display = 'none';
-      document.getElementById('sajaDashboard').style.display = 'none';
-      document.getElementById('mfaDashboard').style.display = 'none';
+      showLogin();
     }
 
     // 로그인 후 게임 선택 허브
     function showHub() {
-      document.getElementById('loginContainer').style.display = 'none';
-      document.getElementById('dashboard').style.display = 'none';
-      document.getElementById('ctrDashboard').style.display = 'none';
-      document.getElementById('sajaDashboard').style.display = 'none';
-      document.getElementById('mfaDashboard').style.display = 'none';
+      document.getElementById('loginContainer').classList.remove('show');
+      document.getElementById('sidebar').style.display = 'flex';
+      renderSidebar('home');
+      hideAllDashboards();
       document.getElementById('gameHub').style.display = 'block';
       const grid = document.getElementById('gameGrid');
       grid.innerHTML = GAMES.map(g => `
@@ -909,6 +1064,8 @@
 
     // 특정 게임 admin 진입
     function enterGame(id) {
+      document.getElementById('sidebar').style.display = 'flex';
+      setSidebarActive(id);
       document.getElementById('gameHub').style.display = 'none';
       if (id === 'duo') {
         document.getElementById('dashboard').style.display = 'block';
