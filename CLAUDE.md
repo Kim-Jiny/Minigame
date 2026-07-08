@@ -9,8 +9,9 @@
 | 사자툰 (SajaToon) | `sj_` | **별도 리포** `~/Documents/Jiny/SajaToon` (Android Kotlin / 추후 iOS) | `/saja/*` |
 | 성인의 수학 (MathForAdults) | `mfa_` | **별도 리포** `~/Documents/Jiny/MathForAdults` | `/mfa/*` |
 | 라비린스 (Labyrinth) | `lab_` | **별도 리포 + 별도 서버** `~/Documents/Jiny/LabyrinthOnline` (서버 독립 컨테이너 / iOS SwiftUI / Android Compose) | 라비린스 서버가 자체 제공 |
+| PerlerPixel (비즈픽셀) | `pp_` | **별도 리포** `~/Documents/Jiny/PerlerPixel` (iOS SwiftUI / 추후 Android) | `/pp/*` |
 
-서버 DB 테이블·라우트·정적페이지는 **프리픽스로 소유권을 구분**한다. `dm_` = 듀오, `ctr_` = 규칙찾기, `sj_` = 사자툰, `mfa_` = 성인의 수학, `lab_` = 라비린스.
+서버 DB 테이블·라우트·정적페이지는 **프리픽스로 소유권을 구분**한다. `dm_` = 듀오, `ctr_` = 규칙찾기, `sj_` = 사자툰, `mfa_` = 성인의 수학, `lab_` = 라비린스, `pp_` = 비즈픽셀.
 단, **라비린스만 서버 코드가 이 리포에 없다** — 별도 리포의 독립 컨테이너로 배포되고, 이 리포와는 같은 PostgreSQL(`lab_*` 테이블)과 `JWT_SECRET` 만 공유한다. 아래 [LAB] 섹션 참고.
 
 ---
@@ -121,3 +122,32 @@
 
 `git grep -n "\[LAB\]"` 로 확인. 라비린스 자체 코드/스키마 변경이 필요하면 이 리포가 아니라
 `~/Documents/Jiny/LabyrinthOnline` 에서 작업할 것.
+
+---
+
+## ⚠️ PerlerPixel(pp) 자산 — 삭제·리팩터링 금지
+
+> **다른 제품 작업 중 아래 파일/구역을 "안 쓰는 것 같다"고 지우지 말 것.**
+> 비즈픽셀 앱(별도 리포 `~/Documents/Jiny/PerlerPixel`, iOS SwiftUI)이 호출하는 라이브 백엔드다.
+> 도안 공유 커뮤니티 게시판(소셜 로그인 + UGC). PerlerPixel 관련 변경은 먼저 사용자에게 확인할 것.
+
+### PP 전용 파일 (파일 전체가 PerlerPixel 소유)
+
+| 파일 | 용도 |
+|------|------|
+| `server/src/routes/perlerpixel.ts` | 앱 API — 소셜 로그인(`pp_users`), 게시판 리스트(비로그인)·상세/업로드/다운로드/신고/차단(로그인). 오리지널만 정책 + 사후 신고 모더레이션. |
+| `server/src/services/ppAuth.ts` | Apple/Google/Kakao 토큰 검증 + `scope:'pp'` JWT + `pp_users` upsert/밴 조회. |
+| `server/src/services/ppModeration.ts` | 금지어 필터, 신고 자동 비공개 임계치, unlisted 공유코드. |
+| `server/public/pp/` | 약관·개인정보·커뮤니티 가이드라인·문의 정적 페이지 + 업로드 프리뷰(`/pp/uploads/*`). |
+
+### 공용 파일 안의 PP 구역 (해당 줄/블록만 PerlerPixel 소유)
+
+| 파일 | PP 구역 |
+|------|----------|
+| `server/src/index.ts` | `import perlerPixelRouter`, `app.use('/api/perlerpixel', ...)`, `app.use('/pp', static ...)` |
+| `server/src/config/database.ts` | `pp_users`·`pp_posts`·`pp_likes`·`pp_downloads`·`pp_reports`·`pp_blocks`·`pp_hidden`·`pp_user_bans`·`pp_admin_logs`·`pp_banned_keywords` 생성 블록 |
+| `server/src/routes/admin.ts` | `/api/admin/pp/*` 엔드포인트 (예정) |
+| `server/public/admin/index.html` | `GAMES` 배열의 `{ id: 'pp', ... }` 카드 + `#ppDashboard` 섹션 (예정) |
+| `server/.env.example` | `PP_GOOGLE_CLIENT_IDS`, `PP_APPLE_BUNDLE_IDS` |
+
+각 위치에는 `[PP]` 마커 주석이 달려 있다. `git grep -n "\[PP\]"` 로 전체를 확인할 수 있다.

@@ -630,6 +630,69 @@
     </table>
   </div>
 
+  <!-- [PP] 비즈픽셀(PerlerPixel) 소유 — #ppDashboard 섹션 삭제·리팩터링 금지 (리포 루트 CLAUDE.md) -->
+  <!-- Dashboard (비즈픽셀) -->
+  <div class="dashboard" id="ppDashboard" style="display:none">
+    <div class="header">
+      <div style="display:flex;align-items:center;gap:12px">
+        <button class="btn-back" onclick="backToHub()">← 게임 선택</button>
+        <h1>비즈픽셀 — 도안 공유</h1>
+      </div>
+      <button onclick="logout()">Logout</button>
+    </div>
+    <div style="padding:20px">
+      <div id="ppStats" style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px"></div>
+
+      <div class="filter-tabs" id="ppTabs">
+        <button class="active" onclick="ppTab('reports', this)">신고 <span class="badge pending" id="ppReportBadge" style="display:none">0</span></button>
+        <button onclick="ppTab('posts', this)">도안</button>
+        <button onclick="ppTab('users', this)">유저</button>
+        <button onclick="ppTab('logs', this)">처리 로그</button>
+      </div>
+
+      <!-- 신고 -->
+      <div class="pp-tab" id="pp-reports">
+        <div style="margin:10px 0;display:flex;gap:8px;flex-wrap:wrap">
+          <select id="ppReportStatus" onchange="loadPpReports()">
+            <option value="open">접수(open)</option><option value="resolved">처리됨</option>
+            <option value="rejected">반려</option><option value="">전체</option>
+          </select>
+          <select id="ppReportReason" onchange="loadPpReports()">
+            <option value="">전체 사유</option><option value="copyright">저작권</option>
+            <option value="illegal">불법</option><option value="sexual">성적</option>
+            <option value="violence">폭력</option><option value="spam">스팸</option><option value="other">기타</option>
+          </select>
+        </div>
+        <table class="data-table"><thead>
+          <tr><th>ID</th><th>미리보기</th><th>도안</th><th>사유</th><th>내용</th><th>작성자</th><th>신고자</th><th>상태</th><th>조치</th></tr>
+        </thead><tbody id="ppReportsBody"><tr><td colspan="9" class="empty">Loading...</td></tr></tbody></table>
+      </div>
+
+      <!-- 도안 -->
+      <div class="pp-tab" id="pp-posts" style="display:none">
+        <div style="margin:10px 0"><input id="ppPostQuery" placeholder="제목 검색" onkeydown="if(event.key==='Enter')ppSearchPosts()"><button onclick="ppSearchPosts()">검색</button></div>
+        <table class="data-table"><thead>
+          <tr><th>ID</th><th>미리보기</th><th>제목</th><th>작성자</th><th>공개</th><th>상태</th><th>신고</th><th>❤</th><th>⬇</th><th>조치</th></tr>
+        </thead><tbody id="ppPostsBody"><tr><td colspan="10" class="empty">검색어를 입력하세요</td></tr></tbody></table>
+      </div>
+
+      <!-- 유저 -->
+      <div class="pp-tab" id="pp-users" style="display:none">
+        <div style="margin:10px 0"><input id="ppUserQuery" placeholder="닉네임/이메일 검색" onkeydown="if(event.key==='Enter')ppSearchUsers()"><button onclick="ppSearchUsers()">검색</button></div>
+        <table class="data-table"><thead>
+          <tr><th>ID</th><th>닉네임</th><th>이메일</th><th>provider</th><th>도안수</th><th>상태</th><th>조치</th></tr>
+        </thead><tbody id="ppUsersBody"><tr><td colspan="7" class="empty">검색어를 입력하세요</td></tr></tbody></table>
+      </div>
+
+      <!-- 처리 로그 -->
+      <div class="pp-tab" id="pp-logs" style="display:none">
+        <table class="data-table"><thead>
+          <tr><th>시각</th><th>관리자</th><th>액션</th><th>대상</th><th>메모</th></tr>
+        </thead><tbody id="ppLogsBody"><tr><td colspan="5" class="empty">Loading...</td></tr></tbody></table>
+      </div>
+    </div>
+  </div>
+
   <!-- [SAJA] 사자툰 소유 — #sajaDashboard 섹션 삭제·리팩터링 금지 (리포 루트 CLAUDE.md) -->
   <!-- Dashboard (사자툰) -->
   <div class="dashboard" id="sajaDashboard" style="display:none">
@@ -977,6 +1040,9 @@
       // [MFA] 성인의 수학 소유 — 카드 항목 삭제 금지
       { id: 'mfa', name: '성인의 수학', desc: '문의 관리', icon: '📐',
         privacy: '/mfa/privacy', terms: '/mfa/support' },
+      // [PP] 비즈픽셀(PerlerPixel) 소유 — 카드 항목 삭제 금지
+      { id: 'pp', name: '비즈픽셀', desc: '도안 공유 · 신고 · 유저 관리', icon: '🧵',
+        privacy: '/pp/privacy', terms: '/pp/terms' },
     ];
 
     if (token) showHub(); else showLogin();
@@ -1009,8 +1075,8 @@
 
     // 모든 대시보드 숨기기 (공통)
     function hideAllDashboards() {
-      ['gameHub','dashboard','ctrDashboard','sajaDashboard','mfaDashboard']
-        .forEach(id => document.getElementById(id).style.display = 'none');
+      ['gameHub','dashboard','ctrDashboard','sajaDashboard','mfaDashboard','ppDashboard']
+        .forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
     }
 
     // 사이드바 게임 목록 렌더 + 활성 표시 (activeId: 'home' | 게임 id)
@@ -1093,6 +1159,9 @@
         loadSajaStats();
         loadSajaIdioms();
         sajaRefreshOrphanBadge();
+      } else if (id === 'pp') {   // [PP] 비즈픽셀 소유
+        document.getElementById('ppDashboard').style.display = 'block';
+        ppEnter();
       }
     }
 
@@ -1106,6 +1175,102 @@
         if (r.status === 401) { logout(); throw new Error('Unauthorized'); }
         return r.json();
       });
+    }
+
+    // ============================================================
+    // [PP] 비즈픽셀(PerlerPixel) 소유 — 도안 공유 관리. 삭제·리팩터링 금지.
+    // ============================================================
+    function ppEsc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+    function ppPrev(p) { return p ? `<img src="${p}" style="width:44px;height:44px;object-fit:contain;background:#fff;border:1px solid #ddd;border-radius:4px">` : ''; }
+    function ppEnter() { ppTab('reports'); loadPpStats(); loadPpReports(); }
+    function ppTab(name, btn) {
+      document.querySelectorAll('#ppTabs button').forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      else document.querySelector('#ppTabs button').classList.add('active');
+      document.querySelectorAll('.pp-tab').forEach(t => t.style.display = 'none');
+      document.getElementById('pp-' + name).style.display = 'block';
+      if (name === 'reports') loadPpReports();
+      else if (name === 'logs') loadPpLogs();
+    }
+    function loadPpStats() {
+      api('/api/admin/pp/stats').then(d => {
+        document.getElementById('ppStats').innerHTML =
+          [['접수 신고', d.openReports, '#e74c3c'], ['자동 비공개', d.pendingPosts, '#e67e22'],
+           ['활성 도안', d.activePosts, '#2c7'], ['유저', d.activeUsers, '#37c']]
+          .map(([k, v, c]) => `<div style="background:#fff;border:1px solid #eee;border-radius:8px;padding:12px 18px;min-width:110px">
+            <div style="font-size:12px;color:#888">${k}</div><div style="font-size:22px;font-weight:700;color:${c}">${v ?? 0}</div></div>`).join('');
+        const badge = document.getElementById('ppReportBadge');
+        if (d.openReports > 0) { badge.textContent = d.openReports; badge.style.display = 'inline-block'; } else badge.style.display = 'none';
+      }).catch(() => {});
+    }
+    function loadPpReports() {
+      const status = document.getElementById('ppReportStatus').value;
+      const reason = document.getElementById('ppReportReason').value;
+      api(`/api/admin/pp/reports?status=${status}&reason=${reason}`).then(d => {
+        const rows = d.reports || [];
+        document.getElementById('ppReportsBody').innerHTML = rows.length ? rows.map(r => `
+          <tr><td>${r.id}</td><td>${ppPrev(r.preview_path)}</td>
+            <td>#${r.post_id} ${ppEsc(r.post_title)}<br><small>${r.post_status}</small></td>
+            <td><b>${r.reason}</b></td><td><small>${ppEsc(r.detail)}</small></td>
+            <td>${r.author_id ? ppEsc(r.author_nickname) + ' (#' + r.author_id + ')' : '익명'}</td>
+            <td>${r.reporter_id ? ppEsc(r.reporter_nickname) : '-'}</td><td>${r.status}</td>
+            <td style="white-space:nowrap">
+              ${r.status === 'open' ? `<button onclick="ppHide(${r.post_id})">비공개</button>
+              <button onclick="ppDelete(${r.post_id})" style="color:#c00">삭제</button>
+              <button onclick="ppRestore(${r.post_id})">유지</button>` : ''}
+            </td></tr>`).join('') : '<tr><td colspan="9" class="empty">신고 없음</td></tr>';
+        loadPpStats();
+      }).catch(() => {});
+    }
+    function ppAct(url, body) { return api(url, { method: 'POST', body: JSON.stringify(body || {}) }); }
+    function ppHide(id) { if (confirm('이 도안을 비공개 처리할까요?')) ppAct(`/api/admin/pp/posts/${id}/hide`).then(loadPpReports); }
+    function ppRestore(id) { ppAct(`/api/admin/pp/posts/${id}/restore`).then(loadPpReports); }
+    function ppDelete(id) { if (confirm('이 도안을 삭제할까요? (되돌릴 수 없음)')) api(`/api/admin/pp/posts/${id}`, { method: 'DELETE' }).then(loadPpReports); }
+    function ppSearchPosts() {
+      const q = encodeURIComponent(document.getElementById('ppPostQuery').value.trim());
+      api(`/api/admin/pp/posts?query=${q}`).then(d => {
+        const rows = d.posts || [];
+        document.getElementById('ppPostsBody').innerHTML = rows.length ? rows.map(p => `
+          <tr><td>${p.id}</td><td>${ppPrev(p.preview_path)}</td><td>${ppEsc(p.title)}</td>
+            <td>${p.author_id ? ppEsc(p.author_nickname) : '익명'}</td><td>${p.visibility}</td>
+            <td>${p.status}</td><td>${p.report_count}</td><td>${p.like_count}</td><td>${p.download_count}</td>
+            <td style="white-space:nowrap">
+              ${p.status !== 'deleted' ? `<button onclick="ppHide(${p.id})">비공개</button>
+              <button onclick="ppRestore(${p.id})">복구</button>
+              <button onclick="ppDelete(${p.id})" style="color:#c00">삭제</button>` : ''}
+            </td></tr>`).join('') : '<tr><td colspan="10" class="empty">결과 없음</td></tr>';
+      }).catch(() => {});
+    }
+    function ppSearchUsers() {
+      const q = encodeURIComponent(document.getElementById('ppUserQuery').value.trim());
+      api(`/api/admin/pp/users?query=${q}`).then(d => {
+        const rows = d.users || [];
+        document.getElementById('ppUsersBody').innerHTML = rows.length ? rows.map(u => `
+          <tr><td>${u.id}</td><td>${ppEsc(u.nickname)}</td><td>${ppEsc(u.email || '')}</td>
+            <td>${u.provider}</td><td>${u.post_count}</td>
+            <td>${u.banned ? '<span style="color:#c00">제재중</span>' : u.status}</td>
+            <td style="white-space:nowrap">
+              ${u.banned ? `<button onclick="ppUnban(${u.id})">해제</button>`
+                : `<button onclick="ppBan(${u.id},'upload')">업로드 제한</button>
+                   <button onclick="ppBan(${u.id},'full')" style="color:#c00">정지</button>`}
+            </td></tr>`).join('') : '<tr><td colspan="7" class="empty">결과 없음</td></tr>';
+      }).catch(() => {});
+    }
+    function ppBan(id, type) {
+      const reason = prompt(`${type === 'full' ? '정지' : '업로드 제한'} 사유 (선택):`, '');
+      if (reason === null) return;
+      const days = prompt('기간(일). 비우면 영구:', '');
+      ppAct(`/api/admin/pp/users/${id}/ban`, { banType: type, reason, days: days || undefined }).then(ppSearchUsers);
+    }
+    function ppUnban(id) { ppAct(`/api/admin/pp/users/${id}/unban`).then(ppSearchUsers); }
+    function loadPpLogs() {
+      api('/api/admin/pp/logs').then(d => {
+        const rows = d.logs || [];
+        document.getElementById('ppLogsBody').innerHTML = rows.length ? rows.map(l => `
+          <tr><td>${new Date(l.created_at).toLocaleString()}</td><td>${ppEsc(l.admin)}</td>
+            <td>${l.action}</td><td>${l.target_type} #${l.target_id}</td><td>${ppEsc(l.memo || '')}</td></tr>`).join('')
+          : '<tr><td colspan="5" class="empty">로그 없음</td></tr>';
+      }).catch(() => {});
     }
 
     // ============================================================

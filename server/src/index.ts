@@ -14,6 +14,7 @@ import adminRouter from './routes/admin';
 import catchTheRuleRouter from './routes/catchtherule'; // [CTR] CatchTheRule 소유 — 삭제 금지
 import sajatoonRouter from './routes/sajatoon'; // [SAJA] 사자툰 소유 — 삭제 금지
 import mathForAdultsRouter from './routes/mathforadults'; // [MFA] 성인의 수학 소유 — 삭제 금지
+import perlerPixelRouter from './routes/perlerpixel'; // [PP] PerlerPixel 소유 — 삭제 금지
 import path from 'path';
 
 // 전역 에러 안전망: 비동기 소켓 핸들러/타이머 콜백에서 발생한 에러가
@@ -79,6 +80,10 @@ app.use('/api/sajatoon', sajatoonRouter);
 // 로그인 없는 deviceId 기반 문의.
 app.use('/api/mathforadults', mathForAdultsRouter);
 
+// [PP] PerlerPixel(비즈픽셀) 커뮤니티 게시판 API — 별도 리포(PerlerPixel) 소유. 삭제·리팩터링 금지.
+// 소셜 로그인(pp_users) 기반. 리스트는 비로그인, 상세/업로드/상호작용은 로그인 필요.
+app.use('/api/perlerpixel', perlerPixelRouter);
+
 // 관리자 페이지 — /backstage 로만 접근 (기존 /admin 경로는 제거).
 app.use('/backstage', express.static(path.join(__dirname, '../public/admin')));
 
@@ -90,6 +95,8 @@ app.use('/duo', express.static(path.join(__dirname, '../public/duo'), { extensio
 app.use('/saja', express.static(path.join(__dirname, '../public/saja'), { extensions: ['html'] }));
 // [MFA] 성인의 수학 약관/개인정보/지원 정적 페이지 (/mfa/privacy, /mfa/support). 성인의 수학 소유.
 app.use('/mfa', express.static(path.join(__dirname, '../public/mfa'), { extensions: ['html'] }));
+// [PP] PerlerPixel 정적 — 약관·개인정보·커뮤니티 가이드라인·문의(/pp/*)와 업로드 프리뷰(/pp/uploads/*). PerlerPixel 소유.
+app.use('/pp', express.static(path.join(__dirname, '../public/pp'), { extensions: ['html'] }));
 
 // Socket.io 핸들러 설정
 setupSocketHandlers(io);
