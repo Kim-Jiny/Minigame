@@ -645,6 +645,7 @@
 
       <div class="filter-tabs" id="ppTabs">
         <button class="active" onclick="ppTab('reports', this)">신고 <span class="badge pending" id="ppReportBadge" style="display:none">0</span></button>
+        <button onclick="ppTab('inquiries', this)">문의 <span class="badge pending" id="ppInquiryBadge" style="display:none">0</span></button>
         <button onclick="ppTab('posts', this)">도안</button>
         <button onclick="ppTab('users', this)">유저</button>
         <button onclick="ppTab('logs', this)">처리 로그</button>
@@ -658,9 +659,9 @@
             <option value="rejected">반려</option><option value="">전체</option>
           </select>
           <select id="ppReportReason" onchange="loadPpReports()">
-            <option value="">전체 사유</option><option value="copyright">저작권</option>
-            <option value="illegal">불법</option><option value="sexual">성적</option>
-            <option value="violence">폭력</option><option value="spam">스팸</option><option value="other">기타</option>
+            <option value="">전체 사유</option><option value="copyright">저작권·상표권</option>
+            <option value="inappropriate">부적절한 이미지</option><option value="abuse">욕설·혐오</option>
+            <option value="privacy">개인정보·초상권</option><option value="spam">스팸·광고</option><option value="other">기타</option>
           </select>
         </div>
         <table class="data-table"><thead>
@@ -684,11 +685,29 @@
         </thead><tbody id="ppUsersBody"><tr><td colspan="7" class="empty">검색어를 입력하세요</td></tr></tbody></table>
       </div>
 
+      <!-- 문의 -->
+      <div class="pp-tab" id="pp-inquiries" style="display:none">
+        <table class="data-table"><thead>
+          <tr><th>ID</th><th>유저</th><th>문의 내용</th><th>답변</th><th>상태</th><th>등록일</th><th></th></tr>
+        </thead><tbody id="ppInquiriesBody"><tr><td colspan="7" class="empty">Loading...</td></tr></tbody></table>
+      </div>
+
       <!-- 처리 로그 -->
       <div class="pp-tab" id="pp-logs" style="display:none">
         <table class="data-table"><thead>
           <tr><th>시각</th><th>관리자</th><th>액션</th><th>대상</th><th>메모</th></tr>
         </thead><tbody id="ppLogsBody"><tr><td colspan="5" class="empty">Loading...</td></tr></tbody></table>
+      </div>
+    </div>
+
+    <!-- 유저 상세 모달 -->
+    <div id="ppUserModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;padding:40px" onclick="if(event.target===this)ppCloseUser()">
+      <div style="max-width:640px;margin:0 auto;background:#fff;border-radius:12px;padding:20px;max-height:85vh;overflow:auto">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h2 id="ppUserModalTitle" style="margin:0">유저 상세</h2>
+          <button onclick="ppCloseUser()">닫기</button>
+        </div>
+        <div id="ppUserModalBody">Loading...</div>
       </div>
     </div>
   </div>
@@ -1190,6 +1209,7 @@
       document.querySelectorAll('.pp-tab').forEach(t => t.style.display = 'none');
       document.getElementById('pp-' + name).style.display = 'block';
       if (name === 'reports') loadPpReports();
+      else if (name === 'inquiries') loadPpInquiries();
       else if (name === 'logs') loadPpLogs();
     }
     function loadPpStats() {
@@ -1201,8 +1221,57 @@
             <div style="font-size:12px;color:#888">${k}</div><div style="font-size:22px;font-weight:700;color:${c}">${v ?? 0}</div></div>`).join('');
         const badge = document.getElementById('ppReportBadge');
         if (d.openReports > 0) { badge.textContent = d.openReports; badge.style.display = 'inline-block'; } else badge.style.display = 'none';
+        const ib = document.getElementById('ppInquiryBadge');
+        if (d.openInquiries > 0) { ib.textContent = d.openInquiries; ib.style.display = 'inline-block'; } else ib.style.display = 'none';
       }).catch(() => {});
     }
+    function loadPpInquiries() {
+      api('/api/admin/pp/inquiries?status=all').then(d => {
+        const rows = d.inquiries || [];
+        document.getElementById('ppInquiriesBody').innerHTML = rows.length ? rows.map(i => `
+          <tr><td>${i.id}</td>
+            <td>${i.user_id ? ppEsc(i.user_nickname) + '<br><small>#' + i.user_id + '</small>' : '탈퇴'}</td>
+            <td style="max-width:220px">${ppEsc(i.content)}</td>
+            <td style="max-width:220px">${i.reply ? ppEsc(i.reply) : '<i style="color:#aaa">미답변</i>'}</td>
+            <td>${i.status === 'replied' ? '답변완료' : '<b style="color:#e67e22">대기</b>'}</td>
+            <td><small>${new Date(i.created_at).toLocaleDateString()}</small></td>
+            <td><button onclick="ppReply(${i.id})">${i.reply ? '수정' : '답변'}</button></td></tr>`).join('')
+          : '<tr><td colspan="7" class="empty">문의 없음</td></tr>';
+        loadPpStats();
+      }).catch(() => {});
+    }
+    function ppReply(id) {
+      const reply = prompt('답변 내용:', '');
+      if (!reply || !reply.trim()) return;
+      api(`/api/admin/pp/inquiries/${id}/reply`, { method: 'PUT', body: JSON.stringify({ reply: reply.trim() }) })
+        .then(loadPpInquiries).catch(() => {});
+    }
+    function ppUserDetail(id) {
+      document.getElementById('ppUserModal').style.display = 'block';
+      document.getElementById('ppUserModalBody').innerHTML = 'Loading...';
+      api(`/api/admin/pp/users/${id}`).then(d => {
+        const u = d.user;
+        document.getElementById('ppUserModalTitle').textContent = `${u.nickname} (#${u.id})`;
+        const posts = (d.posts || []).map(p => `<tr><td>${ppPrev(p.preview_path)}</td><td>${ppEsc(p.title)}</td><td>${p.status}</td><td>신고 ${p.report_count}</td>
+          <td><button onclick="ppHide(${p.id})">비공개</button><button onclick="ppDelete(${p.id})" style="color:#c00">삭제</button></td></tr>`).join('') || '<tr><td colspan="5" class="empty">없음</td></tr>';
+        const inqs = (d.inquiries || []).map(i => `<li><b>${i.status==='replied'?'✓':'·'}</b> ${ppEsc(i.content)} ${i.reply?'<br><small style="color:#37c">→ '+ppEsc(i.reply)+'</small>':''}</li>`).join('') || '<li style="color:#aaa">없음</li>';
+        document.getElementById('ppUserModalBody').innerHTML = `
+          <div style="margin-bottom:12px;font-size:14px;color:#555">
+            ${ppEsc(u.email||'')} · ${u.provider} · 가입 ${new Date(u.created_at).toLocaleDateString()}<br>
+            받은 신고 <b>${d.reportsReceived}</b>건 · 상태: ${d.activeBan ? '<span style="color:#c00">제재중('+d.activeBan.ban_type+')</span>' : u.status}
+          </div>
+          <div style="margin:10px 0">
+            ${d.activeBan ? `<button onclick="ppUnban(${u.id});ppUserDetail(${u.id})">제재 해제</button>`
+              : `<button onclick="ppBan(${u.id},'upload');ppUserDetail(${u.id})">업로드 제한</button>
+                 <button onclick="ppBan(${u.id},'full');ppUserDetail(${u.id})" style="color:#c00">정지</button>`}
+          </div>
+          <h3 style="margin:14px 0 6px">올린 도안</h3>
+          <table class="data-table"><tbody>${posts}</tbody></table>
+          <h3 style="margin:14px 0 6px">문의</h3>
+          <ul style="padding-left:18px;font-size:14px">${inqs}</ul>`;
+      }).catch(() => { document.getElementById('ppUserModalBody').innerHTML = '불러오기 실패'; });
+    }
+    function ppCloseUser() { document.getElementById('ppUserModal').style.display = 'none'; }
     function loadPpReports() {
       const status = document.getElementById('ppReportStatus').value;
       const reason = document.getElementById('ppReportReason').value;
@@ -1246,7 +1315,9 @@
       api(`/api/admin/pp/users?query=${q}`).then(d => {
         const rows = d.users || [];
         document.getElementById('ppUsersBody').innerHTML = rows.length ? rows.map(u => `
-          <tr><td>${u.id}</td><td>${ppEsc(u.nickname)}</td><td>${ppEsc(u.email || '')}</td>
+          <tr><td>${u.id}</td>
+            <td><a href="#" onclick="ppUserDetail(${u.id});return false" style="color:#37c;font-weight:600">${ppEsc(u.nickname)}</a></td>
+            <td>${ppEsc(u.email || '')}</td>
             <td>${u.provider}</td><td>${u.post_count}</td>
             <td>${u.banned ? '<span style="color:#c00">제재중</span>' : u.status}</td>
             <td style="white-space:nowrap">

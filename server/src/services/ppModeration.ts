@@ -6,7 +6,8 @@ import { getPool } from '../config/database';
 /** 서로 다른 유저의 신고가 이 수를 넘으면 게시글을 자동 pending(비공개) 처리. */
 export const REPORT_AUTO_HIDE_THRESHOLD = 3;
 
-export const REPORT_REASONS = ['copyright', 'illegal', 'sexual', 'violence', 'spam', 'other'] as const;
+// 저작권·상표권 / 부적절한 이미지 / 욕설·혐오 / 개인정보·초상권 / 스팸·광고 / 기타
+export const REPORT_REASONS = ['copyright', 'inappropriate', 'abuse', 'privacy', 'spam', 'other'] as const;
 export type ReportReason = (typeof REPORT_REASONS)[number];
 
 // 기본 금지어(운영 중 pp_banned_keywords 로 추가/편집). 최소 기본셋.

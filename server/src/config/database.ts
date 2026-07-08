@@ -597,12 +597,14 @@ export async function setupDatabase() {
         provider_uid VARCHAR(255) NOT NULL,     -- 소셜 고유 식별자(sub)
         email VARCHAR(255),
         nickname VARCHAR(40) NOT NULL,
+        nickname_set BOOLEAN DEFAULT FALSE,     -- 유저가 닉네임을 직접 정했는지(실명 노출 방지)
         avatar_url TEXT,
         status VARCHAR(10) DEFAULT 'active',    -- active | deleted(탈퇴 익명화)
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE (provider, provider_uid)
       );
+      ALTER TABLE pp_users ADD COLUMN IF NOT EXISTS nickname_set BOOLEAN DEFAULT FALSE;
       CREATE TABLE IF NOT EXISTS pp_posts (
         id SERIAL PRIMARY KEY,
         author_id INTEGER REFERENCES pp_users(id) ON DELETE SET NULL,  -- NULL=익명화(탈퇴)
@@ -617,6 +619,7 @@ export async function setupDatabase() {
         width INTEGER NOT NULL,
         height INTEGER NOT NULL,
         bead_count INTEGER NOT NULL,
+        rights_ack_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- 업로더 권리확인 동의 시각(신고 대응 근거)
         like_count INTEGER DEFAULT 0,
         download_count INTEGER DEFAULT 0,
         report_count INTEGER DEFAULT 0,
@@ -638,6 +641,8 @@ export async function setupDatabase() {
         post_id INTEGER REFERENCES pp_posts(id) ON DELETE CASCADE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+      -- 유저별 1회만 집계(다운로드 카운트 부풀리기 방지). 재다운로드는 허용하되 카운트는 그대로.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_pp_downloads_user_post ON pp_downloads(user_id, post_id);
       CREATE TABLE IF NOT EXISTS pp_reports (
         id SERIAL PRIMARY KEY,
         reporter_id INTEGER REFERENCES pp_users(id) ON DELETE SET NULL,
@@ -684,6 +689,25 @@ export async function setupDatabase() {
       CREATE TABLE IF NOT EXISTS pp_banned_keywords (
         word VARCHAR(60) PRIMARY KEY
       );
+      CREATE TABLE IF NOT EXISTS pp_inquiries (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES pp_users(id) ON DELETE CASCADE,
+        content TEXT NOT NULL,
+        status VARCHAR(10) DEFAULT 'pending',   -- pending | replied
+        reply TEXT,
+        replied_at TIMESTAMP,
+        is_read BOOLEAN DEFAULT FALSE,           -- 유저가 답변을 읽었는지
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_pp_inquiries_user ON pp_inquiries(user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_pp_inquiries_status ON pp_inquiries(status, created_at DESC);
+      CREATE TABLE IF NOT EXISTS pp_device_tokens (
+        token TEXT PRIMARY KEY,                   -- FCM 등록 토큰
+        user_id INTEGER REFERENCES pp_users(id) ON DELETE CASCADE,
+        platform VARCHAR(10),                     -- ios | android
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_pp_device_tokens_user ON pp_device_tokens(user_id);
 
       -- [LAB] 참고: 이 공유 DB 에는 라비린스 온라인 소유의 lab_* 테이블
       --       (lab_matches, lab_match_players, lab_user_stats)도 존재한다.

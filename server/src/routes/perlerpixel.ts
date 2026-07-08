@@ -29,6 +29,19 @@ try { fs.mkdirSync(uploadsDir, { recursive: true }); } catch { /* 이미 존재 
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 6 * 1024 * 1024 } });
 
+// 미리보기에 워터마크를 구워넣는다(캡쳐 방지). 다운로드는 pattern_data(원본)라 워터마크 없음.
+async function watermarkPreview(buf: Buffer): Promise<Buffer> {
+  const base = sharp(buf);
+  const meta = await base.metadata();
+  const w = meta.width ?? 600, h = meta.height ?? 600;
+  const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg"><defs>
+    <pattern id="wm" width="230" height="150" patternTransform="rotate(-28)" patternUnits="userSpaceOnUse">
+      <text x="8" y="74" font-family="-apple-system,'Apple SD Gothic Neo',sans-serif" font-size="22" font-weight="700"
+            fill="#000" fill-opacity="0.16">비즈픽셀</text>
+    </pattern></defs><rect width="${w}" height="${h}" fill="url(#wm)"/></svg>`;
+  return base.composite([{ input: Buffer.from(svg) }]).png().toBuffer();
+}
+
 interface AuthedRequest extends Request { ppUser?: PpUser; ppBan?: { ban_type: string; reason: string } | null }
 
 function bearer(req: Request): string | null {
@@ -76,19 +89,21 @@ router.post('/auth/:provider', async (req: Request, res: Response): Promise<void
 
     if (!social) { res.status(401).json({ error: 'invalid_token' }); return; }
 
-    // Apple 은 최초 로그인시에만 이름 제공 → 클라이언트가 넘긴 값 보조 사용
-    const fallbackName = typeof body.name === 'string' ? body.name : null;
-    const nickname =
-      (social.name || fallbackName || social.email?.split('@')[0] || `유저${social.uid.slice(-6)}`).slice(0, 40);
-
+    // 실명 노출 방지: 소셜 이름을 쓰지 않고 중립 placeholder 로 생성. 유저가 첫 로그인에
+    // 닉네임을 직접 정한다(needsNickname). 기존 유저는 저장된 닉네임 유지.
+    const placeholder = `유저${social.uid.slice(-6)}`;
     const user = await findOrCreatePpUser(
       provider as 'apple' | 'google' | 'kakao',
-      social.uid, social.email, nickname, social.avatar
+      social.uid, social.email, placeholder, social.avatar
     );
     const ban = await getActivePpBan(user.id);
     if (ban && ban.ban_type === 'full') { res.status(403).json({ error: 'banned', reason: ban.reason }); return; }
 
-    res.json({ token: signPpToken(user.id), user: { ...publicUser(user), email: user.email } });
+    res.json({
+      token: signPpToken(user.id),
+      user: { ...publicUser(user), email: user.email },
+      needsNickname: !user.nickname_set,
+    });
   } catch (e) {
     console.error('[PP] auth error:', e);
     res.status(500).json({ error: 'auth_failed' });
@@ -97,7 +112,11 @@ router.post('/auth/:provider', async (req: Request, res: Response): Promise<void
 
 router.get('/me', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
   const u = req.ppUser!;
-  res.json({ user: { ...publicUser(u), email: u.email }, uploadBanned: req.ppBan?.ban_type === 'upload' });
+  res.json({
+    user: { ...publicUser(u), email: u.email },
+    uploadBanned: req.ppBan?.ban_type === 'upload',
+    needsNickname: !u.nickname_set,
+  });
 });
 
 router.put('/me/nickname', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
@@ -105,7 +124,7 @@ router.put('/me/nickname', requireAuth, async (req: AuthedRequest, res: Response
   const nickname = typeof req.body?.nickname === 'string' ? req.body.nickname.trim() : '';
   if (nickname.length < 2 || nickname.length > 20) { res.status(400).json({ error: 'nickname_length' }); return; }
   if (await containsBannedWord(nickname)) { res.status(400).json({ error: 'banned_word' }); return; }
-  await pool.query(`UPDATE pp_users SET nickname=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2`, [nickname, req.ppUser!.id]);
+  await pool.query(`UPDATE pp_users SET nickname=$1, nickname_set=TRUE, updated_at=CURRENT_TIMESTAMP WHERE id=$2`, [nickname, req.ppUser!.id]);
   res.json({ user: { ...publicUser(req.ppUser!), nickname } });
 });
 
@@ -123,9 +142,15 @@ router.get('/posts', optionalAuth, async (req: AuthedRequest, res: Response): Pr
   const beforeId = parseInt(String(req.query.cursor ?? ''), 10);
   const viewer = req.ppUser?.id ?? null;
 
+  const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 40) : '';
   const params: any[] = [];
   let where = `p.visibility='public' AND p.status='active'`;
   if (Number.isFinite(beforeId)) { params.push(beforeId); where += ` AND p.id < $${params.length}`; }
+  if (q) {
+    params.push(`%${q}%`);
+    const p = `$${params.length}`;
+    where += ` AND (p.title ILIKE ${p} OR EXISTS (SELECT 1 FROM unnest(p.tags) t WHERE t ILIKE ${p}))`;
+  }
   if (viewer) {
     params.push(viewer);
     const v = `$${params.length}`;
@@ -155,6 +180,32 @@ function toListItem(r: any) {
     author: r.author_id ? { id: r.author_id, nickname: r.author_nickname } : null, // null=익명화
   };
 }
+
+// 금주 인기 Top 10 — 최근 7일 좋아요+다운로드 합산 점수순(비로그인 허용).
+// 주의: '/posts/:id' 보다 먼저 선언해야 함(안 그러면 id='popular' 로 잡힘).
+router.get('/posts/popular', optionalAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
+  const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  const viewer = req.ppUser?.id ?? null;
+  const params: any[] = [];
+  let visibility = `p.visibility='public' AND p.status='active'`;
+  if (viewer) {
+    params.push(viewer);
+    const v = `$${params.length}`;
+    visibility += ` AND NOT EXISTS (SELECT 1 FROM pp_blocks b WHERE b.blocker_id=${v} AND b.blocked_id=p.author_id)`;
+    visibility += ` AND NOT EXISTS (SELECT 1 FROM pp_hidden h WHERE h.user_id=${v} AND h.post_id=p.id)`;
+  }
+  const rows = (await pool.query(
+    `SELECT p.id, p.title, p.width, p.height, p.bead_count, p.like_count, p.download_count,
+            p.preview_path, p.created_at, u.nickname AS author_nickname, p.author_id,
+            ((SELECT COUNT(*) FROM pp_likes l WHERE l.post_id=p.id AND l.created_at > NOW()-INTERVAL '7 days')
+           + (SELECT COUNT(*) FROM pp_downloads d WHERE d.post_id=p.id AND d.created_at > NOW()-INTERVAL '7 days')) AS score
+       FROM pp_posts p LEFT JOIN pp_users u ON u.id=p.author_id
+      WHERE ${visibility}
+      ORDER BY score DESC, p.id DESC
+      LIMIT 10`, params
+  )).rows;
+  res.json({ posts: rows.map(toListItem) });
+});
 
 // ───────────────────────── 상세(로그인 필요) ─────────────────────────
 async function loadVisiblePost(pool: any, id: number, viewer: number): Promise<any | null> {
@@ -241,11 +292,12 @@ router.post('/posts', requireAuth, upload.fields([{ name: 'preview', maxCount: 1
       if (width < 1 || width > 400 || height < 1 || height > 400) { res.status(400).json({ error: 'invalid_size' }); return; }
       const beadCount = Math.max(0, parseInt(String(b.beadCount ?? '0'), 10) || 0);
 
-      // 프리뷰: sharp 로 재인코딩(메타 제거 + 크기 제한). 없으면 업로드 거부.
+      // 프리뷰: sharp 로 재인코딩(메타 제거 + 크기 제한) 후 워터마크. 없으면 업로드 거부.
       if (!previewFile) { res.status(400).json({ error: 'preview_required' }); return; }
-      const previewPng = await sharp(previewFile.buffer)
+      const resized = await sharp(previewFile.buffer)
         .resize({ width: 900, height: 900, fit: 'inside', withoutEnlargement: true })
         .png().toBuffer();
+      const previewPng = await watermarkPreview(resized);
       const fname = `${randomBytes(8).toString('hex')}.png`;
       fs.writeFileSync(path.join(uploadsDir, fname), previewPng);
       const previewPath = `/pp/uploads/${fname}`;
@@ -280,8 +332,14 @@ router.post('/posts/:id/download', requireAuth, async (req: AuthedRequest, res: 
   const id = parseInt(String(req.params.id), 10);
   const post = Number.isFinite(id) ? await loadVisiblePost(pool, id, req.ppUser!.id) : null;
   if (!post) { res.status(404).json({ error: 'not_found' }); return; }
-  await pool.query('INSERT INTO pp_downloads (user_id, post_id) VALUES ($1,$2)', [req.ppUser!.id, id]);
-  await pool.query('UPDATE pp_posts SET download_count=download_count+1 WHERE id=$1', [id]);
+  // 유저별 최초 1회만 집계 — 재다운로드는 데이터만 반환하고 카운트는 올리지 않음.
+  const first = await pool.query(
+    'INSERT INTO pp_downloads (user_id, post_id) VALUES ($1,$2) ON CONFLICT (user_id, post_id) DO NOTHING RETURNING id',
+    [req.ppUser!.id, id]
+  );
+  if (first.rows.length) {
+    await pool.query('UPDATE pp_posts SET download_count=download_count+1 WHERE id=$1', [id]);
+  }
   res.json({ patternData: Buffer.from(post.pattern_data).toString('base64') });
 });
 
@@ -352,6 +410,61 @@ router.get('/me/posts', requireAuth, async (req: AuthedRequest, res: Response): 
     likeCount: r.like_count, downloadCount: r.download_count, reportCount: r.report_count,
     previewPath: r.preview_path, visibility: r.visibility, status: r.status, createdAt: r.created_at,
   })) });
+});
+
+// ───────────────────────── 문의하기 ─────────────────────────
+// 문의 등록
+router.post('/inquiries', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
+  const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  const content = typeof req.body?.content === 'string' ? req.body.content.trim() : '';
+  if (content.length < 1 || content.length > 2000) { res.status(400).json({ error: 'content_length' }); return; }
+  const r = await pool.query(
+    `INSERT INTO pp_inquiries (user_id, content) VALUES ($1,$2)
+     RETURNING id, content, status, reply, replied_at, is_read, created_at`,
+    [req.ppUser!.id, content]
+  );
+  res.json({ inquiry: r.rows[0] });
+});
+
+// 내 문의 목록(답변 포함)
+router.get('/inquiries', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
+  const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  const rows = (await pool.query(
+    `SELECT id, content, status, reply, replied_at, is_read, created_at
+       FROM pp_inquiries WHERE user_id=$1 ORDER BY id DESC LIMIT 100`, [req.ppUser!.id]
+  )).rows;
+  res.json({ inquiries: rows });
+});
+
+// 답변 읽음 처리
+router.post('/inquiries/read', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
+  const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  await pool.query(`UPDATE pp_inquiries SET is_read=TRUE WHERE user_id=$1 AND status='replied'`, [req.ppUser!.id]);
+  res.json({ success: true });
+});
+
+// 안 읽은 답변 수(배지용)
+router.get('/inquiries/unread-count', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
+  const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  const c = (await pool.query(
+    `SELECT COUNT(*)::int c FROM pp_inquiries WHERE user_id=$1 AND status='replied' AND is_read=FALSE`, [req.ppUser!.id]
+  )).rows[0].c;
+  res.json({ unread: c });
+});
+
+// FCM 디바이스 토큰 등록/갱신(푸시용)
+router.post('/device-token', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
+  const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+  const platform = req.body?.platform === 'android' ? 'android' : 'ios';
+  if (!token) { res.status(400).json({ error: 'token_required' }); return; }
+  await pool.query(
+    `INSERT INTO pp_device_tokens (token, user_id, platform, updated_at)
+     VALUES ($1,$2,$3,CURRENT_TIMESTAMP)
+     ON CONFLICT (token) DO UPDATE SET user_id=EXCLUDED.user_id, platform=EXCLUDED.platform, updated_at=CURRENT_TIMESTAMP`,
+    [token, req.ppUser!.id, platform]
+  );
+  res.json({ success: true });
 });
 
 router.get('/health', (_req: Request, res: Response) => { res.json({ ok: true }); });
