@@ -298,15 +298,21 @@ function toDetail(p: any) {
   };
 }
 
-// unlisted 공유코드 접근
+// unlisted 공유코드 접근 — 상세와 동일 형태(liked/isOwner/작성자 계급 포함).
 router.get('/posts/code/:code', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
   const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
   const r = await pool.query(
     `SELECT p.*, u.nickname AS author_nickname FROM pp_posts p LEFT JOIN pp_users u ON u.id=p.author_id
       WHERE p.share_code=$1 AND p.status='active'`, [String(req.params.code)]
   );
-  if (!r.rows[0]) { res.status(404).json({ error: 'not_found' }); return; }
-  res.json({ post: toDetail(r.rows[0]) });
+  const row = r.rows[0];
+  if (!row) { res.status(404).json({ error: 'not_found' }); return; }
+  const liked = (await pool.query('SELECT 1 FROM pp_likes WHERE user_id=$1 AND post_id=$2', [req.ppUser!.id, row.id])).rows.length > 0;
+  const detail = toDetail(row);
+  const author = detail.author
+    ? { ...detail.author, tier: tierFor(await likesReceived(pool, detail.author.id)) }
+    : null;
+  res.json({ post: { ...detail, author }, liked, isOwner: row.author_id === req.ppUser!.id });
 });
 
 // ───────────────────────── 업로드(로그인 + 권리확인) ─────────────────────────
@@ -411,6 +417,28 @@ router.patch('/posts/:id/tags', requireAuth, async (req: AuthedRequest, res: Res
   res.json({ success: true, tags });
 });
 
+// 게시글 수정(작성자 본인) — 제목·본문·태그. 업로드와 동일 검증.
+router.patch('/posts/:id', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
+  const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  const id = parseInt(String(req.params.id), 10);
+  const b = req.body ?? {};
+  const title = typeof b.title === 'string' ? b.title.trim() : '';
+  if (title.length < 1 || title.length > 120) { res.status(400).json({ error: 'title_length' }); return; }
+  const description = (typeof b.description === 'string' ? b.description : '').slice(0, 2000);
+  const raw = Array.isArray(b.tags) ? b.tags : String(b.tags || '').split(',');
+  const tags = raw.map((t: any) => String(t).trim()).filter(Boolean).slice(0, 10);
+  if (await containsBannedWord(`${title} ${description} ${tags.join(' ')}`)) {
+    res.status(400).json({ error: 'banned_word' }); return;
+  }
+  const r = await pool.query(
+    `UPDATE pp_posts SET title=$1, description=$2, tags=$3, updated_at=CURRENT_TIMESTAMP
+      WHERE id=$4 AND author_id=$5 AND status<>'deleted' RETURNING id`,
+    [title, description, tags, id, req.ppUser!.id]
+  );
+  if (!r.rows[0]) { res.status(404).json({ error: 'not_found' }); return; }
+  res.json({ success: true, title, description, tags });
+});
+
 // 다운로드 — 집계 + pattern_data(base64) 반환
 router.post('/posts/:id/download', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
   const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
@@ -487,13 +515,14 @@ router.delete('/blocks/:userId', requireAuth, async (req: AuthedRequest, res: Re
 router.get('/me/posts', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
   const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
   const rows = (await pool.query(
-    `SELECT id,title,width,height,bead_count,like_count,download_count,report_count,preview_path,visibility,status,tags,created_at
+    `SELECT id,title,description,width,height,bead_count,like_count,download_count,report_count,preview_path,visibility,status,share_code,tags,created_at
        FROM pp_posts WHERE author_id=$1 AND status<>'deleted' ORDER BY id DESC`, [req.ppUser!.id]
   )).rows;
   res.json({ posts: rows.map((r: any) => ({
-    id: r.id, title: r.title, width: r.width, height: r.height, beadCount: r.bead_count,
+    id: r.id, title: r.title, description: r.description ?? '', width: r.width, height: r.height, beadCount: r.bead_count,
     likeCount: r.like_count, downloadCount: r.download_count, reportCount: r.report_count,
     previewPath: r.preview_path, visibility: r.visibility, status: r.status,
+    shareCode: r.visibility === 'unlisted' ? r.share_code : null,
     tags: r.tags ?? [], createdAt: r.created_at,
   })) });
 });
@@ -572,5 +601,65 @@ router.get('/users/:id/posts', requireAuth, async (req: AuthedRequest, res: Resp
 });
 
 router.get('/health', (_req: Request, res: Response) => { res.json({ ok: true }); });
+
+// ───────────────────────── 공유 링크(유니버설 링크 + 웹 폴백) ─────────────────────────
+// AASA: 앱 설치 시 https://duo.jiny.shop/pp/p/* 를 앱이 가로채도록. index.ts 에서
+// /.well-known/apple-app-site-association 로 서빙. PP_APPLE_APP_ID=TEAMID.com.jiny.bizpixel 필요.
+export function ppAppleAppSiteAssociation(_req: Request, res: Response): void {
+  const appID = process.env.PP_APPLE_APP_ID || '';
+  res.type('application/json').json({
+    applinks: { apps: [], details: appID ? [{ appID, paths: ['/pp/p/*'] }] : [] },
+  });
+}
+
+function esc(s: string): string {
+  return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
+}
+
+// 공유 웹페이지: 앱 미설치/타 플랫폼용 폴백. 미리보기 + "앱에서 열기"(커스텀 스킴).
+export async function ppSharePage(req: Request, res: Response): Promise<void> {
+  const pool = getPool();
+  const code = String(req.params.code || '').slice(0, 40);
+  let post: any = null;
+  if (pool) {
+    const r = await pool.query(
+      `SELECT title, preview_path, width, height, bead_count FROM pp_posts
+        WHERE share_code=$1 AND status='active' AND visibility='unlisted'`, [code]
+    );
+    post = r.rows[0] ?? null;
+  }
+  res.type('html');
+  if (!post) {
+    res.status(404).send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>비즈픽셀</title><body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;color:#333">
+<h2>도안을 찾을 수 없어요</h2><p style="color:#888">링크가 만료되었거나 삭제된 도안일 수 있어요.</p></body>`);
+    return;
+  }
+  const deep = `bizpixel://p/${encodeURIComponent(code)}`;
+  const img = post.preview_path ? esc(post.preview_path) : '';
+  res.send(`<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(post.title)} · 비즈픽셀</title>
+<meta property="og:title" content="${esc(post.title)} · 비즈픽셀 도안">
+${img ? `<meta property="og:image" content="https://duo.jiny.shop${img}">` : ''}
+<style>
+ body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;background:#f6f6f8;color:#222}
+ .wrap{max-width:420px;margin:0 auto;padding:32px 20px;text-align:center}
+ .card{background:#fff;border-radius:16px;padding:20px;box-shadow:0 2px 16px rgba(0,0,0,.06)}
+ img{width:220px;height:220px;object-fit:contain;background:#fff;border:1px solid #eee;border-radius:12px}
+ h1{font-size:20px;margin:16px 0 4px}.meta{color:#888;font-size:14px}
+ .btn{display:block;margin:20px 0 0;padding:14px;border-radius:12px;background:#ff5a8a;color:#fff;text-decoration:none;font-weight:700}
+ .sub{color:#aaa;font-size:12px;margin-top:12px}
+</style></head><body><div class="wrap"><div class="card">
+ ${img ? `<img src="${img}" alt="">` : ''}
+ <h1>${esc(post.title)}</h1>
+ <div class="meta">${post.width}×${post.height} · 비즈 ${post.bead_count}</div>
+ <a class="btn" href="${deep}">앱에서 열기</a>
+ <div class="sub">비즈픽셀 앱이 설치되어 있으면 앱에서 도안을 받을 수 있어요.</div>
+</div></div>
+<script>/* 앱 설치 시 유니버설 링크가 이 페이지 대신 앱을 열어줌. 폴백으로 스킴 시도. */
+ setTimeout(function(){ location.href=${JSON.stringify(deep)}; }, 400);
+</script></body></html>`);
+}
 
 export default router;

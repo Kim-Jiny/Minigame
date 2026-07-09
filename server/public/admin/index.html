@@ -672,7 +672,15 @@
 
       <!-- 도안 -->
       <div class="pp-tab" id="pp-posts" style="display:none">
-        <div style="margin:10px 0"><input id="ppPostQuery" placeholder="제목 검색" onkeydown="if(event.key==='Enter')ppSearchPosts()"><button onclick="ppSearchPosts()">검색</button></div>
+        <div style="margin:10px 0">
+          <input id="ppPostQuery" placeholder="제목 검색" onkeydown="if(event.key==='Enter')ppSearchPosts()">
+          <select id="ppPostVis" onchange="ppSearchPosts()">
+            <option value="">전체 공개설정</option>
+            <option value="public">공개</option>
+            <option value="unlisted">비공개(링크공유)</option>
+          </select>
+          <button onclick="ppSearchPosts()">검색</button>
+        </div>
         <table class="data-table"><thead>
           <tr><th>ID</th><th>미리보기</th><th>제목</th><th>작성자</th><th>공개</th><th>상태</th><th>신고</th><th>❤</th><th>⬇</th><th>조치</th></tr>
         </thead><tbody id="ppPostsBody"><tr><td colspan="10" class="empty">검색어를 입력하세요</td></tr></tbody></table>
@@ -1225,6 +1233,7 @@
       if (name === 'reports') loadPpReports();
       else if (name === 'inquiries') loadPpInquiries();
       else if (name === 'tags') loadPpTagGroups();
+      else if (name === 'posts') ppSearchPosts();
       else if (name === 'logs') loadPpLogs();
     }
     // 연관검색(태그 그룹) 관리
@@ -1365,12 +1374,14 @@
     function ppDelete(id) { if (confirm('이 도안을 삭제할까요? (되돌릴 수 없음)')) api(`/api/admin/pp/posts/${id}`, { method: 'DELETE' }).then(ppRefreshActive); }
     function ppSearchPosts() {
       const q = encodeURIComponent(document.getElementById('ppPostQuery').value.trim());
-      api(`/api/admin/pp/posts?query=${q}`).then(d => {
+      const vis = document.getElementById('ppPostVis').value;
+      api(`/api/admin/pp/posts?query=${q}&visibility=${vis}`).then(d => {
         const rows = d.posts || [];
         document.getElementById('ppPostsBody').innerHTML = rows.length ? rows.map(p => `
           <tr><td>${p.id}</td><td>${ppPrev(p.preview_path)}</td>
             <td>${ppEsc(p.title)}${(p.tags && p.tags.length) ? '<br><small style="color:#37c">#' + p.tags.map(ppEsc).join(' #') + '</small>' : ''}</td>
-            <td>${p.author_id ? ppEsc(p.author_nickname) : '익명'}</td><td>${p.visibility}</td>
+            <td>${p.author_id ? ppEsc(p.author_nickname) : '익명'}</td>
+            <td>${p.visibility === 'unlisted' ? '<span style="color:#e67e22">비공개</span>' : '공개'}</td>
             <td>${p.status}</td><td>${p.report_count}</td><td>${p.like_count}</td><td>${p.download_count}</td>
             <td style="white-space:nowrap">
               <button onclick="ppEditPostTags(${p.id}, '${encodeURIComponent((p.tags || []).join(', '))}')">태그</button>

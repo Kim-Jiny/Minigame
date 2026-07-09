@@ -1714,9 +1714,11 @@ router.get('/pp/posts', verifyAdminToken, async (req: Request, res: Response): P
   try {
     const pool = getPool(); if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
     const q = typeof req.query.query === 'string' ? req.query.query.trim() : '';
+    const vis = typeof req.query.visibility === 'string' ? req.query.visibility : '';
     const params: any[] = [];
     let where = `p.status <> 'deleted'`;
     if (q) { params.push(`%${q}%`); where += ` AND p.title ILIKE $${params.length}`; }
+    if (vis === 'public' || vis === 'unlisted') { params.push(vis); where += ` AND p.visibility=$${params.length}`; }
     const rows = (await pool.query(
       `SELECT p.id, p.title, p.status, p.visibility, p.report_count, p.like_count, p.download_count,
               p.preview_path, p.created_at, p.author_id, p.tags, u.nickname AS author_nickname
