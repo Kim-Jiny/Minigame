@@ -29,19 +29,6 @@ try { fs.mkdirSync(uploadsDir, { recursive: true }); } catch { /* 이미 존재 
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 6 * 1024 * 1024 } });
 
-// 미리보기에 워터마크를 구워넣는다(캡쳐 방지). 다운로드는 pattern_data(원본)라 워터마크 없음.
-async function watermarkPreview(buf: Buffer): Promise<Buffer> {
-  const base = sharp(buf);
-  const meta = await base.metadata();
-  const w = meta.width ?? 600, h = meta.height ?? 600;
-  const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg"><defs>
-    <pattern id="wm" width="230" height="150" patternTransform="rotate(-28)" patternUnits="userSpaceOnUse">
-      <text x="8" y="74" font-family="-apple-system,'Apple SD Gothic Neo',sans-serif" font-size="22" font-weight="700"
-            fill="#000" fill-opacity="0.16">비즈픽셀</text>
-    </pattern></defs><rect width="${w}" height="${h}" fill="url(#wm)"/></svg>`;
-  return base.composite([{ input: Buffer.from(svg) }]).png().toBuffer();
-}
-
 interface AuthedRequest extends Request { ppUser?: PpUser; ppBan?: { ban_type: string; reason: string } | null }
 
 function bearer(req: Request): string | null {
@@ -124,7 +111,18 @@ router.put('/me/nickname', requireAuth, async (req: AuthedRequest, res: Response
   const nickname = typeof req.body?.nickname === 'string' ? req.body.nickname.trim() : '';
   if (nickname.length < 2 || nickname.length > 20) { res.status(400).json({ error: 'nickname_length' }); return; }
   if (await containsBannedWord(nickname)) { res.status(400).json({ error: 'banned_word' }); return; }
-  await pool.query(`UPDATE pp_users SET nickname=$1, nickname_set=TRUE, updated_at=CURRENT_TIMESTAMP WHERE id=$2`, [nickname, req.ppUser!.id]);
+  // 중복 닉네임(대소문자 무시) 방지
+  const dup = await pool.query(
+    `SELECT 1 FROM pp_users WHERE LOWER(nickname)=LOWER($1) AND nickname_set=TRUE AND id<>$2 LIMIT 1`,
+    [nickname, req.ppUser!.id]
+  );
+  if (dup.rows.length) { res.status(409).json({ error: 'nickname_taken' }); return; }
+  try {
+    await pool.query(`UPDATE pp_users SET nickname=$1, nickname_set=TRUE, updated_at=CURRENT_TIMESTAMP WHERE id=$2`, [nickname, req.ppUser!.id]);
+  } catch (e: any) {
+    if (e?.code === '23505') { res.status(409).json({ error: 'nickname_taken' }); return; }  // 유니크 인덱스 백스톱
+    throw e;
+  }
   res.json({ user: { ...publicUser(req.ppUser!), nickname } });
 });
 
@@ -139,13 +137,18 @@ router.delete('/account', requireAuth, async (req: AuthedRequest, res: Response)
 router.get('/posts', optionalAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
   const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
   const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '30'), 10) || 30, 1), 50);
-  const beforeId = parseInt(String(req.query.cursor ?? ''), 10);
+  const offset = Math.max(0, parseInt(String(req.query.cursor ?? '0'), 10) || 0);
   const viewer = req.ppUser?.id ?? null;
+
+  // 최신순 / 인기순(좋아요) / 다운로드순
+  const sort = String(req.query.sort ?? 'recent');
+  const order = sort === 'popular' ? 'p.like_count DESC, p.id DESC'
+    : sort === 'downloads' ? 'p.download_count DESC, p.id DESC'
+    : 'p.id DESC';
 
   const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 40) : '';
   const params: any[] = [];
   let where = `p.visibility='public' AND p.status='active'`;
-  if (Number.isFinite(beforeId)) { params.push(beforeId); where += ` AND p.id < $${params.length}`; }
   if (q) {
     params.push(`%${q}%`);
     const p = `$${params.length}`;
@@ -157,18 +160,19 @@ router.get('/posts', optionalAuth, async (req: AuthedRequest, res: Response): Pr
     where += ` AND NOT EXISTS (SELECT 1 FROM pp_blocks b WHERE b.blocker_id=${v} AND b.blocked_id=p.author_id)`;
     where += ` AND NOT EXISTS (SELECT 1 FROM pp_hidden h WHERE h.user_id=${v} AND h.post_id=p.id)`;
   }
-  params.push(limit);
+  params.push(limit); const limitP = `$${params.length}`;
+  params.push(offset); const offsetP = `$${params.length}`;
   const rows = (await pool.query(
     `SELECT p.id, p.title, p.width, p.height, p.bead_count, p.like_count, p.download_count,
             p.preview_path, p.created_at,
             u.nickname AS author_nickname, p.author_id
        FROM pp_posts p LEFT JOIN pp_users u ON u.id = p.author_id
       WHERE ${where}
-      ORDER BY p.id DESC
-      LIMIT $${params.length}`,
+      ORDER BY ${order}
+      LIMIT ${limitP} OFFSET ${offsetP}`,
     params
   )).rows;
-  const nextCursor = rows.length === limit ? rows[rows.length - 1].id : null;
+  const nextCursor = rows.length === limit ? offset + limit : null;   // 다음 offset
   res.json({ posts: rows.map(toListItem), nextCursor });
 });
 
@@ -292,12 +296,11 @@ router.post('/posts', requireAuth, upload.fields([{ name: 'preview', maxCount: 1
       if (width < 1 || width > 400 || height < 1 || height > 400) { res.status(400).json({ error: 'invalid_size' }); return; }
       const beadCount = Math.max(0, parseInt(String(b.beadCount ?? '0'), 10) || 0);
 
-      // 프리뷰: sharp 로 재인코딩(메타 제거 + 크기 제한) 후 워터마크. 없으면 업로드 거부.
+      // 프리뷰: sharp 로 재인코딩(메타 제거 + 크기 제한). 워터마크는 앱에서 오버레이로 표시.
       if (!previewFile) { res.status(400).json({ error: 'preview_required' }); return; }
-      const resized = await sharp(previewFile.buffer)
+      const previewPng = await sharp(previewFile.buffer)
         .resize({ width: 900, height: 900, fit: 'inside', withoutEnlargement: true })
         .png().toBuffer();
-      const previewPng = await watermarkPreview(resized);
       const fname = `${randomBytes(8).toString('hex')}.png`;
       fs.writeFileSync(path.join(uploadsDir, fname), previewPng);
       const previewPath = `/pp/uploads/${fname}`;
@@ -465,6 +468,23 @@ router.post('/device-token', requireAuth, async (req: AuthedRequest, res: Respon
     [token, req.ppUser!.id, platform]
   );
   res.json({ success: true });
+});
+
+// 작성자 프로필 — 그 유저의 공개 도안 모두보기 + 내가 차단했는지
+router.get('/users/:id/posts', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
+  const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  const id = parseInt(String(req.params.id), 10);
+  const u = (await pool.query(`SELECT nickname FROM pp_users WHERE id=$1 AND status='active'`, [id])).rows[0];
+  if (!u) { res.status(404).json({ error: 'not_found' }); return; }
+  const rows = (await pool.query(
+    `SELECT p.id, p.title, p.width, p.height, p.bead_count, p.like_count, p.download_count,
+            p.preview_path, p.created_at, u.nickname AS author_nickname, p.author_id
+       FROM pp_posts p LEFT JOIN pp_users u ON u.id=p.author_id
+      WHERE p.author_id=$1 AND p.visibility='public' AND p.status='active'
+      ORDER BY p.id DESC LIMIT 60`, [id]
+  )).rows;
+  const blocked = (await pool.query('SELECT 1 FROM pp_blocks WHERE blocker_id=$1 AND blocked_id=$2', [req.ppUser!.id, id])).rows.length > 0;
+  res.json({ nickname: u.nickname, posts: rows.map(toListItem), blocked });
 });
 
 router.get('/health', (_req: Request, res: Response) => { res.json({ ok: true }); });

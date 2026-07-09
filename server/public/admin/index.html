@@ -1247,6 +1247,7 @@
         .then(loadPpInquiries).catch(() => {});
     }
     function ppUserDetail(id) {
+      ppCurrentUserId = id;
       document.getElementById('ppUserModal').style.display = 'block';
       document.getElementById('ppUserModalBody').innerHTML = 'Loading...';
       api(`/api/admin/pp/users/${id}`).then(d => {
@@ -1291,10 +1292,18 @@
         loadPpStats();
       }).catch(() => {});
     }
+    let ppCurrentUserId = null;
+    // 현재 보이는 pp 뷰(신고/도안 탭, 유저 모달)를 새로고침 — 조치 후 즉시 반영.
+    function ppRefreshActive() {
+      if (document.getElementById('pp-reports').style.display !== 'none') loadPpReports();
+      if (document.getElementById('pp-posts').style.display !== 'none') ppSearchPosts();
+      if (document.getElementById('ppUserModal').style.display === 'block' && ppCurrentUserId) ppUserDetail(ppCurrentUserId);
+      loadPpStats();
+    }
     function ppAct(url, body) { return api(url, { method: 'POST', body: JSON.stringify(body || {}) }); }
-    function ppHide(id) { if (confirm('이 도안을 비공개 처리할까요?')) ppAct(`/api/admin/pp/posts/${id}/hide`).then(loadPpReports); }
-    function ppRestore(id) { ppAct(`/api/admin/pp/posts/${id}/restore`).then(loadPpReports); }
-    function ppDelete(id) { if (confirm('이 도안을 삭제할까요? (되돌릴 수 없음)')) api(`/api/admin/pp/posts/${id}`, { method: 'DELETE' }).then(loadPpReports); }
+    function ppHide(id) { if (confirm('이 도안을 비공개 처리할까요?')) ppAct(`/api/admin/pp/posts/${id}/hide`).then(ppRefreshActive); }
+    function ppRestore(id) { ppAct(`/api/admin/pp/posts/${id}/restore`).then(ppRefreshActive); }
+    function ppDelete(id) { if (confirm('이 도안을 삭제할까요? (되돌릴 수 없음)')) api(`/api/admin/pp/posts/${id}`, { method: 'DELETE' }).then(ppRefreshActive); }
     function ppSearchPosts() {
       const q = encodeURIComponent(document.getElementById('ppPostQuery').value.trim());
       api(`/api/admin/pp/posts?query=${q}`).then(d => {
