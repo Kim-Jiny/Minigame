@@ -247,6 +247,7 @@ function toDetail(p: any) {
     visibility: p.visibility, width: p.width, height: p.height, beadCount: p.bead_count,
     likeCount: p.like_count, downloadCount: p.download_count, previewPath: p.preview_path,
     shareCode: p.visibility === 'unlisted' ? p.share_code : null, createdAt: p.created_at,
+    colors: Array.isArray(p.colors) ? p.colors : [],
     author: p.author_id ? { id: p.author_id, nickname: p.author_nickname } : null,
   };
 }
@@ -307,12 +308,26 @@ router.post('/posts', requireAuth, upload.fields([{ name: 'preview', maxCount: 1
       fs.writeFileSync(path.join(uploadsDir, fname), previewPng);
       const previewPath = `/pp/uploads/${fname}`;
 
+      // 사용 색 요약(앱이 pattern.usage 로 계산해 전달) — 상세에서 다운로드 없이 표시.
+      let colors: any[] = [];
+      try {
+        const parsed = JSON.parse(typeof b.colors === 'string' ? b.colors : '[]');
+        if (Array.isArray(parsed)) {
+          colors = parsed.slice(0, 128).map((c: any) => ({
+            hex: String(c.hex ?? '').slice(0, 7),
+            code: String(c.code ?? '').slice(0, 16),
+            name: String(c.name ?? '').slice(0, 40),
+            count: Math.max(0, parseInt(String(c.count ?? '0'), 10) || 0),
+          }));
+        }
+      } catch { /* 무시 */ }
+
       const shareCode = visibility === 'unlisted' ? generateShareCode() : null;
       const inserted = await pool.query(
         `INSERT INTO pp_posts (author_id, title, description, tags, visibility, share_code,
-                               pattern_data, preview_path, width, height, bead_count)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id, share_code`,
-        [req.ppUser!.id, title, description, tags, visibility, shareCode, buf, previewPath, width, height, beadCount]
+                               pattern_data, preview_path, width, height, bead_count, colors)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id, share_code`,
+        [req.ppUser!.id, title, description, tags, visibility, shareCode, buf, previewPath, width, height, beadCount, JSON.stringify(colors)]
       );
       res.json({ id: inserted.rows[0].id, shareCode: inserted.rows[0].share_code, previewPath });
     } catch (e) {
