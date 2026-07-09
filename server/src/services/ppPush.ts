@@ -57,3 +57,18 @@ export async function sendPushToUser(
     console.error('[PP] push error:', (e as Error).message);
   }
 }
+
+/** is_admin 유저 전원에게 푸시(신고·문의·도안 승인 유입 알림 등). */
+export async function sendPushToAdmins(
+  pool: any, title: string, body: string, data: Record<string, string> = {}
+): Promise<void> {
+  if (!pool) return;
+  try {
+    const ids = (await pool.query(
+      `SELECT id FROM pp_users WHERE is_admin=TRUE AND status='active'`
+    )).rows as { id: number }[];
+    for (const { id } of ids) await sendPushToUser(pool, id, title, body, data);
+  } catch (e) {
+    console.error('[PP] admin push error:', (e as Error).message);
+  }
+}

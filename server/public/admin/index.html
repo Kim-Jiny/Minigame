@@ -645,9 +645,11 @@
 
       <div class="filter-tabs" id="ppTabs">
         <button class="active" onclick="ppTab('reports', this)">신고 <span class="badge pending" id="ppReportBadge" style="display:none">0</span></button>
+        <button onclick="ppTab('reviews', this)">도안 승인 <span class="badge pending" id="ppReviewBadge" style="display:none">0</span></button>
         <button onclick="ppTab('inquiries', this)">문의 <span class="badge pending" id="ppInquiryBadge" style="display:none">0</span></button>
         <button onclick="ppTab('posts', this)">도안</button>
         <button onclick="ppTab('users', this)">유저</button>
+        <button onclick="ppTab('analytics', this)">통계</button>
         <button onclick="ppTab('tags', this)">연관검색</button>
         <button onclick="ppTab('logs', this)">처리 로그</button>
       </div>
@@ -670,20 +672,40 @@
         </thead><tbody id="ppReportsBody"><tr><td colspan="9" class="empty">Loading...</td></tr></tbody></table>
       </div>
 
+      <!-- 도안 승인(신규 업로드 검토) -->
+      <div class="pp-tab" id="pp-reviews" style="display:none">
+        <div style="margin:10px 0;color:#888;font-size:13px">
+          마스터 비더(Lv5) 미만 창작자의 <b>공개 도안</b>은 승인 후 게시됩니다. 승인까지 최대 6시간 목표.
+        </div>
+        <table class="data-table"><thead>
+          <tr><th>ID</th><th>미리보기</th><th>도안</th><th>작성자(계급)</th><th>크기</th><th>신청일</th><th>조치</th></tr>
+        </thead><tbody id="ppReviewsBody"><tr><td colspan="7" class="empty">Loading...</td></tr></tbody></table>
+      </div>
+
       <!-- 도안 -->
       <div class="pp-tab" id="pp-posts" style="display:none">
-        <div style="margin:10px 0">
+        <div style="margin:10px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <input id="ppPostQuery" placeholder="제목 검색" onkeydown="if(event.key==='Enter')ppSearchPosts()">
           <select id="ppPostVis" onchange="ppSearchPosts()">
             <option value="">전체 공개설정</option>
             <option value="public">공개</option>
             <option value="unlisted">비공개(링크공유)</option>
           </select>
+          <select id="ppPostStatus" onchange="ppSearchPosts()">
+            <option value="">전체 상태</option>
+            <option value="active">게시중</option>
+            <option value="review">승인 대기</option>
+            <option value="pending">자동 비공개(신고)</option>
+            <option value="hidden">관리자 비공개</option>
+            <option value="rejected">반려</option>
+          </select>
           <button onclick="ppSearchPosts()">검색</button>
+          <span id="ppPostsCount" style="color:#888;font-size:12px"></span>
         </div>
         <table class="data-table"><thead>
           <tr><th>ID</th><th>미리보기</th><th>제목</th><th>작성자</th><th>공개</th><th>상태</th><th>신고</th><th>❤</th><th>⬇</th><th>조치</th></tr>
-        </thead><tbody id="ppPostsBody"><tr><td colspan="10" class="empty">검색어를 입력하세요</td></tr></tbody></table>
+        </thead><tbody id="ppPostsBody"><tr><td colspan="10" class="empty">Loading...</td></tr></tbody></table>
+        <div style="text-align:center;margin:10px"><button id="ppPostsMore" onclick="ppLoadMorePosts()" style="display:none">더 보기</button></div>
       </div>
 
       <!-- 유저 -->
@@ -691,7 +713,7 @@
         <div style="margin:10px 0"><input id="ppUserQuery" placeholder="닉네임/이메일 검색" onkeydown="if(event.key==='Enter')ppSearchUsers()"><button onclick="ppSearchUsers()">검색</button></div>
         <table class="data-table"><thead>
           <tr><th>ID</th><th>닉네임</th><th>이메일</th><th>provider</th><th>도안수</th><th>상태</th><th>조치</th></tr>
-        </thead><tbody id="ppUsersBody"><tr><td colspan="7" class="empty">검색어를 입력하세요</td></tr></tbody></table>
+        </thead><tbody id="ppUsersBody"><tr><td colspan="7" class="empty">Loading...</td></tr></tbody></table>
       </div>
 
       <!-- 문의 -->
@@ -699,6 +721,11 @@
         <table class="data-table"><thead>
           <tr><th>ID</th><th>유저</th><th>문의 내용</th><th>답변</th><th>상태</th><th>등록일</th><th></th></tr>
         </thead><tbody id="ppInquiriesBody"><tr><td colspan="7" class="empty">Loading...</td></tr></tbody></table>
+      </div>
+
+      <!-- 통계 -->
+      <div class="pp-tab" id="pp-analytics" style="display:none">
+        <div id="ppAnalyticsBody"><div class="empty" style="padding:20px">Loading...</div></div>
       </div>
 
       <!-- 연관검색(태그 그룹) -->
@@ -730,6 +757,17 @@
           <button onclick="ppCloseUser()">닫기</button>
         </div>
         <div id="ppUserModalBody">Loading...</div>
+      </div>
+    </div>
+
+    <!-- 도안 상세 모달 -->
+    <div id="ppPostModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;padding:40px" onclick="if(event.target===this)ppCloserPost()">
+      <div style="max-width:720px;margin:0 auto;background:#fff;border-radius:12px;padding:20px;max-height:85vh;overflow:auto">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h2 id="ppPostModalTitle" style="margin:0">도안 상세</h2>
+          <button onclick="ppCloserPost()">닫기</button>
+        </div>
+        <div id="ppPostModalBody">Loading...</div>
       </div>
     </div>
   </div>
@@ -1223,6 +1261,10 @@
     // ============================================================
     function ppEsc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
     function ppPrev(p) { return p ? `<img src="${p}" style="width:44px;height:44px;object-fit:contain;background:#fff;border:1px solid #ddd;border-radius:4px">` : ''; }
+    // 작성자명 → 유저 상세 모달 링크(익명이면 텍스트).
+    function ppUserLink(id, nickname) {
+      return id ? `<a href="#" onclick="ppUserDetail(${id});return false" style="color:#37c;font-weight:600">${ppEsc(nickname || ('#' + id))}</a>` : '익명';
+    }
     function ppEnter() { ppTab('reports'); loadPpStats(); loadPpReports(); }
     function ppTab(name, btn) {
       document.querySelectorAll('#ppTabs button').forEach(b => b.classList.remove('active'));
@@ -1231,9 +1273,12 @@
       document.querySelectorAll('.pp-tab').forEach(t => t.style.display = 'none');
       document.getElementById('pp-' + name).style.display = 'block';
       if (name === 'reports') loadPpReports();
+      else if (name === 'reviews') loadPpReviews();
       else if (name === 'inquiries') loadPpInquiries();
       else if (name === 'tags') loadPpTagGroups();
       else if (name === 'posts') ppSearchPosts();
+      else if (name === 'users') ppSearchUsers();
+      else if (name === 'analytics') loadPpAnalytics();
       else if (name === 'logs') loadPpLogs();
     }
     // 연관검색(태그 그룹) 관리
@@ -1283,15 +1328,59 @@
     function loadPpStats() {
       api('/api/admin/pp/stats').then(d => {
         document.getElementById('ppStats').innerHTML =
-          [['접수 신고', d.openReports, '#e74c3c'], ['자동 비공개', d.pendingPosts, '#e67e22'],
+          [['접수 신고', d.openReports, '#e74c3c'], ['승인 대기', d.reviewPosts, '#9b59b6'], ['자동 비공개', d.pendingPosts, '#e67e22'],
            ['활성 도안', d.activePosts, '#2c7'], ['유저', d.activeUsers, '#37c']]
           .map(([k, v, c]) => `<div style="background:#fff;border:1px solid #eee;border-radius:8px;padding:12px 18px;min-width:110px">
             <div style="font-size:12px;color:#888">${k}</div><div style="font-size:22px;font-weight:700;color:${c}">${v ?? 0}</div></div>`).join('');
         const badge = document.getElementById('ppReportBadge');
         if (d.openReports > 0) { badge.textContent = d.openReports; badge.style.display = 'inline-block'; } else badge.style.display = 'none';
+        const rvb = document.getElementById('ppReviewBadge');
+        if (d.reviewPosts > 0) { rvb.textContent = d.reviewPosts; rvb.style.display = 'inline-block'; } else rvb.style.display = 'none';
         const ib = document.getElementById('ppInquiryBadge');
         if (d.openInquiries > 0) { ib.textContent = d.openInquiries; ib.style.display = 'inline-block'; } else ib.style.display = 'none';
       }).catch(() => {});
+    }
+    // ── 통계 탭 ──
+    function ppCard(k, v, c) {
+      return `<div style="background:#fff;border:1px solid #eee;border-radius:8px;padding:12px 18px;min-width:120px">
+        <div style="font-size:12px;color:#888">${k}</div><div style="font-size:22px;font-weight:700;color:${c || '#333'}">${v ?? 0}</div></div>`;
+    }
+    function ppBar(label, val, max, color) {
+      const pct = max > 0 ? Math.round(val / max * 100) : 0;
+      return `<div style="display:flex;align-items:center;gap:8px;margin:3px 0">
+        <div style="width:130px;font-size:12px;color:#555">${label}</div>
+        <div style="flex:1;background:#eee;border-radius:4px;height:16px;overflow:hidden"><div style="width:${pct}%;background:${color || '#37c'};height:100%"></div></div>
+        <div style="width:48px;text-align:right;font-size:12px;font-weight:600">${val}</div></div>`;
+    }
+    function loadPpAnalytics() {
+      document.getElementById('ppAnalyticsBody').innerHTML = '<div class="empty" style="padding:20px">Loading...</div>';
+      api('/api/admin/pp/analytics').then(d => {
+        const reasonLabel = { copyright: '저작권·상표권', inappropriate: '부적절 이미지', abuse: '욕설·혐오', privacy: '개인정보·초상권', spam: '스팸·광고', other: '기타' };
+        const statusLabel = { active: '게시중', review: '승인 대기', pending: '자동 비공개', hidden: '관리자 비공개', rejected: '반려' };
+        const maxUpload = Math.max(1, ...(d.dailyUploads || []).map(x => x.c));
+        const maxReason = Math.max(1, ...(d.reportReasons || []).map(x => x.c));
+        const maxStatus = Math.max(1, ...Object.values(d.posts.byStatus || {}));
+        const cards = [
+          ['전체 유저', d.users.total, '#37c'], ['신규(7일)', d.users.new7d, '#2c7'], ['신규(30일)', d.users.new30d, '#2c7'], ['관리자', d.users.admins, '#9b59b6'],
+          ['전체 도안', d.posts.total, '#333'], ['공개', d.posts.public, '#2c7'], ['비공개(링크)', d.posts.unlisted, '#e67e22'],
+          ['총 좋아요', d.engagement.totalLikes, '#e74c3c'], ['총 다운로드', d.engagement.totalDownloads, '#37c'], ['접수 신고', d.engagement.openReports, '#e74c3c'],
+        ].map(c => ppCard(c[0], c[1], c[2])).join('');
+        const recent = [['신규 도안', d.recent7d.posts], ['좋아요', d.recent7d.likes], ['다운로드', d.recent7d.downloads]].map(c => ppCard(c[0], c[1], '#2c7')).join('');
+        const topRows = (d.topCreators || []).map((u, i) => `<tr><td>${i + 1}</td><td>${ppUserLink(u.id, u.nickname)}</td><td>❤${u.likes}</td><td>${u.posts}개</td></tr>`).join('') || '<tr><td colspan="4" class="empty">없음</td></tr>';
+        const statusBars = Object.entries(d.posts.byStatus || {}).map(e => ppBar(statusLabel[e[0]] || e[0], e[1], maxStatus, '#7E57C2')).join('');
+        const reasonBars = (d.reportReasons || []).map(r => ppBar(reasonLabel[r.reason] || r.reason, r.c, maxReason, '#e74c3c')).join('') || '<div class="empty">신고 없음</div>';
+        const uploadBars = (d.dailyUploads || []).map(x => ppBar(x.day, x.c, maxUpload, '#37c')).join('') || '<div class="empty">데이터 없음</div>';
+        document.getElementById('ppAnalyticsBody').innerHTML = `
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">${cards}</div>
+          <h3>최근 7일 활동</h3><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">${recent}</div>
+          <div style="display:flex;gap:24px;flex-wrap:wrap">
+            <div style="flex:1;min-width:280px"><h3>도안 상태별</h3>${statusBars}</div>
+            <div style="flex:1;min-width:280px"><h3>신고 사유별</h3>${reasonBars}</div>
+          </div>
+          <h3 style="margin-top:16px">일별 업로드 (최근 14일)</h3>${uploadBars}
+          <h3 style="margin-top:16px">Top 창작자 (받은 좋아요)</h3>
+          <table class="data-table"><thead><tr><th>#</th><th>닉네임</th><th>좋아요</th><th>도안</th></tr></thead><tbody>${topRows}</tbody></table>`;
+      }).catch(() => { document.getElementById('ppAnalyticsBody').innerHTML = '<div class="empty">불러오기 실패</div>'; });
     }
     function loadPpInquiries() {
       api('/api/admin/pp/inquiries?status=all').then(d => {
@@ -1334,6 +1423,21 @@
               : `<button onclick="ppBan(${u.id},'upload');ppUserDetail(${u.id})">업로드 제한</button>
                  <button onclick="ppBan(${u.id},'full');ppUserDetail(${u.id})" style="color:#c00">정지</button>`}
           </div>
+          <div style="margin:10px 0;padding:10px;background:#f8f8fb;border-radius:8px;font-size:14px">
+            <div style="margin-bottom:8px">계급: <b style="color:${d.tier ? d.tier.color : '#888'}">${d.tier ? ppEsc(d.tier.icon + ' ' + d.tier.name) : '-'}</b>
+              ${d.tier ? '(Lv' + d.tier.level + ')' : ''} · ❤${d.likesReceived ?? 0}
+              ${u.tier_override != null ? '<span style="color:#e67e22"> · 수동지정</span>' : ' <span style="color:#aaa">· 자동</span>'}</div>
+            <div style="margin-bottom:8px">계급 수동지정:
+              <select id="ppTierSel">
+                <option value="">자동(좋아요 기반)</option>
+                ${[1,2,3,4,5,6,7].map(l => `<option value="${l}" ${u.tier_override === l ? 'selected' : ''}>Lv${l}</option>`).join('')}
+              </select>
+              <button onclick="ppSetTier(${u.id})">적용</button>
+            </div>
+            <div>앱 관리자 권한: <b>${u.is_admin ? '<span style="color:#2c7">있음</span>' : '없음'}</b>
+              <button onclick="ppSetAdmin(${u.id}, ${u.is_admin ? 'false' : 'true'})" style="${u.is_admin ? 'color:#c00' : 'color:#2c7'}">${u.is_admin ? '권한 회수' : '권한 지급'}</button>
+            </div>
+          </div>
           <h3 style="margin:14px 0 6px">올린 도안</h3>
           <table class="data-table"><tbody>${posts}</tbody></table>
           <h3 style="margin:14px 0 6px">문의</h3>
@@ -1341,6 +1445,16 @@
       }).catch(() => { document.getElementById('ppUserModalBody').innerHTML = '불러오기 실패'; });
     }
     function ppCloseUser() { document.getElementById('ppUserModal').style.display = 'none'; }
+    function ppSetTier(id) {
+      const v = document.getElementById('ppTierSel').value;
+      api(`/api/admin/pp/users/${id}/tier`, { method: 'POST', body: JSON.stringify({ level: v === '' ? null : parseInt(v, 10) }) })
+        .then(() => ppUserDetail(id)).catch(() => alert('실패'));
+    }
+    function ppSetAdmin(id, grant) {
+      if (!confirm(grant ? '이 유저에게 앱 관리자 권한을 지급할까요?' : '관리자 권한을 회수할까요?')) return;
+      api(`/api/admin/pp/users/${id}/admin`, { method: 'POST', body: JSON.stringify({ grant }) })
+        .then(() => ppUserDetail(id)).catch(() => alert('실패'));
+    }
     function loadPpReports() {
       const status = document.getElementById('ppReportStatus').value;
       const reason = document.getElementById('ppReportReason').value;
@@ -1350,8 +1464,8 @@
           <tr><td>${r.id}</td><td>${ppPrev(r.preview_path)}</td>
             <td>#${r.post_id} ${ppEsc(r.post_title)}<br><small>${r.post_status}</small></td>
             <td><b>${r.reason}</b></td><td><small>${ppEsc(r.detail)}</small></td>
-            <td>${r.author_id ? ppEsc(r.author_nickname) + ' (#' + r.author_id + ')' : '익명'}</td>
-            <td>${r.reporter_id ? ppEsc(r.reporter_nickname) : '-'}</td><td>${r.status}</td>
+            <td>${ppUserLink(r.author_id, r.author_nickname)}</td>
+            <td>${r.reporter_id ? ppUserLink(r.reporter_id, r.reporter_nickname) : '-'}</td><td>${r.status}</td>
             <td style="white-space:nowrap">
               ${r.status === 'open' ? `<button onclick="ppHide(${r.post_id})">비공개</button>
               <button onclick="ppDelete(${r.post_id})" style="color:#c00">삭제</button>
@@ -1360,36 +1474,124 @@
         loadPpStats();
       }).catch(() => {});
     }
+    // 도안 승인(신규 업로드 검토) 큐
+    function loadPpReviews() {
+      api('/api/admin/pp/reviews').then(d => {
+        const rows = d.reviews || [];
+        document.getElementById('ppReviewsBody').innerHTML = rows.length ? rows.map(r => `
+          <tr><td>${r.id}</td><td>${ppPrev(r.preview_path)}</td>
+            <td>${ppEsc(r.title)}${(r.tags && r.tags.length) ? '<br><small style="color:#37c">#' + r.tags.map(ppEsc).join(' #') + '</small>' : ''}
+              ${r.description ? '<br><small style="color:#888">' + ppEsc(String(r.description).slice(0, 80)) + '</small>' : ''}</td>
+            <td>${ppUserLink(r.author_id, r.author_nickname)}
+              <br><small>${r.tier ? ppEsc(r.tier.icon + ' ' + r.tier.name) : ''} · ❤${r.author_likes || 0}</small></td>
+            <td>${r.width}×${r.height}<br><small>비즈 ${r.bead_count}</small></td>
+            <td><small>${new Date(r.created_at).toLocaleString('ko-KR')}</small></td>
+            <td style="white-space:nowrap">
+              <button onclick="ppApprove(${r.id})" style="color:#2c7">승인</button>
+              <button onclick="ppReject(${r.id})" style="color:#c00">반려</button>
+            </td></tr>`).join('') : '<tr><td colspan="7" class="empty">승인 대기 중인 도안이 없어요</td></tr>';
+        loadPpStats();
+      }).catch(() => {});
+    }
     let ppCurrentUserId = null;
-    // 현재 보이는 pp 뷰(신고/도안 탭, 유저 모달)를 새로고침 — 조치 후 즉시 반영.
+    // 현재 보이는 pp 뷰(신고/승인/도안 탭, 유저 모달)를 새로고침 — 조치 후 즉시 반영.
     function ppRefreshActive() {
       if (document.getElementById('pp-reports').style.display !== 'none') loadPpReports();
+      if (document.getElementById('pp-reviews').style.display !== 'none') loadPpReviews();
       if (document.getElementById('pp-posts').style.display !== 'none') ppSearchPosts();
       if (document.getElementById('ppUserModal').style.display === 'block' && ppCurrentUserId) ppUserDetail(ppCurrentUserId);
       loadPpStats();
+    }
+    function ppApprove(id) { if (confirm('이 도안을 승인하고 게시할까요?')) ppAct(`/api/admin/pp/posts/${id}/approve`).then(ppRefreshActive); }
+    function ppReject(id) {
+      const memo = prompt('반려 사유 (작성자에게 전달됩니다, 선택):', '');
+      if (memo === null) return;
+      ppAct(`/api/admin/pp/posts/${id}/reject`, { memo }).then(ppRefreshActive);
     }
     function ppAct(url, body) { return api(url, { method: 'POST', body: JSON.stringify(body || {}) }); }
     function ppHide(id) { if (confirm('이 도안을 비공개 처리할까요?')) ppAct(`/api/admin/pp/posts/${id}/hide`).then(ppRefreshActive); }
     function ppRestore(id) { ppAct(`/api/admin/pp/posts/${id}/restore`).then(ppRefreshActive); }
     function ppDelete(id) { if (confirm('이 도안을 삭제할까요? (되돌릴 수 없음)')) api(`/api/admin/pp/posts/${id}`, { method: 'DELETE' }).then(ppRefreshActive); }
-    function ppSearchPosts() {
+    let ppPostsCursor = 0;
+    function ppPostRow(p) {
+      return `<tr><td>${p.id}</td><td>${ppPrev(p.preview_path)}</td>
+        <td><a href="#" onclick="ppPostDetail(${p.id});return false" style="color:#37c;font-weight:600">${ppEsc(p.title)}</a>${(p.tags && p.tags.length) ? '<br><small style="color:#37c">#' + p.tags.map(ppEsc).join(' #') + '</small>' : ''}</td>
+        <td>${ppUserLink(p.author_id, p.author_nickname)}</td>
+        <td>${p.visibility === 'unlisted' ? '<span style="color:#e67e22">비공개</span>' : '공개'}</td>
+        <td>${ppStatusLabel(p.status)}</td><td>${p.report_count}</td><td>${p.like_count}</td><td>${p.download_count}</td>
+        <td style="white-space:nowrap">
+          ${(p.status === 'review' || p.status === 'rejected') ? `<button onclick="ppApprove(${p.id})" style="color:#2c7">승인</button>` : ''}
+          ${p.status !== 'deleted' ? `<button onclick="ppHide(${p.id})">비공개</button>
+          <button onclick="ppRestore(${p.id})">복구</button>
+          <button onclick="ppDelete(${p.id})" style="color:#c00">삭제</button>` : ''}
+        </td></tr>`;
+    }
+    function ppSearchPosts(more) {
       const q = encodeURIComponent(document.getElementById('ppPostQuery').value.trim());
       const vis = document.getElementById('ppPostVis').value;
-      api(`/api/admin/pp/posts?query=${q}&visibility=${vis}`).then(d => {
+      const status = document.getElementById('ppPostStatus').value;
+      const cursor = more ? ppPostsCursor : 0;
+      api(`/api/admin/pp/posts?query=${q}&visibility=${vis}&status=${status}&cursor=${cursor}`).then(d => {
         const rows = d.posts || [];
-        document.getElementById('ppPostsBody').innerHTML = rows.length ? rows.map(p => `
-          <tr><td>${p.id}</td><td>${ppPrev(p.preview_path)}</td>
-            <td>${ppEsc(p.title)}${(p.tags && p.tags.length) ? '<br><small style="color:#37c">#' + p.tags.map(ppEsc).join(' #') + '</small>' : ''}</td>
-            <td>${p.author_id ? ppEsc(p.author_nickname) : '익명'}</td>
-            <td>${p.visibility === 'unlisted' ? '<span style="color:#e67e22">비공개</span>' : '공개'}</td>
-            <td>${p.status}</td><td>${p.report_count}</td><td>${p.like_count}</td><td>${p.download_count}</td>
-            <td style="white-space:nowrap">
-              <button onclick="ppEditPostTags(${p.id}, '${encodeURIComponent((p.tags || []).join(', '))}')">태그</button>
-              ${p.status !== 'deleted' ? `<button onclick="ppHide(${p.id})">비공개</button>
-              <button onclick="ppRestore(${p.id})">복구</button>
-              <button onclick="ppDelete(${p.id})" style="color:#c00">삭제</button>` : ''}
-            </td></tr>`).join('') : '<tr><td colspan="10" class="empty">결과 없음</td></tr>';
+        const body = document.getElementById('ppPostsBody');
+        const html = rows.map(ppPostRow).join('');
+        if (more) body.insertAdjacentHTML('beforeend', html);
+        else body.innerHTML = rows.length ? html : '<tr><td colspan="10" class="empty">결과 없음</td></tr>';
+        ppPostsCursor = d.nextCursor || 0;
+        document.getElementById('ppPostsMore').style.display = (d.nextCursor != null) ? 'inline-block' : 'none';
+        document.getElementById('ppPostsCount').textContent = `전체 ${d.total ?? rows.length}개`;
       }).catch(() => {});
+    }
+    function ppLoadMorePosts() { ppSearchPosts(true); }
+    function ppStatusLabel(s) {
+      const m = { active: '게시중', review: '<span style="color:#9b59b6">승인 대기</span>', pending: '<span style="color:#e67e22">자동 비공개</span>',
+                  hidden: '<span style="color:#c00">관리자 비공개</span>', rejected: '<span style="color:#c00">반려</span>', deleted: '삭제' };
+      return m[s] || s;
+    }
+    // 도안 상세 모달 — 미리보기 + 편집(제목/본문/공개/태그) + 상태 조치.
+    function ppPostDetail(id) {
+      document.getElementById('ppPostModal').style.display = 'block';
+      document.getElementById('ppPostModalBody').innerHTML = 'Loading...';
+      api(`/api/admin/pp/posts/${id}`).then(d => {
+        const p = d.post;
+        document.getElementById('ppPostModalTitle').textContent = `#${p.id} · ${p.status}`;
+        const reports = (d.reports || []).map(r => `<li><b>${r.reason}</b> <small>(${r.status})</small> ${ppEsc(r.detail || '')}</li>`).join('') || '<li style="color:#aaa">신고 없음</li>';
+        const acts = `
+          ${(p.status === 'review' || p.status === 'rejected') ? `<button onclick="ppApprove(${p.id});ppPostDetail(${p.id})" style="color:#2c7">승인·게시</button>` : ''}
+          ${(p.status === 'review' || p.status === 'active' || p.status === 'pending') ? `<button onclick="ppReject(${p.id});ppPostDetail(${p.id})" style="color:#c00">반려</button>` : ''}
+          <button onclick="ppHide(${p.id});ppPostDetail(${p.id})">비공개</button>
+          <button onclick="ppRestore(${p.id});ppPostDetail(${p.id})">복구(게시)</button>
+          <button onclick="ppDelete(${p.id});ppCloserPost()" style="color:#c00">삭제</button>`;
+        document.getElementById('ppPostModalBody').innerHTML = `
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            <div>${ppPrev(p.preview_path)}<div style="font-size:12px;color:#888;margin-top:6px">${p.width}×${p.height} · 비즈 ${p.bead_count}<br>❤${p.like_count} · ⬇${p.download_count} · 신고 ${p.report_count}<br>작성자: ${p.author_id ? '<a href="#" onclick="ppCloserPost();ppUserDetail(' + p.author_id + ');return false" style="color:#37c">' + ppEsc(p.author_nickname) + ' (#' + p.author_id + ')</a>' : '익명'}<br>공개설정: ${p.visibility}${p.share_code ? ' · code ' + p.share_code : ''}</div></div>
+            <div style="flex:1;min-width:260px">
+              <label style="font-size:12px;color:#888">제목</label>
+              <input id="ppEditTitle" value="${ppEsc(p.title)}" style="width:100%;margin-bottom:6px">
+              <label style="font-size:12px;color:#888">본문</label>
+              <textarea id="ppEditDesc" rows="3" style="width:100%;margin-bottom:6px">${ppEsc(p.description || '')}</textarea>
+              <label style="font-size:12px;color:#888">태그(쉼표)</label>
+              <input id="ppEditTags" value="${ppEsc((p.tags || []).join(', '))}" style="width:100%;margin-bottom:6px">
+              <label style="font-size:12px;color:#888">공개설정</label>
+              <select id="ppEditVis" style="margin-bottom:8px"><option value="public" ${p.visibility === 'public' ? 'selected' : ''}>공개</option><option value="unlisted" ${p.visibility === 'unlisted' ? 'selected' : ''}>비공개(링크공유)</option></select><br>
+              <button onclick="ppSavePost(${p.id})" style="color:#2c7">저장</button>
+            </div>
+          </div>
+          <div style="margin-top:12px"><b>상태 조치</b><br>${acts}</div>
+          <h3 style="margin:14px 0 6px">신고 내역</h3>
+          <ul style="padding-left:18px;font-size:14px">${reports}</ul>`;
+      }).catch(() => { document.getElementById('ppPostModalBody').innerHTML = '불러오기 실패'; });
+    }
+    function ppCloserPost() { document.getElementById('ppPostModal').style.display = 'none'; }
+    function ppSavePost(id) {
+      const body = {
+        title: document.getElementById('ppEditTitle').value,
+        description: document.getElementById('ppEditDesc').value,
+        tags: document.getElementById('ppEditTags').value.split(',').map(t => t.trim()).filter(Boolean),
+        visibility: document.getElementById('ppEditVis').value,
+      };
+      api(`/api/admin/pp/posts/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
+        .then(() => { ppPostDetail(id); ppRefreshActive(); }).catch(() => alert('실패'));
     }
     function ppSearchUsers() {
       const q = encodeURIComponent(document.getElementById('ppUserQuery').value.trim());

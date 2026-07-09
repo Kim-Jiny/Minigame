@@ -22,6 +22,8 @@ export interface PpUser {
   nickname_set: boolean;
   avatar_url: string | null;
   status: string;
+  is_admin?: boolean;         // 앱 내 관리자 권한
+  tier_override?: number | null;  // 계급 수동 지정(NULL=자동)
 }
 
 function jwtSecret(): string {
