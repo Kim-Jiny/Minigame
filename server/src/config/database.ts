@@ -621,6 +621,7 @@ export async function setupDatabase() {
         width INTEGER NOT NULL,
         height INTEGER NOT NULL,
         bead_count INTEGER NOT NULL,
+        colors JSONB DEFAULT '[]',                          -- 사용 색 요약 [{hex,code,name,count}]
         rights_ack_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- 업로더 권리확인 동의 시각(신고 대응 근거)
         like_count INTEGER DEFAULT 0,
         download_count INTEGER DEFAULT 0,
@@ -631,6 +632,7 @@ export async function setupDatabase() {
       CREATE INDEX IF NOT EXISTS idx_pp_posts_public_recent
         ON pp_posts(created_at DESC) WHERE visibility = 'public' AND status = 'active';
       CREATE INDEX IF NOT EXISTS idx_pp_posts_author ON pp_posts(author_id);
+      ALTER TABLE pp_posts ADD COLUMN IF NOT EXISTS colors JSONB DEFAULT '[]';
       CREATE TABLE IF NOT EXISTS pp_likes (
         user_id INTEGER REFERENCES pp_users(id) ON DELETE CASCADE,
         post_id INTEGER REFERENCES pp_posts(id) ON DELETE CASCADE,
