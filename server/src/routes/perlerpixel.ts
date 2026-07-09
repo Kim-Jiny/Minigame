@@ -176,7 +176,14 @@ router.get('/posts', optionalAuth, async (req: AuthedRequest, res: Response): Pr
 
   const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 40) : '';
   const params: any[] = [];
-  let where = `p.visibility='public' AND p.status='active'`;
+  // 공개 도안 + (로그인 시) 내가 올린 비공개 도안도 함께 보이게.
+  let where = `p.status='active'`;
+  if (viewer) {
+    params.push(viewer);
+    where += ` AND (p.visibility='public' OR (p.visibility='unlisted' AND p.author_id=$${params.length}))`;
+  } else {
+    where += ` AND p.visibility='public'`;
+  }
   if (q) {
     const terms = await expandSearchTerms(pool, q);   // q + 연관 태그
     const ors: string[] = [];
@@ -198,7 +205,7 @@ router.get('/posts', optionalAuth, async (req: AuthedRequest, res: Response): Pr
   params.push(offset); const offsetP = `$${params.length}`;
   const rows = (await pool.query(
     `SELECT p.id, p.title, p.width, p.height, p.bead_count, p.like_count, p.download_count,
-            p.preview_path, p.created_at,
+            p.preview_path, p.created_at, p.visibility,
             u.nickname AS author_nickname, p.author_id,
             (SELECT COALESCE(SUM(pl.like_count),0) FROM pp_posts pl
               WHERE pl.author_id=p.author_id AND pl.status<>'deleted') AS author_likes
@@ -216,7 +223,7 @@ function toListItem(r: any) {
   return {
     id: r.id, title: r.title, width: r.width, height: r.height, beadCount: r.bead_count,
     likeCount: r.like_count, downloadCount: r.download_count, previewPath: r.preview_path,
-    createdAt: r.created_at,
+    createdAt: r.created_at, visibility: r.visibility ?? 'public',
     author: r.author_id ? {
       id: r.author_id,
       nickname: r.author_nickname,
@@ -301,11 +308,19 @@ function toDetail(p: any) {
 // unlisted 공유코드 접근 — 상세와 동일 형태(liked/isOwner/작성자 계급 포함).
 router.get('/posts/code/:code', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
   const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  const code = String(req.params.code);
   const r = await pool.query(
     `SELECT p.*, u.nickname AS author_nickname FROM pp_posts p LEFT JOIN pp_users u ON u.id=p.author_id
-      WHERE p.share_code=$1 AND p.status='active'`, [String(req.params.code)]
+      WHERE p.share_code=$1 AND p.status='active'`, [code]
   );
-  const row = r.rows[0];
+  let row = r.rows[0];
+  // 공개 도안은 숫자 id 로도 공유/조회 가능(누구나 볼 수 있으므로).
+  if (!row && /^\d+$/.test(code)) {
+    row = (await pool.query(
+      `SELECT p.*, u.nickname AS author_nickname FROM pp_posts p LEFT JOIN pp_users u ON u.id=p.author_id
+        WHERE p.id=$1 AND p.status='active' AND p.visibility='public'`, [parseInt(code, 10)]
+    )).rows[0];
+  }
   if (!row) { res.status(404).json({ error: 'not_found' }); return; }
   const liked = (await pool.query('SELECT 1 FROM pp_likes WHERE user_id=$1 AND post_id=$2', [req.ppUser!.id, row.id])).rows.length > 0;
   const detail = toDetail(row);
@@ -627,6 +642,12 @@ export async function ppSharePage(req: Request, res: Response): Promise<void> {
         WHERE share_code=$1 AND status='active' AND visibility='unlisted'`, [code]
     );
     post = r.rows[0] ?? null;
+    if (!post && /^\d+$/.test(code)) {
+      post = (await pool.query(
+        `SELECT title, preview_path, width, height, bead_count FROM pp_posts
+          WHERE id=$1 AND status='active' AND visibility='public'`, [parseInt(code, 10)]
+      )).rows[0] ?? null;
+    }
   }
   res.type('html');
   if (!post) {
