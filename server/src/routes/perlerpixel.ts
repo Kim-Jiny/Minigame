@@ -22,7 +22,7 @@ import {
   REPORT_REASONS, REPORT_AUTO_HIDE_THRESHOLD,
 } from '../services/ppModeration';
 import { resolveTier, autoApproves, PP_REVIEW_SLA_HOURS } from '../services/ppTier';
-import { sendPushToAdmins, sendPushToUser } from '../services/ppPush';
+import { sendLocalizedPushToAdmins, sendLocalizedPushToUser } from '../services/ppPush';
 
 /** 유저가 받은 좋아요 총합(모든 비삭제 도안의 like_count 합). */
 async function likesReceived(pool: any, userId: number): Promise<number> {
@@ -419,7 +419,7 @@ router.post('/posts', requireAuth, upload.fields([{ name: 'preview', maxCount: 1
         [req.ppUser!.id, title, description, tags, visibility, shareCode, buf, previewPath, width, height, beadCount, JSON.stringify(colors), status]
       );
       if (needsReview) {
-        await sendPushToAdmins(pool, '새 도안 승인 요청', `'${title.slice(0, 40)}' 승인 대기 중`, { type: 'pp_admin_review', postId: String(inserted.rows[0].id) });
+        await sendLocalizedPushToAdmins(pool, 'admin_review', { title: title.slice(0, 40) }, { type: 'pp_admin_review', postId: String(inserted.rows[0].id) });
       }
       res.json({
         id: inserted.rows[0].id,
@@ -539,7 +539,7 @@ router.post('/posts/:id/report', requireAuth, async (req: AuthedRequest, res: Re
     if (cnt >= REPORT_AUTO_HIDE_THRESHOLD) {
       await pool.query(`UPDATE pp_posts SET status='pending' WHERE id=$1 AND status='active'`, [id]);
     }
-    await sendPushToAdmins(pool, '새 신고 접수', `사유: ${reason} · 누적 ${cnt}건`, { type: 'pp_admin_report', postId: String(id) });
+    await sendLocalizedPushToAdmins(pool, 'admin_report', { reason, count: cnt }, { type: 'pp_admin_report', postId: String(id) });
   }
   res.json({ success: true });
 });
@@ -586,7 +586,7 @@ router.post('/inquiries', requireAuth, async (req: AuthedRequest, res: Response)
      RETURNING id, content, status, reply, replied_at, is_read, created_at`,
     [req.ppUser!.id, content]
   );
-  await sendPushToAdmins(pool, '새 문의 접수', content.slice(0, 60), { type: 'pp_admin_inquiry' });
+  await sendLocalizedPushToAdmins(pool, 'admin_inquiry', { content: content.slice(0, 60) }, { type: 'pp_admin_inquiry' });
   res.json({ inquiry: r.rows[0] });
 });
 
@@ -616,11 +616,12 @@ router.get('/inquiries/unread-count', requireAuth, async (req: AuthedRequest, re
   res.json({ unread: c });
 });
 
-// FCM 디바이스 토큰 등록/갱신(푸시용)
+// FCM 디바이스 토큰 등록/갱신(푸시용). lang: 기기 언어 — 푸시 로컬라이즈에 사용.
 router.post('/device-token', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
   const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
   const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
   const platform = req.body?.platform === 'android' ? 'android' : 'ios';
+  const lang = (typeof req.body?.lang === 'string' && req.body.lang.toLowerCase().startsWith('en')) ? 'en' : 'ko';
   if (!token) { res.status(400).json({ error: 'token_required' }); return; }
   await pool.query(
     `INSERT INTO pp_device_tokens (token, user_id, platform, updated_at)
@@ -628,6 +629,17 @@ router.post('/device-token', requireAuth, async (req: AuthedRequest, res: Respon
      ON CONFLICT (token) DO UPDATE SET user_id=EXCLUDED.user_id, platform=EXCLUDED.platform, updated_at=CURRENT_TIMESTAMP`,
     [token, req.ppUser!.id, platform]
   );
+  // 기기 언어를 유저에 저장 → 서버 푸시를 해당 언어로 발송.
+  await pool.query(`UPDATE pp_users SET lang=$1 WHERE id=$2`, [lang, req.ppUser!.id]);
+  res.json({ success: true });
+});
+
+// 알림 끄기 — 이 기기 토큰 삭제(더 이상 푸시 안 감). 토큰 미지정 시 내 모든 토큰 삭제.
+router.delete('/device-token', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
+  const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+  if (token) await pool.query(`DELETE FROM pp_device_tokens WHERE token=$1 AND user_id=$2`, [token, req.ppUser!.id]);
+  else await pool.query(`DELETE FROM pp_device_tokens WHERE user_id=$1`, [req.ppUser!.id]);
   res.json({ success: true });
 });
 
@@ -699,7 +711,7 @@ router.post('/admin/posts/:id/approve', requireAuth, requireAdmin, async (req: A
   );
   if (!r.rows[0]) { res.status(404).json({ error: 'not_found' }); return; }
   await ppAdminLog(pool, req.ppUser!.nickname, 'post_approve', 'post', id);
-  if (r.rows[0].author_id) await sendPushToUser(pool, r.rows[0].author_id, '도안이 게시됐어요', `'${String(r.rows[0].title).slice(0, 40)}' 승인 완료`, { type: 'pp_post_approved', postId: String(id) });
+  if (r.rows[0].author_id) await sendLocalizedPushToUser(pool, r.rows[0].author_id, 'post_approved', { title: String(r.rows[0].title).slice(0, 40) }, { type: 'pp_post_approved', postId: String(id) });
   res.json({ success: true });
 });
 
@@ -713,7 +725,7 @@ router.post('/admin/posts/:id/reject', requireAuth, requireAdmin, async (req: Au
   );
   if (!r.rows[0]) { res.status(404).json({ error: 'not_found' }); return; }
   await ppAdminLog(pool, req.ppUser!.nickname, 'post_reject', 'post', id, memo);
-  if (r.rows[0].author_id) await sendPushToUser(pool, r.rows[0].author_id, '도안이 반려됐어요', memo || '커뮤니티 정책에 맞지 않아요', { type: 'pp_post_rejected', postId: String(id) });
+  if (r.rows[0].author_id) await sendLocalizedPushToUser(pool, r.rows[0].author_id, 'post_rejected', { title: String(r.rows[0].title).slice(0, 40), memo }, { type: 'pp_post_rejected', postId: String(id) });
   res.json({ success: true });
 });
 
@@ -786,7 +798,7 @@ router.post('/admin/inquiries/:id/reply', requireAuth, requireAdmin, async (req:
   );
   if (!r.rows[0]) { res.status(404).json({ error: 'not_found' }); return; }
   await ppAdminLog(pool, req.ppUser!.nickname, 'inquiry_reply', 'inquiry', id);
-  if (r.rows[0].user_id) await sendPushToUser(pool, r.rows[0].user_id, '문의 답변이 도착했어요', reply.slice(0, 80), { type: 'inquiry_reply' });
+  if (r.rows[0].user_id) await sendLocalizedPushToUser(pool, r.rows[0].user_id, 'inquiry_reply', { reply: reply.slice(0, 80) }, { type: 'inquiry_reply' });
   res.json({ success: true });
 });
 

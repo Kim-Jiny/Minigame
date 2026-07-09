@@ -13,13 +13,25 @@
   h1{font-size:26px;margin:0 0 6px;font-weight:800;} .eff{color:var(--tert);font-size:14px;margin-bottom:28px;}
   h2{font-size:18px;margin:30px 0 10px;font-weight:700;} p,li{color:var(--sub);font-size:15px;} ul{padding-left:20px;} a{color:var(--accent);}
   table{width:100%;border-collapse:collapse;margin:12px 0;} th,td{border:1px solid var(--stroke);padding:8px 10px;font-size:14px;color:var(--sub);text-align:left;}
+  .langbar{display:flex;gap:6px;justify-content:flex-end;margin-bottom:10px;}
+  .langbtn{font-size:13px;font-weight:700;color:var(--sub);text-decoration:none;padding:4px 12px;border:1px solid var(--stroke);border-radius:999px;background:var(--card);}
+  .langbtn.on{color:#fff;background:var(--accent);border-color:var(--accent);}
+  [data-lang]{display:none;}
 </style>
+<noscript><style>[data-lang="ko"]{display:block;}</style></noscript>
 </head>
 <body>
 <div class="wrap">
+  <div class="langbar">
+    <a href="?lang=ko" class="langbtn" data-set="ko">한국어</a>
+    <a href="?lang=en" class="langbtn" data-set="en">English</a>
+  </div>
+
+  <!-- 한국어 -->
+  <div data-lang="ko">
   <span class="badge">비즈픽셀 · Perler Pixel</span>
   <h1>개인정보처리방침</h1>
-  <div class="eff">시행일: 2026년 7월 8일</div>
+  <div class="eff">시행일: 2026년 7월 9일</div>
 
   <p>비즈픽셀은 커뮤니티 기능 제공에 필요한 최소한의 개인정보만 처리합니다. 도안 만들기 등 로컬 기능만 사용하는 경우 개인정보를 수집하지 않습니다.</p>
 
@@ -33,7 +45,7 @@
   </table>
 
   <h2>2. 제3자 제공 및 처리위탁</h2>
-  <p>로그인 인증을 위해 Apple, Google, Kakao 인증 서비스를 이용합니다. 서비스 품질 개선을 위한 이용 통계 분석과 푸시 알림 발송을 위해 Google Firebase(Analytics·Cloud Messaging)를 이용합니다. 그 외 개인정보를 제3자에게 판매하지 않습니다.</p>
+  <p>로그인 인증을 위해 Apple, Google, Kakao 인증 서비스를 이용합니다. 서비스 품질 개선을 위한 이용 통계 분석과 푸시 알림 발송을 위해 Google Firebase(Analytics·Cloud Messaging)를 이용합니다. 이 과정에서 일부 정보가 국외(서비스 제공사의 서버)에서 처리될 수 있습니다. 그 외 개인정보를 제3자에게 판매하지 않습니다.</p>
 
   <h2>3. 보관 및 파기</h2>
   <ul>
@@ -48,6 +60,59 @@
   <h2>5. 문의처</h2>
   <p>개인정보 관련 문의: <a href="mailto:kjinyz@naver.com">kjinyz@naver.com</a></p>
   <p><a href="/pp/terms">이용약관</a> · <a href="/pp/guidelines">커뮤니티 가이드라인</a></p>
+  </div>
+
+  <!-- English -->
+  <div data-lang="en">
+  <span class="badge">비즈픽셀 · Perler Pixel</span>
+  <h1>Privacy Policy</h1>
+  <div class="eff">Effective: July 9, 2026</div>
+
+  <p>Perler Pixel processes only the minimum personal data needed to provide community features. If you use only local features such as creating patterns, no personal data is collected.</p>
+
+  <h2>1. Data Collected and Purpose</h2>
+  <table>
+    <tr><th>Data</th><th>Purpose</th></tr>
+    <tr><td>Social login identifiers (provider, uid), email (if provided), nickname, profile image (if provided)</td><td>Account identification and sign-in</td></tr>
+    <tr><td>Uploaded pattern data and preview images, title, description, tags</td><td>Community posting and sharing</td></tr>
+    <tr><td>Likes, downloads, reports, block records</td><td>Service operation and moderation</td></tr>
+    <tr><td>Access and usage logs</td><td>Security and abuse prevention</td></tr>
+  </table>
+
+  <h2>2. Third-Party Sharing and Processing</h2>
+  <p>We use Apple, Google, and Kakao authentication services for sign-in. We use Google Firebase (Analytics and Cloud Messaging) to analyze usage for quality improvement and to send push notifications. Some data may be processed outside your country (on the providers' servers) in this process. We do not otherwise sell your personal data to third parties.</p>
+
+  <h2>3. Retention and Deletion</h2>
+  <ul>
+    <li>When you delete your account, your account and personal data are deleted immediately.</li>
+    <li>Patterns posted publicly may remain in the community with the author anonymized.</li>
+    <li>Records subject to legal retention obligations are kept for the required period, then destroyed.</li>
+  </ul>
+
+  <h2>4. Your Rights</h2>
+  <p>You may request access to or correction of your data, deletion of your posts, or account deletion at any time — via the app's My page or the contact below.</p>
+
+  <h2>5. Contact</h2>
+  <p>Privacy inquiries: <a href="mailto:kjinyz@naver.com">kjinyz@naver.com</a></p>
+  <p><a href="/pp/terms">Terms of Service</a> · <a href="/pp/guidelines">Community Guidelines</a></p>
+  </div>
 </div>
+
+<script>
+(function(){
+  var q = new URLSearchParams(location.search).get('lang');
+  var nav = (navigator.language || 'ko').toLowerCase();
+  var lang = (q === 'en' || q === 'ko') ? q : (nav.indexOf('ko') === 0 ? 'ko' : 'en');
+  document.documentElement.lang = lang;
+  document.title = (lang === 'ko') ? '비즈픽셀 — 개인정보처리방침' : 'Perler Pixel — Privacy Policy';
+  document.querySelectorAll('[data-lang]').forEach(function(el){
+    el.style.display = (el.getAttribute('data-lang') === lang) ? 'block' : 'none';
+  });
+  document.querySelectorAll('.langbtn').forEach(function(b){
+    b.classList.toggle('on', b.getAttribute('data-set') === lang);
+    b.setAttribute('href', location.pathname + '?lang=' + b.getAttribute('data-set'));
+  });
+})();
+</script>
 </body>
 </html>

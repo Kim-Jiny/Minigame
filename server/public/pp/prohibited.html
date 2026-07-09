@@ -13,10 +13,22 @@
   h1{font-size:26px;margin:0 0 6px;font-weight:800;} .eff{color:var(--tert);font-size:14px;margin-bottom:28px;}
   h2{font-size:17px;margin:24px 0 8px;font-weight:700;} p,li{color:var(--sub);font-size:15px;} ul{padding-left:20px;} a{color:var(--accent);}
   .callout{background:var(--card);border:1px solid var(--stroke);border-left:4px solid #c0392b;border-radius:10px;padding:14px 16px;margin:16px 0;}
+  .langbar{display:flex;gap:6px;justify-content:flex-end;margin-bottom:10px;}
+  .langbtn{font-size:13px;font-weight:700;color:var(--sub);text-decoration:none;padding:4px 12px;border:1px solid var(--stroke);border-radius:999px;background:var(--card);}
+  .langbtn.on{color:#fff;background:var(--accent);border-color:var(--accent);}
+  [data-lang]{display:none;}
 </style>
+<noscript><style>[data-lang="ko"]{display:block;}</style></noscript>
 </head>
 <body>
 <div class="wrap">
+  <div class="langbar">
+    <a href="?lang=ko" class="langbtn" data-set="ko">한국어</a>
+    <a href="?lang=en" class="langbtn" data-set="en">English</a>
+  </div>
+
+  <!-- 한국어 -->
+  <div data-lang="ko">
   <span class="badge">비즈픽셀 · Perler Pixel</span>
   <h1>금지 콘텐츠 안내</h1>
   <div class="eff">아래 유형의 도안·콘텐츠는 업로드할 수 없습니다.</div>
@@ -51,6 +63,62 @@
 
   <p>위 콘텐츠는 신고 대상이며, 확인 시 삭제·비공개 및 이용 제한 조치됩니다. 권리침해 신고는 <a href="mailto:kjinyz@naver.com">kjinyz@naver.com</a> 으로 접수해 주세요.</p>
   <p><a href="/pp/guidelines">커뮤니티 가이드라인</a> · <a href="/pp/terms">이용약관</a></p>
+  </div>
+
+  <!-- English -->
+  <div data-lang="en">
+  <span class="badge">비즈픽셀 · Perler Pixel</span>
+  <h1>Prohibited Content</h1>
+  <div class="eff">The following types of patterns and content may not be uploaded.</div>
+
+  <div class="callout"><b>Perler Pixel is a community for sharing original, self-made patterns only.</b> Upload only patterns you created yourself or have the right to share.</div>
+
+  <h2>1. Copyright / Trademark Infringement</h2>
+  <ul>
+    <li>Patterns based on characters or images from famous characters, games, anime, or webtoons</li>
+    <li>Patterns based on brand logos, trademarks, illustrations, or designs</li>
+    <li>Re-uploading patterns made by others that you have no rights to</li>
+  </ul>
+
+  <h2>2. Portrait Rights / Privacy Infringement</h2>
+  <ul>
+    <li>Patterns based on the face of a celebrity, public figure, or any individual</li>
+    <li>Images containing others' personal information (name, contact, address, etc.)</li>
+    <li>Impersonation or harassment targeting a specific person</li>
+  </ul>
+
+  <h2>3. Sexual / Explicit Content</h2>
+  <ul><li>Sexually explicit, obscene, or shame-inducing imagery</li></ul>
+
+  <h2>4. Violent / Hateful / Offensive Content</h2>
+  <ul>
+    <li>Violent, cruel, or hate/discrimination-promoting imagery</li>
+    <li>Patterns containing profanity, slurs, or other offensive text</li>
+  </ul>
+
+  <h2>5. Illegal / Spam</h2>
+  <ul><li>Content that violates the law, promotion of illegal goods/services, advertising spam, fraud, or phishing</li></ul>
+
+  <p>Such content is subject to reporting and, once confirmed, removal or hiding and usage restrictions. Report rights infringement to <a href="mailto:kjinyz@naver.com">kjinyz@naver.com</a>.</p>
+  <p><a href="/pp/guidelines">Community Guidelines</a> · <a href="/pp/terms">Terms of Service</a></p>
+  </div>
 </div>
+
+<script>
+(function(){
+  var q = new URLSearchParams(location.search).get('lang');
+  var nav = (navigator.language || 'ko').toLowerCase();
+  var lang = (q === 'en' || q === 'ko') ? q : (nav.indexOf('ko') === 0 ? 'ko' : 'en');
+  document.documentElement.lang = lang;
+  document.title = (lang === 'ko') ? '비즈픽셀 — 금지 콘텐츠 안내' : 'Perler Pixel — Prohibited Content';
+  document.querySelectorAll('[data-lang]').forEach(function(el){
+    el.style.display = (el.getAttribute('data-lang') === lang) ? 'block' : 'none';
+  });
+  document.querySelectorAll('.langbtn').forEach(function(b){
+    b.classList.toggle('on', b.getAttribute('data-set') === lang);
+    b.setAttribute('href', location.pathname + '?lang=' + b.getAttribute('data-set'));
+  });
+})();
+</script>
 </body>
 </html>

@@ -13,13 +13,25 @@
   h1{font-size:26px;margin:0 0 6px;font-weight:800;} .eff{color:var(--tert);font-size:14px;margin-bottom:28px;}
   h2{font-size:18px;margin:30px 0 10px;font-weight:700;} p,li{color:var(--sub);font-size:15px;} ul{padding-left:20px;} a{color:var(--accent);}
   .callout{background:var(--card);border:1px solid var(--stroke);border-left:4px solid var(--accent);border-radius:10px;padding:14px 16px;margin:16px 0;}
+  .langbar{display:flex;gap:6px;justify-content:flex-end;margin-bottom:10px;}
+  .langbtn{font-size:13px;font-weight:700;color:var(--sub);text-decoration:none;padding:4px 12px;border:1px solid var(--stroke);border-radius:999px;background:var(--card);}
+  .langbtn.on{color:#fff;background:var(--accent);border-color:var(--accent);}
+  [data-lang]{display:none;}
 </style>
+<noscript><style>[data-lang="ko"]{display:block;}</style></noscript>
 </head>
 <body>
 <div class="wrap">
+  <div class="langbar">
+    <a href="?lang=ko" class="langbtn" data-set="ko">한국어</a>
+    <a href="?lang=en" class="langbtn" data-set="en">English</a>
+  </div>
+
+  <!-- 한국어 -->
+  <div data-lang="ko">
   <span class="badge">비즈픽셀 · Perler Pixel</span>
   <h1>이용약관</h1>
-  <div class="eff">시행일: 2026년 7월 8일</div>
+  <div class="eff">시행일: 2026년 7월 9일</div>
 
   <h2>제1조 (목적)</h2>
   <p>본 약관은 비즈픽셀(이하 "서비스")의 도안 공유 커뮤니티 이용에 관한 조건을 정합니다. 도안 만들기 등 오프라인(로컬) 기능은 별도 계정 없이 이용할 수 있으며, 커뮤니티(업로드·상세 열람·좋아요·다운로드 등)는 로그인이 필요합니다.</p>
@@ -35,6 +47,7 @@
   <ul>
     <li>업로드 시 권리 확인에 동의해야 하며, 허위 확인에 대한 책임은 업로더에게 있습니다.</li>
     <li>회원은 업로드한 도안에 대해, 서비스 운영·표시·다운로드 제공 목적에 한정된 비독점적 이용 라이선스를 서비스에 부여합니다.</li>
+    <li>창작자 등급에 따라 일부 공개 업로드는 게시 전 운영자 승인을 거칠 수 있으며, 승인까지 최대 6시간이 소요될 수 있습니다.</li>
   </ul>
 
   <h2>제4조 (금지 행위 · 무관용 원칙)</h2>
@@ -56,11 +69,79 @@
   <p>본인의 저작권 등 권리가 침해되었다고 판단되는 경우 아래 문의처로 신고할 수 있으며, 확인 시 해당 콘텐츠를 신속히 삭제합니다.</p>
 
   <h2>제7조 (책임의 한계)</h2>
-  <p>서비스는 이용자가 게시한 콘텐츠에 대해 사전 검수 의무를 지지 않으며, 게시물로 인한 분쟁의 책임은 해당 게시자에게 있습니다. 서비스는 관련 법령이 허용하는 범위에서 책임을 제한합니다.</p>
+  <p>서비스는 모든 이용자 콘텐츠에 대한 사전 검수를 보장하지 않으며, 게시물로 인한 분쟁의 책임은 해당 게시자에게 있습니다. 서비스는 관련 법령이 허용하는 범위에서 책임을 제한합니다.</p>
 
   <h2>제8조 (문의)</h2>
   <p>문의 및 신고: <a href="mailto:kjinyz@naver.com">kjinyz@naver.com</a></p>
   <p><a href="/pp/guidelines">커뮤니티 가이드라인</a> · <a href="/pp/prohibited">금지 콘텐츠 안내</a> · <a href="/pp/privacy">개인정보처리방침</a></p>
+  </div>
+
+  <!-- English -->
+  <div data-lang="en">
+  <span class="badge">비즈픽셀 · Perler Pixel</span>
+  <h1>Terms of Service</h1>
+  <div class="eff">Effective: July 9, 2026</div>
+
+  <h2>1. Purpose</h2>
+  <p>These Terms govern your use of the pattern-sharing community in Perler Pixel (the "Service"). Offline (on-device) features such as creating patterns can be used without an account; community features (uploading, viewing details, likes, downloads, etc.) require sign-in.</p>
+
+  <h2>2. Accounts</h2>
+  <ul>
+    <li>You may create an account via Apple / Google / Kakao social login to use the community.</li>
+    <li>You may delete your account at any time; your personal data is deleted immediately upon deletion. Patterns you posted publicly may remain in the community with the author anonymized.</li>
+  </ul>
+
+  <h2>3. Upload Rules — Originals Only</h2>
+  <div class="callout"><b>You may upload only original patterns you created yourself or have the right to share.</b> Fan-made patterns of others' copyrighted characters, logos, brands, or illustrations may not be uploaded.</div>
+  <ul>
+    <li>You must confirm your rights when uploading; you are responsible for any false confirmation.</li>
+    <li>For patterns you upload, you grant the Service a non-exclusive license limited to operating, displaying, and providing downloads of the Service.</li>
+    <li>Depending on creator tier, some public uploads may be reviewed by a moderator before publishing, which can take up to 6 hours.</li>
+  </ul>
+
+  <h2>4. Prohibited Conduct — Zero Tolerance</h2>
+  <p>The following content and conduct are prohibited. <b>The Service applies a zero-tolerance policy toward objectionable content and abusive users.</b></p>
+  <ul>
+    <li>Content infringing copyright or others' rights</li>
+    <li>Illegal, sexual, violent, hateful/discriminatory, harassing/bullying, spam/advertising, or fraudulent content</li>
+    <li>Exposing others' personal information, or impersonation</li>
+  </ul>
+
+  <h2>5. Reporting and Moderation</h2>
+  <ul>
+    <li>Users may report inappropriate patterns or users, or block specific users.</li>
+    <li>A pattern you report is immediately hidden from you.</li>
+    <li>Moderators review reports within <b>24 hours</b>. If a violation is confirmed, we remove or hide the content and may restrict uploads or suspend the offending user.</li>
+  </ul>
+
+  <h2>6. Rights-Infringement Reports</h2>
+  <p>If you believe your copyright or other rights have been infringed, you may report it to the contact below; upon confirmation we will promptly remove the content.</p>
+
+  <h2>7. Limitation of Liability</h2>
+  <p>The Service does not guarantee pre-screening of all user content, and responsibility for disputes arising from posts lies with the posting user. The Service limits its liability to the extent permitted by applicable law.</p>
+
+  <h2>8. Contact</h2>
+  <p>Inquiries and reports: <a href="mailto:kjinyz@naver.com">kjinyz@naver.com</a></p>
+  <p><a href="/pp/guidelines">Community Guidelines</a> · <a href="/pp/prohibited">Prohibited Content</a> · <a href="/pp/privacy">Privacy Policy</a></p>
+  </div>
 </div>
+
+<script>
+(function(){
+  var q = new URLSearchParams(location.search).get('lang');
+  var nav = (navigator.language || 'ko').toLowerCase();
+  var lang = (q === 'en' || q === 'ko') ? q : (nav.indexOf('ko') === 0 ? 'ko' : 'en');
+  document.documentElement.lang = lang;
+  document.title = (lang === 'ko') ? '비즈픽셀 — 이용약관' : 'Perler Pixel — Terms of Service';
+  document.querySelectorAll('[data-lang]').forEach(function(el){
+    el.style.display = (el.getAttribute('data-lang') === lang) ? 'block' : 'none';
+  });
+  document.querySelectorAll('.langbtn').forEach(function(b){
+    b.classList.toggle('on', b.getAttribute('data-set') === lang);
+    // preserve navigation to the same page with the chosen lang
+    b.setAttribute('href', location.pathname + '?lang=' + b.getAttribute('data-set'));
+  });
+})();
+</script>
 </body>
 </html>

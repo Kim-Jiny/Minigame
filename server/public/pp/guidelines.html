@@ -13,10 +13,22 @@
   h1{font-size:26px;margin:0 0 6px;font-weight:800;} .eff{color:var(--tert);font-size:14px;margin-bottom:28px;}
   h2{font-size:18px;margin:30px 0 10px;font-weight:700;} p,li{color:var(--sub);font-size:15px;} ul{padding-left:20px;} a{color:var(--accent);}
   .ok{color:#2c7;} .no{color:#c0392b;}
+  .langbar{display:flex;gap:6px;justify-content:flex-end;margin-bottom:10px;}
+  .langbtn{font-size:13px;font-weight:700;color:var(--sub);text-decoration:none;padding:4px 12px;border:1px solid var(--stroke);border-radius:999px;background:var(--card);}
+  .langbtn.on{color:#fff;background:var(--accent);border-color:var(--accent);}
+  [data-lang]{display:none;}
 </style>
+<noscript><style>[data-lang="ko"]{display:block;}</style></noscript>
 </head>
 <body>
 <div class="wrap">
+  <div class="langbar">
+    <a href="?lang=ko" class="langbtn" data-set="ko">한국어</a>
+    <a href="?lang=en" class="langbtn" data-set="en">English</a>
+  </div>
+
+  <!-- 한국어 -->
+  <div data-lang="ko">
   <span class="badge">비즈픽셀 · Perler Pixel</span>
   <h1>커뮤니티 가이드라인</h1>
   <div class="eff">모두가 즐거운 도안 공유를 위해 함께 지켜요.</div>
@@ -43,6 +55,54 @@
   <p>가이드라인 위반 콘텐츠는 삭제·비공개될 수 있으며, 반복·중대한 위반 시 업로드 제한 또는 이용 정지될 수 있습니다.</p>
 
   <p><a href="/pp/prohibited">금지 콘텐츠 상세 안내</a> · <a href="/pp/terms">이용약관</a> · <a href="/pp/support">문의하기</a></p>
+  </div>
+
+  <!-- English -->
+  <div data-lang="en">
+  <span class="badge">비즈픽셀 · Perler Pixel</span>
+  <h1>Community Guidelines</h1>
+  <div class="eff">Let's keep pattern sharing fun for everyone.</div>
+
+  <h2>✅ Patterns we welcome</h2>
+  <ul>
+    <li class="ok">Original patterns you designed yourself</li>
+    <li class="ok">Patterns you have the right to share</li>
+    <li class="ok">Creative work that inspires others</li>
+  </ul>
+
+  <h2>🚫 Not allowed</h2>
+  <ul>
+    <li class="no">Fan-made patterns of others' copyrighted characters, logos, brands, or illustrations</li>
+    <li class="no">Illegal, sexual, violent, hateful, or discriminatory content</li>
+    <li class="no">Harassment, impersonation, or exposing personal information</li>
+    <li class="no">Spam, advertising, or fraud</li>
+  </ul>
+
+  <h2>Reporting and Blocking</h2>
+  <p>If you find an inappropriate pattern or user, please <b>report</b> it. A reported pattern is immediately hidden from you, and moderators review it within 24 hours. If you <b>block</b> a user, you'll no longer see their patterns.</p>
+
+  <h2>Violations</h2>
+  <p>Content that violates these guidelines may be removed or hidden. Repeated or serious violations may lead to upload restrictions or account suspension.</p>
+
+  <p><a href="/pp/prohibited">Prohibited Content</a> · <a href="/pp/terms">Terms of Service</a> · <a href="/pp/support">Support</a></p>
+  </div>
 </div>
+
+<script>
+(function(){
+  var q = new URLSearchParams(location.search).get('lang');
+  var nav = (navigator.language || 'ko').toLowerCase();
+  var lang = (q === 'en' || q === 'ko') ? q : (nav.indexOf('ko') === 0 ? 'ko' : 'en');
+  document.documentElement.lang = lang;
+  document.title = (lang === 'ko') ? '비즈픽셀 — 커뮤니티 가이드라인' : 'Perler Pixel — Community Guidelines';
+  document.querySelectorAll('[data-lang]').forEach(function(el){
+    el.style.display = (el.getAttribute('data-lang') === lang) ? 'block' : 'none';
+  });
+  document.querySelectorAll('.langbtn').forEach(function(b){
+    b.classList.toggle('on', b.getAttribute('data-set') === lang);
+    b.setAttribute('href', location.pathname + '?lang=' + b.getAttribute('data-set'));
+  });
+})();
+</script>
 </body>
 </html>

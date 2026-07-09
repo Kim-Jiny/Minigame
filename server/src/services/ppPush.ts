@@ -72,3 +72,65 @@ export async function sendPushToAdmins(
     console.error('[PP] admin push error:', (e as Error).message);
   }
 }
+
+// ───────── 수신자 언어별 푸시(pp_users.lang: 앱이 기기 언어를 device-token 등록 시 전달) ─────────
+export type PpPushType = 'post_approved' | 'post_rejected' | 'inquiry_reply' | 'admin_review' | 'admin_report' | 'admin_inquiry';
+
+const PUSH_MSG: Record<PpPushType, Record<'ko' | 'en', (p: any) => { title: string; body: string }>> = {
+  post_approved: {
+    ko: (p) => ({ title: '도안이 게시됐어요', body: `'${p.title}' 승인이 완료돼 커뮤니티에 공개됐어요.` }),
+    en: (p) => ({ title: 'Your pattern is live', body: `"${p.title}" was approved and published to the community.` }),
+  },
+  post_rejected: {
+    ko: (p) => ({ title: '도안이 반려됐어요', body: p.memo || `'${p.title}'가 커뮤니티 정책에 맞지 않아 게시되지 않았어요.` }),
+    en: (p) => ({ title: 'Your pattern was rejected', body: p.memo || `"${p.title}" doesn't meet our community policy and wasn't published.` }),
+  },
+  inquiry_reply: {
+    ko: (p) => ({ title: '문의 답변이 도착했어요', body: p.reply }),
+    en: (p) => ({ title: 'You have a reply', body: p.reply }),
+  },
+  admin_review: {
+    ko: (p) => ({ title: '새 도안 승인 요청', body: `'${p.title}' 승인 대기 중` }),
+    en: (p) => ({ title: 'New pattern to review', body: `"${p.title}" is awaiting approval` }),
+  },
+  admin_report: {
+    ko: (p) => ({ title: '새 신고 접수', body: `사유: ${p.reason} · 누적 ${p.count}건` }),
+    en: (p) => ({ title: 'New report', body: `Reason: ${p.reason} · ${p.count} total` }),
+  },
+  admin_inquiry: {
+    ko: (p) => ({ title: '새 문의 접수', body: p.content }),
+    en: (p) => ({ title: 'New inquiry', body: p.content }),
+  },
+};
+
+function pushText(type: PpPushType, lang: string, params: any) {
+  const l = lang === 'en' ? 'en' : 'ko';
+  return PUSH_MSG[type][l](params || {});
+}
+
+async function userLang(pool: any, userId: number): Promise<string> {
+  try {
+    const r = await pool.query('SELECT lang FROM pp_users WHERE id=$1', [userId]);
+    return r.rows[0]?.lang || 'ko';
+  } catch { return 'ko'; }
+}
+
+/** 수신자(pp_users.lang) 언어로 로컬라이즈해 한 유저에게 푸시. */
+export async function sendLocalizedPushToUser(
+  pool: any, userId: number, type: PpPushType, params: any = {}, data: Record<string, string> = {}
+): Promise<void> {
+  if (!pool) return;
+  const m = pushText(type, await userLang(pool, userId), params);
+  await sendPushToUser(pool, userId, m.title, m.body, data);
+}
+
+/** is_admin 유저 전원에게, 각자의 언어로 로컬라이즈해 푸시. */
+export async function sendLocalizedPushToAdmins(
+  pool: any, type: PpPushType, params: any = {}, data: Record<string, string> = {}
+): Promise<void> {
+  if (!pool) return;
+  try {
+    const ids = (await pool.query(`SELECT id FROM pp_users WHERE is_admin=TRUE AND status='active'`)).rows as { id: number }[];
+    for (const { id } of ids) await sendLocalizedPushToUser(pool, id, type, params, data);
+  } catch (e) { console.error('[PP] admin localized push error:', (e as Error).message); }
+}
