@@ -605,6 +605,8 @@ export async function setupDatabase() {
         UNIQUE (provider, provider_uid)
       );
       ALTER TABLE pp_users ADD COLUMN IF NOT EXISTS nickname_set BOOLEAN DEFAULT FALSE;
+      -- 닉네임 대소문자-무시 유니크 인덱스는 여기(메인 SQL)에서 만들지 않는다.
+      -- 기존 중복이 있으면 실패해 공유 서버 전체가 못 뜨므로, 아래에서 비치명적으로 생성한다.
       CREATE TABLE IF NOT EXISTS pp_posts (
         id SERIAL PRIMARY KEY,
         author_id INTEGER REFERENCES pp_users(id) ON DELETE SET NULL,  -- NULL=익명화(탈퇴)
@@ -718,6 +720,17 @@ export async function setupDatabase() {
     `);
 
     console.log('✅ Database tables ready');
+
+    // [PP] 닉네임 대소문자-무시 유니크 인덱스 — 기존 중복 닉네임이 있으면 생성이 실패한다.
+    //      메인 SQL 밖에서 비치명적으로 처리해 공유 서버(듀오/CTR/사자/MFA) 부팅을 막지 않는다.
+    //      실패 시에도 앱 레벨 중복 체크(PUT /me/nickname)가 유니크를 보장한다.
+    try {
+      await client.query(
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_pp_users_nickname_unique ON pp_users (LOWER(nickname)) WHERE nickname_set = TRUE`
+      );
+    } catch (ppIdxErr) {
+      console.error('[PP] nickname unique index 생성 실패(중복 닉 존재 가능) — 앱 레벨 체크로 대체, 서버는 계속 진행:', ppIdxErr);
+    }
 
     await ensureDefaultAdminAccount(client);
 
