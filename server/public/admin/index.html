@@ -1151,7 +1151,7 @@
     function enterGame(id) {
       document.getElementById('sidebar').style.display = 'flex';
       setSidebarActive(id);
-      document.getElementById('gameHub').style.display = 'none';
+      hideAllDashboards();   // 먼저 전부 숨겨야 사이드바로 게임→게임 이동 시 이전 대시보드가 안 겹침
       if (id === 'duo') {
         document.getElementById('dashboard').style.display = 'block';
         document.getElementById('ctrDashboard').style.display = 'none';
