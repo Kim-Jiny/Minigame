@@ -14,7 +14,7 @@ import adminRouter from './routes/admin';
 import catchTheRuleRouter from './routes/catchtherule'; // [CTR] CatchTheRule 소유 — 삭제 금지
 import sajatoonRouter from './routes/sajatoon'; // [SAJA] 사자툰 소유 — 삭제 금지
 import mathForAdultsRouter from './routes/mathforadults'; // [MFA] 성인의 수학 소유 — 삭제 금지
-import perlerPixelRouter from './routes/perlerpixel'; // [PP] PerlerPixel 소유 — 삭제 금지
+import perlerPixelRouter, { ppAppleAppSiteAssociation, ppSharePage } from './routes/perlerpixel'; // [PP] PerlerPixel 소유 — 삭제 금지
 import path from 'path';
 
 // 전역 에러 안전망: 비동기 소켓 핸들러/타이머 콜백에서 발생한 에러가
@@ -95,6 +95,10 @@ app.use('/duo', express.static(path.join(__dirname, '../public/duo'), { extensio
 app.use('/saja', express.static(path.join(__dirname, '../public/saja'), { extensions: ['html'] }));
 // [MFA] 성인의 수학 약관/개인정보/지원 정적 페이지 (/mfa/privacy, /mfa/support). 성인의 수학 소유.
 app.use('/mfa', express.static(path.join(__dirname, '../public/mfa'), { extensions: ['html'] }));
+// [PP] 유니버설 링크 지원 — AASA(앱이 /pp/p/* 를 가로챔) + 공유 웹페이지. 정적 /pp 마운트보다 먼저.
+app.get('/.well-known/apple-app-site-association', ppAppleAppSiteAssociation);
+app.get('/apple-app-site-association', ppAppleAppSiteAssociation);
+app.get('/pp/p/:code', ppSharePage);
 // [PP] PerlerPixel 정적 — 약관·개인정보·커뮤니티 가이드라인·문의(/pp/*)와 업로드 프리뷰(/pp/uploads/*). PerlerPixel 소유.
 app.use('/pp', express.static(path.join(__dirname, '../public/pp'), { extensions: ['html'] }));
 
