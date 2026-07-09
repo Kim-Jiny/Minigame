@@ -21,7 +21,7 @@ import {
   containsBannedWord, generateShareCode,
   REPORT_REASONS, REPORT_AUTO_HIDE_THRESHOLD,
 } from '../services/ppModeration';
-import { resolveTier, autoApproves, PP_REVIEW_SLA_HOURS } from '../services/ppTier';
+import { resolveTier, autoApproves, PP_REVIEW_SLA_HOURS, PP_TIERS } from '../services/ppTier';
 import { sendLocalizedPushToAdmins, sendLocalizedPushToUser } from '../services/ppPush';
 
 /** 유저가 받은 좋아요 총합(모든 비삭제 도안의 like_count 합). */
@@ -139,12 +139,20 @@ router.post('/auth/:provider', async (req: Request, res: Response): Promise<void
 
 router.get('/me', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
   const u = req.ppUser!;
+  const pool = getPool();
+  const tier = pool ? await authorTier(pool, u.id) : null;
   res.json({
     user: { ...publicUser(u), email: u.email },
     uploadBanned: req.ppBan?.ban_type === 'upload',
     needsNickname: !u.nickname_set,
     isAdmin: u.is_admin === true,
+    tier,
   });
+});
+
+// 계급 사다리(전체 단계) — 앱의 계급 상세 페이지용. 공개(로그인 불필요).
+router.get('/tiers', (_req: Request, res: Response): void => {
+  res.json({ tiers: PP_TIERS });
 });
 
 router.put('/me/nickname', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
@@ -170,6 +178,11 @@ router.put('/me/nickname', requireAuth, async (req: AuthedRequest, res: Response
 // 탈퇴 — 유저 행 삭제. 게시글은 author_id=NULL(익명화)로 보존(FK ON DELETE SET NULL).
 router.delete('/account', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
   const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  // 옵션: 내가 올린 도안도 함께 삭제(선택 시). 기본은 익명 처리하여 보존.
+  const deletePosts = req.query.deletePosts === 'true' || req.body?.deletePosts === true;
+  if (deletePosts) {
+    await pool.query(`UPDATE pp_posts SET status='deleted', updated_at=CURRENT_TIMESTAMP WHERE author_id=$1 AND status<>'deleted'`, [req.ppUser!.id]);
+  }
   await pool.query('DELETE FROM pp_users WHERE id=$1', [req.ppUser!.id]);
   res.json({ success: true });
 });
