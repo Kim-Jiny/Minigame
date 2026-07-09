@@ -607,6 +607,7 @@ export async function setupDatabase() {
       ALTER TABLE pp_users ADD COLUMN IF NOT EXISTS nickname_set BOOLEAN DEFAULT FALSE;
       ALTER TABLE pp_users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;      -- 앱 내 관리자 권한(신고/문의/승인 처리 + 푸시 수신)
       ALTER TABLE pp_users ADD COLUMN IF NOT EXISTS tier_override INTEGER;               -- 창작자 계급 수동 지정(NULL=좋아요 기반 자동)
+      ALTER TABLE pp_users ADD COLUMN IF NOT EXISTS lang VARCHAR(5) DEFAULT 'ko';        -- 기기 언어(푸시 로컬라이즈용, 앱이 device-token 등록 시 갱신)
       -- 닉네임 대소문자-무시 유니크 인덱스는 여기(메인 SQL)에서 만들지 않는다.
       -- 기존 중복이 있으면 실패해 공유 서버 전체가 못 뜨므로, 아래에서 비치명적으로 생성한다.
       CREATE TABLE IF NOT EXISTS pp_posts (

@@ -5,7 +5,7 @@ import bcrypt from 'bcrypt';
 import { coinService } from '../services/coinService';
 import { parseAndValidate } from '../services/ctrPuzzleValidate';
 import { updateNickname } from '../services/userService';
-import { sendPushToUser } from '../services/ppPush'; // [PP] 비즈픽셀 문의 답변 푸시
+import { sendLocalizedPushToUser } from '../services/ppPush'; // [PP] 비즈픽셀 문의 답변 푸시(수신자 언어)
 import { tierFor, resolveTier } from '../services/ppTier'; // [PP] 승인 큐 계급 표시 + 계급 오버라이드
 import multer from 'multer'; // [SAJA] 사자툰 만화 이미지 업로드용
 // [SAJA] sharp 는 네이티브 모듈 — 로드 실패가 서버 전체를 죽이지 않도록 업로드 시점에 지연 로딩한다.
@@ -1631,8 +1631,7 @@ router.post('/pp/posts/:id/approve', verifyAdminToken, async (req: Request, res:
     if (!r.rows[0]) { res.status(404).json({ error: 'not_found' }); return; }
     await ppLog(pool, admin, 'post_approve', 'post', id);
     if (r.rows[0].author_id) {
-      await sendPushToUser(pool, r.rows[0].author_id, '도안이 게시됐어요',
-        `'${String(r.rows[0].title).slice(0, 40)}' 승인이 완료돼 커뮤니티에 공개됐어요.`, { type: 'pp_post_approved', postId: String(id) });
+      await sendLocalizedPushToUser(pool, r.rows[0].author_id, 'post_approved', { title: String(r.rows[0].title).slice(0, 40) }, { type: 'pp_post_approved', postId: String(id) });
     }
     res.json({ success: true });
   } catch (e) { console.error('[PP] admin approve error:', e); res.status(500).json({ error: 'Failed' }); }
@@ -1652,8 +1651,7 @@ router.post('/pp/posts/:id/reject', verifyAdminToken, async (req: Request, res: 
     if (!r.rows[0]) { res.status(404).json({ error: 'not_found' }); return; }
     await ppLog(pool, admin, 'post_reject', 'post', id, memo);
     if (r.rows[0].author_id) {
-      await sendPushToUser(pool, r.rows[0].author_id, '도안이 반려됐어요',
-        memo || `'${String(r.rows[0].title).slice(0, 40)}'가 커뮤니티 정책에 맞지 않아 게시되지 않았어요.`, { type: 'pp_post_rejected', postId: String(id) });
+      await sendLocalizedPushToUser(pool, r.rows[0].author_id, 'post_rejected', { title: String(r.rows[0].title).slice(0, 40), memo }, { type: 'pp_post_rejected', postId: String(id) });
     }
     res.json({ success: true });
   } catch (e) { console.error('[PP] admin reject error:', e); res.status(500).json({ error: 'Failed' }); }
@@ -1964,8 +1962,8 @@ router.put('/pp/inquiries/:id/reply', verifyAdminToken, async (req: Request, res
     );
     if (!r.rows[0]) { res.status(404).json({ error: 'not_found' }); return; }
     await ppLog(pool, (req as any).admin?.username || 'admin', 'inquiry_reply', 'inquiry', id);
-    // 답변 도착 푸시(설정 시)
-    await sendPushToUser(pool, r.rows[0].user_id, '문의 답변이 도착했어요', reply.slice(0, 80), { type: 'inquiry_reply' });
+    // 답변 도착 푸시(수신자 언어)
+    if (r.rows[0].user_id) await sendLocalizedPushToUser(pool, r.rows[0].user_id, 'inquiry_reply', { reply: reply.slice(0, 80) }, { type: 'inquiry_reply' });
     res.json({ success: true });
   } catch (e) { console.error('[PP] admin reply error:', e); res.status(500).json({ error: 'Failed' }); }
 });
