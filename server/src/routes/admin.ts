@@ -1598,6 +1598,73 @@ router.delete('/pp/posts/:id', verifyAdminToken, async (req: Request, res: Respo
   } catch (e) { console.error('[PP] admin delete error:', e); res.status(500).json({ error: 'Failed' }); }
 });
 
+// ───────── 연관검색(태그 그룹) 관리 ─────────
+function parseTagList(input: any, max: number): string[] {
+  const arr = Array.isArray(input) ? input : String(input ?? '').split(',');
+  return arr.map((t: any) => String(t).trim()).filter(Boolean).slice(0, max);
+}
+
+router.get('/pp/tag-groups', verifyAdminToken, async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool(); if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const rows = (await pool.query(`SELECT id, keyword, tags, created_at FROM pp_tag_groups ORDER BY keyword ASC`)).rows;
+    res.json({ groups: rows });
+  } catch (e) { console.error('[PP] tag-groups list error:', e); res.status(500).json({ error: 'Failed' }); }
+});
+
+router.post('/pp/tag-groups', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool(); if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const admin = (req as any).admin?.username || 'admin';
+    const keyword = String(req.body?.keyword || '').trim().slice(0, 40);
+    const tags = parseTagList(req.body?.tags, 50);
+    if (!keyword) { res.status(400).json({ error: 'keyword_required' }); return; }
+    const r = await pool.query(`INSERT INTO pp_tag_groups (keyword, tags) VALUES ($1,$2) RETURNING id`, [keyword, tags]);
+    await ppLog(pool, admin, 'tag_group_create', 'tag_group', r.rows[0].id, keyword);
+    res.json({ success: true, id: r.rows[0].id });
+  } catch (e) { console.error('[PP] tag-group create error:', e); res.status(500).json({ error: 'Failed' }); }
+});
+
+router.put('/pp/tag-groups/:id', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool(); if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const admin = (req as any).admin?.username || 'admin';
+    const id = parseInt(String(req.params.id), 10);
+    const keyword = String(req.body?.keyword || '').trim().slice(0, 40);
+    const tags = parseTagList(req.body?.tags, 50);
+    if (!keyword) { res.status(400).json({ error: 'keyword_required' }); return; }
+    const r = await pool.query(`UPDATE pp_tag_groups SET keyword=$1, tags=$2 WHERE id=$3 RETURNING id`, [keyword, tags, id]);
+    if (!r.rows[0]) { res.status(404).json({ error: 'not_found' }); return; }
+    await ppLog(pool, admin, 'tag_group_update', 'tag_group', id, keyword);
+    res.json({ success: true });
+  } catch (e) { console.error('[PP] tag-group update error:', e); res.status(500).json({ error: 'Failed' }); }
+});
+
+router.delete('/pp/tag-groups/:id', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool(); if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const admin = (req as any).admin?.username || 'admin';
+    const id = parseInt(String(req.params.id), 10);
+    await pool.query(`DELETE FROM pp_tag_groups WHERE id=$1`, [id]);
+    await ppLog(pool, admin, 'tag_group_delete', 'tag_group', id);
+    res.json({ success: true });
+  } catch (e) { console.error('[PP] tag-group delete error:', e); res.status(500).json({ error: 'Failed' }); }
+});
+
+// PATCH /api/admin/pp/posts/:id/tags — 게시글 태그 편집(관리자)
+router.patch('/pp/posts/:id/tags', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool(); if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const admin = (req as any).admin?.username || 'admin';
+    const id = parseInt(String(req.params.id), 10);
+    const tags = parseTagList(req.body?.tags, 10);
+    const r = await pool.query(`UPDATE pp_posts SET tags=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2 RETURNING id`, [tags, id]);
+    if (!r.rows[0]) { res.status(404).json({ error: 'not_found' }); return; }
+    await ppLog(pool, admin, 'post_tags_edit', 'post', id, tags.join(','));
+    res.json({ success: true, tags });
+  } catch (e) { console.error('[PP] post tags edit error:', e); res.status(500).json({ error: 'Failed' }); }
+});
+
 // POST /api/admin/pp/reports/:id/reject — 개별 신고 반려
 router.post('/pp/reports/:id/reject', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -1652,7 +1719,7 @@ router.get('/pp/posts', verifyAdminToken, async (req: Request, res: Response): P
     if (q) { params.push(`%${q}%`); where += ` AND p.title ILIKE $${params.length}`; }
     const rows = (await pool.query(
       `SELECT p.id, p.title, p.status, p.visibility, p.report_count, p.like_count, p.download_count,
-              p.preview_path, p.created_at, p.author_id, u.nickname AS author_nickname
+              p.preview_path, p.created_at, p.author_id, p.tags, u.nickname AS author_nickname
          FROM pp_posts p LEFT JOIN pp_users u ON u.id=p.author_id
         WHERE ${where} ORDER BY p.id DESC LIMIT 200`, params
     )).rows;
