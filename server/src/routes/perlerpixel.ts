@@ -297,10 +297,12 @@ router.post('/posts', requireAuth, upload.fields([{ name: 'preview', maxCount: 1
       const beadCount = Math.max(0, parseInt(String(b.beadCount ?? '0'), 10) || 0);
 
       // 프리뷰: sharp 로 재인코딩(메타 제거 + 크기 제한). 워터마크는 앱에서 오버레이로 표시.
+      // 도안은 색 수가 적어 팔레트 PNG로 저장하면 파일이 매우 작아진다(수십 KB 수준).
       if (!previewFile) { res.status(400).json({ error: 'preview_required' }); return; }
       const previewPng = await sharp(previewFile.buffer)
-        .resize({ width: 900, height: 900, fit: 'inside', withoutEnlargement: true })
-        .png().toBuffer();
+        .resize({ width: 640, height: 640, fit: 'inside', withoutEnlargement: true })
+        .png({ palette: true, compressionLevel: 9, quality: 90 })
+        .toBuffer();
       const fname = `${randomBytes(8).toString('hex')}.png`;
       fs.writeFileSync(path.join(uploadsDir, fname), previewPng);
       const previewPath = `/pp/uploads/${fname}`;
