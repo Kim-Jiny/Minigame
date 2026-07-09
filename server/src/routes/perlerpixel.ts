@@ -21,7 +21,8 @@ import {
   containsBannedWord, generateShareCode,
   REPORT_REASONS, REPORT_AUTO_HIDE_THRESHOLD,
 } from '../services/ppModeration';
-import { tierFor } from '../services/ppTier';
+import { resolveTier, autoApproves, PP_REVIEW_SLA_HOURS } from '../services/ppTier';
+import { sendPushToAdmins, sendPushToUser } from '../services/ppPush';
 
 /** 유저가 받은 좋아요 총합(모든 비삭제 도안의 like_count 합). */
 async function likesReceived(pool: any, userId: number): Promise<number> {
@@ -30,6 +31,17 @@ async function likesReceived(pool: any, userId: number): Promise<number> {
     [userId]
   );
   return r.rows[0]?.s ?? 0;
+}
+
+/** 작성자의 계급(좋아요 합 + tier_override 반영)을 한 번에 계산. */
+async function authorTier(pool: any, userId: number) {
+  const r = await pool.query(
+    `SELECT COALESCE(SUM(p.like_count),0)::int AS likes,
+            (SELECT tier_override FROM pp_users WHERE id=$1) AS override
+       FROM pp_posts p WHERE p.author_id=$1 AND p.status<>'deleted'`,
+    [userId]
+  );
+  return resolveTier(r.rows[0]?.likes ?? 0, r.rows[0]?.override ?? null);
 }
 
 /** 연관검색: q 가 어떤 태그그룹의 대표어/멤버와 일치하면 그 그룹 전체 단어로 확장(양방향). */
@@ -131,6 +143,7 @@ router.get('/me', requireAuth, async (req: AuthedRequest, res: Response): Promis
     user: { ...publicUser(u), email: u.email },
     uploadBanned: req.ppBan?.ban_type === 'upload',
     needsNickname: !u.nickname_set,
+    isAdmin: u.is_admin === true,
   });
 });
 
@@ -208,7 +221,8 @@ router.get('/posts', optionalAuth, async (req: AuthedRequest, res: Response): Pr
             p.preview_path, p.created_at, p.visibility,
             u.nickname AS author_nickname, p.author_id,
             (SELECT COALESCE(SUM(pl.like_count),0) FROM pp_posts pl
-              WHERE pl.author_id=p.author_id AND pl.status<>'deleted') AS author_likes
+              WHERE pl.author_id=p.author_id AND pl.status<>'deleted') AS author_likes,
+            u.tier_override AS author_tier_override
        FROM pp_posts p LEFT JOIN pp_users u ON u.id = p.author_id
       WHERE ${where}
       ORDER BY ${order}
@@ -227,7 +241,7 @@ function toListItem(r: any) {
     author: r.author_id ? {
       id: r.author_id,
       nickname: r.author_nickname,
-      ...(r.author_likes != null ? { tier: tierFor(Number(r.author_likes)) } : {}),
+      ...(r.author_likes != null ? { tier: resolveTier(Number(r.author_likes), r.author_tier_override ?? null) } : {}),
     } : null, // null=익명화
   };
 }
@@ -250,6 +264,7 @@ router.get('/posts/popular', optionalAuth, async (req: AuthedRequest, res: Respo
             p.preview_path, p.created_at, u.nickname AS author_nickname, p.author_id,
             (SELECT COALESCE(SUM(pl.like_count),0) FROM pp_posts pl
               WHERE pl.author_id=p.author_id AND pl.status<>'deleted') AS author_likes,
+            u.tier_override AS author_tier_override,
             ((SELECT COUNT(*) FROM pp_likes l WHERE l.post_id=p.id AND l.created_at > NOW()-INTERVAL '7 days')
            + (SELECT COUNT(*) FROM pp_downloads d WHERE d.post_id=p.id AND d.created_at > NOW()-INTERVAL '7 days')) AS score
        FROM pp_posts p LEFT JOIN pp_users u ON u.id=p.author_id
@@ -289,7 +304,7 @@ router.get('/posts/:id', requireAuth, async (req: AuthedRequest, res: Response):
   const liked = (await pool.query('SELECT 1 FROM pp_likes WHERE user_id=$1 AND post_id=$2', [req.ppUser!.id, id])).rows.length > 0;
   const detail = toDetail(post);
   const author = detail.author
-    ? { ...detail.author, tier: tierFor(await likesReceived(pool, detail.author.id)) }
+    ? { ...detail.author, tier: await authorTier(pool, detail.author.id) }
     : null;
   res.json({ post: { ...detail, author }, liked, isOwner: post.author_id === req.ppUser!.id });
 });
@@ -325,7 +340,7 @@ router.get('/posts/code/:code', requireAuth, async (req: AuthedRequest, res: Res
   const liked = (await pool.query('SELECT 1 FROM pp_likes WHERE user_id=$1 AND post_id=$2', [req.ppUser!.id, row.id])).rows.length > 0;
   const detail = toDetail(row);
   const author = detail.author
-    ? { ...detail.author, tier: tierFor(await likesReceived(pool, detail.author.id)) }
+    ? { ...detail.author, tier: await authorTier(pool, detail.author.id) }
     : null;
   res.json({ post: { ...detail, author }, liked, isOwner: row.author_id === req.ppUser!.id });
 });
@@ -390,13 +405,30 @@ router.post('/posts', requireAuth, upload.fields([{ name: 'preview', maxCount: 1
       } catch { /* 무시 */ }
 
       const shareCode = visibility === 'unlisted' ? generateShareCode() : null;
+
+      // 신뢰도 게이팅: 공개 도안은 마스터 비더(Lv5)+ 만 즉시 게시(active). 그 미만은 관리자
+      // 승인 대기(review). 링크공유(unlisted)는 게시판 비노출이라 등급과 무관하게 즉시 활성.
+      const authorLikes = await likesReceived(pool, req.ppUser!.id);
+      const needsReview = visibility === 'public' && !autoApproves(authorLikes);
+      const status = needsReview ? 'review' : 'active';
+
       const inserted = await pool.query(
         `INSERT INTO pp_posts (author_id, title, description, tags, visibility, share_code,
-                               pattern_data, preview_path, width, height, bead_count, colors)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id, share_code`,
-        [req.ppUser!.id, title, description, tags, visibility, shareCode, buf, previewPath, width, height, beadCount, JSON.stringify(colors)]
+                               pattern_data, preview_path, width, height, bead_count, colors, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id, share_code`,
+        [req.ppUser!.id, title, description, tags, visibility, shareCode, buf, previewPath, width, height, beadCount, JSON.stringify(colors), status]
       );
-      res.json({ id: inserted.rows[0].id, shareCode: inserted.rows[0].share_code, previewPath });
+      if (needsReview) {
+        await sendPushToAdmins(pool, '새 도안 승인 요청', `'${title.slice(0, 40)}' 승인 대기 중`, { type: 'pp_admin_review', postId: String(inserted.rows[0].id) });
+      }
+      res.json({
+        id: inserted.rows[0].id,
+        shareCode: inserted.rows[0].share_code,
+        previewPath,
+        status,
+        pendingReview: needsReview,
+        reviewEtaHours: needsReview ? PP_REVIEW_SLA_HOURS : 0,
+      });
     } catch (e) {
       console.error('[PP] upload error:', e);
       res.status(500).json({ error: 'upload_failed' });
@@ -507,6 +539,7 @@ router.post('/posts/:id/report', requireAuth, async (req: AuthedRequest, res: Re
     if (cnt >= REPORT_AUTO_HIDE_THRESHOLD) {
       await pool.query(`UPDATE pp_posts SET status='pending' WHERE id=$1 AND status='active'`, [id]);
     }
+    await sendPushToAdmins(pool, '새 신고 접수', `사유: ${reason} · 누적 ${cnt}건`, { type: 'pp_admin_report', postId: String(id) });
   }
   res.json({ success: true });
 });
@@ -553,6 +586,7 @@ router.post('/inquiries', requireAuth, async (req: AuthedRequest, res: Response)
      RETURNING id, content, status, reply, replied_at, is_read, created_at`,
     [req.ppUser!.id, content]
   );
+  await sendPushToAdmins(pool, '새 문의 접수', content.slice(0, 60), { type: 'pp_admin_inquiry' });
   res.json({ inquiry: r.rows[0] });
 });
 
@@ -611,8 +645,149 @@ router.get('/users/:id/posts', requireAuth, async (req: AuthedRequest, res: Resp
       ORDER BY p.id DESC LIMIT 60`, [id]
   )).rows;
   const blocked = (await pool.query('SELECT 1 FROM pp_blocks WHERE blocker_id=$1 AND blocked_id=$2', [req.ppUser!.id, id])).rows.length > 0;
-  const tier = tierFor(await likesReceived(pool, id));
+  const tier = await authorTier(pool, id);
   res.json({ nickname: u.nickname, posts: rows.map(toListItem), blocked, tier });
+});
+
+// ───────────────────────── 앱 내 관리자(is_admin) 콘솔 API ─────────────────────────
+// 웹 백스테이지와 별개로, pp 토큰(is_admin)으로 인증하는 관리자 처리 API. requireAuth 뒤에 체인.
+async function requireAdmin(req: AuthedRequest, res: Response, next: NextFunction): Promise<void> {
+  if (!req.ppUser?.is_admin) { res.status(403).json({ error: 'not_admin' }); return; }
+  next();
+}
+
+async function ppAdminLog(pool: any, who: string, action: string, targetType: string, targetId: number, memo = ''): Promise<void> {
+  try {
+    await pool.query(
+      'INSERT INTO pp_admin_logs (admin, action, target_type, target_id, memo) VALUES ($1,$2,$3,$4,$5)',
+      [who, action, targetType, targetId, memo]
+    );
+  } catch (e) { console.error('[PP] app-admin log error:', e); }
+}
+
+// 대시보드 요약(배지용)
+router.get('/admin/summary', requireAuth, requireAdmin, async (_req: AuthedRequest, res: Response): Promise<void> => {
+  const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  const reviews = (await pool.query(`SELECT COUNT(*)::int c FROM pp_posts WHERE status='review'`)).rows[0].c;
+  const reports = (await pool.query(`SELECT COUNT(*)::int c FROM pp_reports WHERE status='open'`)).rows[0].c;
+  const inquiries = (await pool.query(`SELECT COUNT(*)::int c FROM pp_inquiries WHERE status='pending'`)).rows[0].c;
+  res.json({ reviews, reports, inquiries });
+});
+
+// 승인 대기 큐
+router.get('/admin/reviews', requireAuth, requireAdmin, async (_req: AuthedRequest, res: Response): Promise<void> => {
+  const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  const rows = (await pool.query(
+    `SELECT p.id, p.title, p.description, p.tags, p.width, p.height, p.bead_count, p.preview_path, p.created_at,
+            p.author_id, u.nickname AS author_nickname
+       FROM pp_posts p LEFT JOIN pp_users u ON u.id=p.author_id
+      WHERE p.status='review' ORDER BY p.created_at ASC LIMIT 100`
+  )).rows;
+  res.json({ reviews: rows.map((r: any) => ({
+    id: r.id, title: r.title, description: r.description ?? '', tags: r.tags ?? [],
+    width: r.width, height: r.height, beadCount: r.bead_count, previewPath: r.preview_path,
+    createdAt: r.created_at, authorNickname: r.author_id ? r.author_nickname : null,
+  })) });
+});
+
+// 승인 → 게시
+router.post('/admin/posts/:id/approve', requireAuth, requireAdmin, async (req: AuthedRequest, res: Response): Promise<void> => {
+  const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  const id = parseInt(String(req.params.id), 10);
+  const r = await pool.query(
+    `UPDATE pp_posts SET status='active', updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND status IN ('review','rejected') RETURNING author_id, title`, [id]
+  );
+  if (!r.rows[0]) { res.status(404).json({ error: 'not_found' }); return; }
+  await ppAdminLog(pool, req.ppUser!.nickname, 'post_approve', 'post', id);
+  if (r.rows[0].author_id) await sendPushToUser(pool, r.rows[0].author_id, '도안이 게시됐어요', `'${String(r.rows[0].title).slice(0, 40)}' 승인 완료`, { type: 'pp_post_approved', postId: String(id) });
+  res.json({ success: true });
+});
+
+// 반려
+router.post('/admin/posts/:id/reject', requireAuth, requireAdmin, async (req: AuthedRequest, res: Response): Promise<void> => {
+  const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  const id = parseInt(String(req.params.id), 10);
+  const memo = typeof req.body?.memo === 'string' ? req.body.memo.slice(0, 500) : '';
+  const r = await pool.query(
+    `UPDATE pp_posts SET status='rejected', updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND status IN ('review','active','pending') RETURNING author_id, title`, [id]
+  );
+  if (!r.rows[0]) { res.status(404).json({ error: 'not_found' }); return; }
+  await ppAdminLog(pool, req.ppUser!.nickname, 'post_reject', 'post', id, memo);
+  if (r.rows[0].author_id) await sendPushToUser(pool, r.rows[0].author_id, '도안이 반려됐어요', memo || '커뮤니티 정책에 맞지 않아요', { type: 'pp_post_rejected', postId: String(id) });
+  res.json({ success: true });
+});
+
+// 신고 목록
+router.get('/admin/reports', requireAuth, requireAdmin, async (req: AuthedRequest, res: Response): Promise<void> => {
+  const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  const status = typeof req.query.status === 'string' && ['open', 'resolved', 'rejected'].includes(req.query.status) ? req.query.status : 'open';
+  const rows = (await pool.query(
+    `SELECT r.id, r.reason, r.detail, r.status, r.created_at, r.post_id,
+            p.title AS post_title, p.status AS post_status, p.preview_path, p.report_count,
+            p.author_id, au.nickname AS author_nickname
+       FROM pp_reports r JOIN pp_posts p ON p.id=r.post_id
+       LEFT JOIN pp_users au ON au.id=p.author_id
+      WHERE r.status=$1 ORDER BY r.created_at DESC LIMIT 100`, [status]
+  )).rows;
+  res.json({ reports: rows.map((r: any) => ({
+    id: r.id, reason: r.reason, detail: r.detail ?? '', status: r.status, createdAt: r.created_at,
+    postId: r.post_id, postTitle: r.post_title, postStatus: r.post_status, previewPath: r.preview_path,
+    reportCount: r.report_count, authorNickname: r.author_id ? r.author_nickname : null,
+  })) });
+});
+
+// 신고 확정(비공개) — 관련 open 신고 resolved
+router.post('/admin/posts/:id/hide', requireAuth, requireAdmin, async (req: AuthedRequest, res: Response): Promise<void> => {
+  const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  const id = parseInt(String(req.params.id), 10);
+  const who = req.ppUser!.nickname;
+  await pool.query(`UPDATE pp_posts SET status='hidden', updated_at=CURRENT_TIMESTAMP WHERE id=$1`, [id]);
+  await pool.query(`UPDATE pp_reports SET status='resolved', resolved_at=CURRENT_TIMESTAMP, resolver=$2 WHERE post_id=$1 AND status='open'`, [id, who]);
+  await pool.query(`UPDATE pp_posts SET report_count=(SELECT COUNT(*)::int FROM pp_reports WHERE post_id=$1 AND status='open') WHERE id=$1`, [id]);
+  await ppAdminLog(pool, who, 'post_hide', 'post', id);
+  res.json({ success: true });
+});
+
+// 신고 반려(유지) — open 신고 rejected, 게시 유지
+router.post('/admin/posts/:id/keep', requireAuth, requireAdmin, async (req: AuthedRequest, res: Response): Promise<void> => {
+  const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  const id = parseInt(String(req.params.id), 10);
+  const who = req.ppUser!.nickname;
+  await pool.query(`UPDATE pp_posts SET status='active', updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND status IN ('hidden','pending')`, [id]);
+  await pool.query(`UPDATE pp_reports SET status='rejected', resolved_at=CURRENT_TIMESTAMP, resolver=$2 WHERE post_id=$1 AND status='open'`, [id, who]);
+  await pool.query(`UPDATE pp_posts SET report_count=(SELECT COUNT(*)::int FROM pp_reports WHERE post_id=$1 AND status='open') WHERE id=$1`, [id]);
+  await ppAdminLog(pool, who, 'post_keep', 'post', id);
+  res.json({ success: true });
+});
+
+// 문의 목록
+router.get('/admin/inquiries', requireAuth, requireAdmin, async (req: AuthedRequest, res: Response): Promise<void> => {
+  const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  const status = typeof req.query.status === 'string' && ['pending', 'replied'].includes(req.query.status) ? req.query.status : 'pending';
+  const rows = (await pool.query(
+    `SELECT i.id, i.content, i.status, i.reply, i.replied_at, i.created_at, i.user_id, u.nickname AS user_nickname
+       FROM pp_inquiries i LEFT JOIN pp_users u ON u.id=i.user_id
+      WHERE i.status=$1 ORDER BY i.created_at DESC LIMIT 100`, [status]
+  )).rows;
+  res.json({ inquiries: rows.map((i: any) => ({
+    id: i.id, content: i.content, status: i.status, reply: i.reply ?? '', repliedAt: i.replied_at,
+    createdAt: i.created_at, userNickname: i.user_id ? i.user_nickname : null,
+  })) });
+});
+
+// 문의 답변(+유저 푸시)
+router.post('/admin/inquiries/:id/reply', requireAuth, requireAdmin, async (req: AuthedRequest, res: Response): Promise<void> => {
+  const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  const id = parseInt(String(req.params.id), 10);
+  const reply = typeof req.body?.reply === 'string' ? req.body.reply.trim() : '';
+  if (!reply) { res.status(400).json({ error: 'reply_required' }); return; }
+  const r = await pool.query(
+    `UPDATE pp_inquiries SET reply=$1, status='replied', replied_at=CURRENT_TIMESTAMP, is_read=FALSE WHERE id=$2 RETURNING user_id`, [reply, id]
+  );
+  if (!r.rows[0]) { res.status(404).json({ error: 'not_found' }); return; }
+  await ppAdminLog(pool, req.ppUser!.nickname, 'inquiry_reply', 'inquiry', id);
+  if (r.rows[0].user_id) await sendPushToUser(pool, r.rows[0].user_id, '문의 답변이 도착했어요', reply.slice(0, 80), { type: 'inquiry_reply' });
+  res.json({ success: true });
 });
 
 router.get('/health', (_req: Request, res: Response) => { res.json({ ok: true }); });

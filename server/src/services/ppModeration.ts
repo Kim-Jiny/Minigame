@@ -3,8 +3,9 @@
 import { randomBytes } from 'crypto';
 import { getPool } from '../config/database';
 
-/** 서로 다른 유저의 신고가 이 수를 넘으면 게시글을 자동 pending(비공개) 처리. */
-export const REPORT_AUTO_HIDE_THRESHOLD = 3;
+/** 서로 다른 유저의 신고가 이 수 이상이면 게시글을 자동 pending(비공개) 처리.
+ *  관리자가 확인 후 복구(공개)하거나 확정(hidden/삭제)한다. */
+export const REPORT_AUTO_HIDE_THRESHOLD = 10;
 
 // 저작권·상표권 / 부적절한 이미지 / 욕설·혐오 / 개인정보·초상권 / 스팸·광고 / 기타
 export const REPORT_REASONS = ['copyright', 'inappropriate', 'abuse', 'privacy', 'spam', 'other'] as const;

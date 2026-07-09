@@ -6,6 +6,7 @@ import { coinService } from '../services/coinService';
 import { parseAndValidate } from '../services/ctrPuzzleValidate';
 import { updateNickname } from '../services/userService';
 import { sendPushToUser } from '../services/ppPush'; // [PP] 비즈픽셀 문의 답변 푸시
+import { tierFor, resolveTier } from '../services/ppTier'; // [PP] 승인 큐 계급 표시 + 계급 오버라이드
 import multer from 'multer'; // [SAJA] 사자툰 만화 이미지 업로드용
 // [SAJA] sharp 는 네이티브 모듈 — 로드 실패가 서버 전체를 죽이지 않도록 업로드 시점에 지연 로딩한다.
 import path from 'path';
@@ -1598,6 +1599,66 @@ router.delete('/pp/posts/:id', verifyAdminToken, async (req: Request, res: Respo
   } catch (e) { console.error('[PP] admin delete error:', e); res.status(500).json({ error: 'Failed' }); }
 });
 
+// ───────── 도안 승인(신규 업로드 검토) ─────────
+// GET /api/admin/pp/reviews — 승인 대기 큐(status='review'). 오래된 순(먼저 올린 순).
+router.get('/pp/reviews', verifyAdminToken, async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool(); if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const rows = (await pool.query(
+      `SELECT p.id, p.title, p.description, p.tags, p.visibility, p.width, p.height, p.bead_count,
+              p.preview_path, p.created_at, p.author_id, u.nickname AS author_nickname,
+              (SELECT COALESCE(SUM(pl.like_count),0)::int FROM pp_posts pl
+                WHERE pl.author_id=p.author_id AND pl.status<>'deleted') AS author_likes
+         FROM pp_posts p LEFT JOIN pp_users u ON u.id=p.author_id
+        WHERE p.status='review'
+        ORDER BY p.created_at ASC LIMIT 300`
+    )).rows;
+    const reviews = rows.map((r: any) => ({ ...r, tier: tierFor(Number(r.author_likes ?? 0)) }));
+    res.json({ reviews });
+  } catch (e) { console.error('[PP] admin reviews error:', e); res.status(500).json({ error: 'Failed' }); }
+});
+
+// POST /api/admin/pp/posts/:id/approve — 승인 → 게시(active). review/rejected 에서만.
+router.post('/pp/posts/:id/approve', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool(); if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const id = parseInt(String(req.params.id), 10);
+    const admin = (req as any).admin?.username || 'admin';
+    const r = await pool.query(
+      `UPDATE pp_posts SET status='active', updated_at=CURRENT_TIMESTAMP
+        WHERE id=$1 AND status IN ('review','rejected') RETURNING author_id, title`, [id]
+    );
+    if (!r.rows[0]) { res.status(404).json({ error: 'not_found' }); return; }
+    await ppLog(pool, admin, 'post_approve', 'post', id);
+    if (r.rows[0].author_id) {
+      await sendPushToUser(pool, r.rows[0].author_id, '도안이 게시됐어요',
+        `'${String(r.rows[0].title).slice(0, 40)}' 승인이 완료돼 커뮤니티에 공개됐어요.`, { type: 'pp_post_approved', postId: String(id) });
+    }
+    res.json({ success: true });
+  } catch (e) { console.error('[PP] admin approve error:', e); res.status(500).json({ error: 'Failed' }); }
+});
+
+// POST /api/admin/pp/posts/:id/reject — 승인 반려 → rejected(+사유 푸시). review/active/pending 에서.
+router.post('/pp/posts/:id/reject', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool(); if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const id = parseInt(String(req.params.id), 10);
+    const admin = (req as any).admin?.username || 'admin';
+    const memo = typeof req.body?.memo === 'string' ? req.body.memo.slice(0, 500) : '';
+    const r = await pool.query(
+      `UPDATE pp_posts SET status='rejected', updated_at=CURRENT_TIMESTAMP
+        WHERE id=$1 AND status IN ('review','active','pending') RETURNING author_id, title`, [id]
+    );
+    if (!r.rows[0]) { res.status(404).json({ error: 'not_found' }); return; }
+    await ppLog(pool, admin, 'post_reject', 'post', id, memo);
+    if (r.rows[0].author_id) {
+      await sendPushToUser(pool, r.rows[0].author_id, '도안이 반려됐어요',
+        memo || `'${String(r.rows[0].title).slice(0, 40)}'가 커뮤니티 정책에 맞지 않아 게시되지 않았어요.`, { type: 'pp_post_rejected', postId: String(id) });
+    }
+    res.json({ success: true });
+  } catch (e) { console.error('[PP] admin reject error:', e); res.status(500).json({ error: 'Failed' }); }
+});
+
 // ───────── 연관검색(태그 그룹) 관리 ─────────
 function parseTagList(input: any, max: number): string[] {
   const arr = Array.isArray(input) ? input : String(input ?? '').split(',');
@@ -1709,24 +1770,74 @@ router.post('/pp/users/:id/unban', verifyAdminToken, async (req: Request, res: R
   } catch (e) { console.error('[PP] admin unban error:', e); res.status(500).json({ error: 'Failed' }); }
 });
 
-// GET /api/admin/pp/posts?query= — 도안 검색
+// GET /api/admin/pp/posts?query=&visibility=&status=&cursor= — 도안 검색/전체(페이지네이션)
 router.get('/pp/posts', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
   try {
     const pool = getPool(); if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
     const q = typeof req.query.query === 'string' ? req.query.query.trim() : '';
     const vis = typeof req.query.visibility === 'string' ? req.query.visibility : '';
+    const status = typeof req.query.status === 'string' ? req.query.status : '';
+    const limit = 30;
+    const offset = Math.max(0, parseInt(String(req.query.cursor ?? '0'), 10) || 0);
     const params: any[] = [];
     let where = `p.status <> 'deleted'`;
     if (q) { params.push(`%${q}%`); where += ` AND p.title ILIKE $${params.length}`; }
     if (vis === 'public' || vis === 'unlisted') { params.push(vis); where += ` AND p.visibility=$${params.length}`; }
+    if (['active', 'review', 'pending', 'hidden', 'rejected'].includes(status)) { params.push(status); where += ` AND p.status=$${params.length}`; }
+    const total = (await pool.query(`SELECT COUNT(*)::int c FROM pp_posts p WHERE ${where}`, params)).rows[0].c;
+    params.push(limit); const limitP = `$${params.length}`;
+    params.push(offset); const offsetP = `$${params.length}`;
     const rows = (await pool.query(
       `SELECT p.id, p.title, p.status, p.visibility, p.report_count, p.like_count, p.download_count,
               p.preview_path, p.created_at, p.author_id, p.tags, u.nickname AS author_nickname
          FROM pp_posts p LEFT JOIN pp_users u ON u.id=p.author_id
-        WHERE ${where} ORDER BY p.id DESC LIMIT 200`, params
+        WHERE ${where} ORDER BY p.id DESC LIMIT ${limitP} OFFSET ${offsetP}`, params
     )).rows;
-    res.json({ posts: rows });
+    const nextCursor = rows.length === limit ? offset + limit : null;
+    res.json({ posts: rows, nextCursor, total });
   } catch (e) { console.error('[PP] admin posts error:', e); res.status(500).json({ error: 'Failed' }); }
+});
+
+// GET /api/admin/pp/posts/:id — 도안 상세(편집/조치용 전체 필드)
+router.get('/pp/posts/:id', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool(); if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const id = parseInt(String(req.params.id), 10);
+    const p = (await pool.query(
+      `SELECT p.id, p.title, p.description, p.tags, p.visibility, p.status, p.share_code,
+              p.width, p.height, p.bead_count, p.colors, p.preview_path, p.report_count,
+              p.like_count, p.download_count, p.created_at, p.updated_at,
+              p.author_id, u.nickname AS author_nickname
+         FROM pp_posts p LEFT JOIN pp_users u ON u.id=p.author_id WHERE p.id=$1`, [id]
+    )).rows[0];
+    if (!p) { res.status(404).json({ error: 'not_found' }); return; }
+    const reports = (await pool.query(
+      `SELECT id, reason, detail, status, created_at FROM pp_reports WHERE post_id=$1 ORDER BY id DESC LIMIT 50`, [id]
+    )).rows;
+    res.json({ post: p, reports });
+  } catch (e) { console.error('[PP] admin post detail error:', e); res.status(500).json({ error: 'Failed' }); }
+});
+
+// PATCH /api/admin/pp/posts/:id — 도안 편집(제목·본문·공개설정·태그)
+router.patch('/pp/posts/:id', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool(); if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const id = parseInt(String(req.params.id), 10);
+    const admin = (req as any).admin?.username || 'admin';
+    const b = req.body ?? {};
+    const title = typeof b.title === 'string' ? b.title.trim().slice(0, 120) : '';
+    if (!title) { res.status(400).json({ error: 'title_required' }); return; }
+    const description = (typeof b.description === 'string' ? b.description : '').slice(0, 2000);
+    const visibility = b.visibility === 'unlisted' ? 'unlisted' : 'public';
+    const tags = parseTagList(b.tags, 10);
+    const r = await pool.query(
+      `UPDATE pp_posts SET title=$1, description=$2, visibility=$3, tags=$4, updated_at=CURRENT_TIMESTAMP
+        WHERE id=$5 AND status<>'deleted' RETURNING id`, [title, description, visibility, tags, id]
+    );
+    if (!r.rows[0]) { res.status(404).json({ error: 'not_found' }); return; }
+    await ppLog(pool, admin, 'post_edit', 'post', id, title);
+    res.json({ success: true });
+  } catch (e) { console.error('[PP] admin post edit error:', e); res.status(500).json({ error: 'Failed' }); }
 });
 
 // GET /api/admin/pp/users?query= — 유저 검색
@@ -1764,9 +1875,62 @@ router.get('/pp/stats', verifyAdminToken, async (_req: Request, res: Response): 
     const posts = (await pool.query(`SELECT COUNT(*)::int c FROM pp_posts WHERE status='active'`)).rows[0].c;
     const users = (await pool.query(`SELECT COUNT(*)::int c FROM pp_users WHERE status='active'`)).rows[0].c;
     const pending = (await pool.query(`SELECT COUNT(*)::int c FROM pp_posts WHERE status='pending'`)).rows[0].c;
+    const review = (await pool.query(`SELECT COUNT(*)::int c FROM pp_posts WHERE status='review'`)).rows[0].c;
     const openInquiries = (await pool.query(`SELECT COUNT(*)::int c FROM pp_inquiries WHERE status='pending'`)).rows[0].c;
-    res.json({ openReports, activePosts: posts, activeUsers: users, pendingPosts: pending, openInquiries });
+    res.json({ openReports, activePosts: posts, activeUsers: users, pendingPosts: pending, reviewPosts: review, openInquiries });
   } catch (e) { console.error('[PP] admin stats error:', e); res.status(500).json({ error: 'Failed' }); }
+});
+
+// GET /api/admin/pp/analytics — 통계 탭용 상세 지표
+router.get('/pp/analytics', verifyAdminToken, async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool(); if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const one = async (sql: string) => (await pool.query(sql)).rows[0].c as number;
+
+    const users = {
+      total: await one(`SELECT COUNT(*)::int c FROM pp_users WHERE status='active'`),
+      new7d: await one(`SELECT COUNT(*)::int c FROM pp_users WHERE status='active' AND created_at > NOW()-INTERVAL '7 days'`),
+      new30d: await one(`SELECT COUNT(*)::int c FROM pp_users WHERE status='active' AND created_at > NOW()-INTERVAL '30 days'`),
+      admins: await one(`SELECT COUNT(*)::int c FROM pp_users WHERE is_admin=TRUE AND status='active'`),
+    };
+    const statusRows = (await pool.query(
+      `SELECT status, COUNT(*)::int c FROM pp_posts WHERE status<>'deleted' GROUP BY status`
+    )).rows as { status: string; c: number }[];
+    const byStatus: Record<string, number> = { active: 0, review: 0, pending: 0, hidden: 0, rejected: 0 };
+    for (const r of statusRows) byStatus[r.status] = r.c;
+    const posts = {
+      total: await one(`SELECT COUNT(*)::int c FROM pp_posts WHERE status<>'deleted'`),
+      public: await one(`SELECT COUNT(*)::int c FROM pp_posts WHERE status<>'deleted' AND visibility='public'`),
+      unlisted: await one(`SELECT COUNT(*)::int c FROM pp_posts WHERE status<>'deleted' AND visibility='unlisted'`),
+      byStatus,
+    };
+    const engagement = {
+      totalLikes: await one(`SELECT COUNT(*)::int c FROM pp_likes`),
+      totalDownloads: await one(`SELECT COUNT(*)::int c FROM pp_downloads`),
+      openReports: await one(`SELECT COUNT(*)::int c FROM pp_reports WHERE status='open'`),
+    };
+    const recent7d = {
+      posts: await one(`SELECT COUNT(*)::int c FROM pp_posts WHERE status<>'deleted' AND created_at > NOW()-INTERVAL '7 days'`),
+      likes: await one(`SELECT COUNT(*)::int c FROM pp_likes WHERE created_at > NOW()-INTERVAL '7 days'`),
+      downloads: await one(`SELECT COUNT(*)::int c FROM pp_downloads WHERE created_at > NOW()-INTERVAL '7 days'`),
+    };
+    const topCreators = (await pool.query(
+      `SELECT u.id, u.nickname, COALESCE(SUM(p.like_count),0)::int AS likes, COUNT(p.id)::int AS posts
+         FROM pp_users u JOIN pp_posts p ON p.author_id=u.id AND p.status<>'deleted'
+        WHERE u.status='active'
+        GROUP BY u.id, u.nickname ORDER BY likes DESC, posts DESC LIMIT 10`
+    )).rows;
+    const reportReasons = (await pool.query(
+      `SELECT reason, COUNT(*)::int c FROM pp_reports GROUP BY reason ORDER BY c DESC`
+    )).rows;
+    const dailyUploads = (await pool.query(
+      `SELECT to_char(date_trunc('day', created_at), 'MM-DD') AS day, COUNT(*)::int c
+         FROM pp_posts WHERE status<>'deleted' AND created_at > NOW()-INTERVAL '14 days'
+        GROUP BY 1 ORDER BY 1`
+    )).rows;
+
+    res.json({ users, posts, engagement, recent7d, topCreators, reportReasons, dailyUploads });
+  } catch (e) { console.error('[PP] admin analytics error:', e); res.status(500).json({ error: 'Failed' }); }
 });
 
 // GET /api/admin/pp/inquiries?status=pending|replied|all — 문의 목록
@@ -1821,9 +1985,13 @@ router.get('/pp/users/:id', verifyAdminToken, async (req: Request, res: Response
     const pool = getPool(); if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
     const id = parseInt(String(req.params.id), 10);
     const user = (await pool.query(
-      `SELECT id, nickname, email, provider, status, created_at FROM pp_users WHERE id=$1`, [id]
+      `SELECT id, nickname, email, provider, status, created_at, is_admin, tier_override FROM pp_users WHERE id=$1`, [id]
     )).rows[0];
     if (!user) { res.status(404).json({ error: 'not_found' }); return; }
+    const likes = (await pool.query(
+      `SELECT COALESCE(SUM(like_count),0)::int c FROM pp_posts WHERE author_id=$1 AND status<>'deleted'`, [id]
+    )).rows[0].c;
+    const tier = resolveTier(likes, user.tier_override ?? null);
     const posts = (await pool.query(
       `SELECT id, title, status, visibility, report_count, like_count, download_count, preview_path, created_at
          FROM pp_posts WHERE author_id=$1 AND status<>'deleted' ORDER BY id DESC LIMIT 100`, [id]
@@ -1838,8 +2006,37 @@ router.get('/pp/users/:id', verifyAdminToken, async (req: Request, res: Response
     const inquiries = (await pool.query(
       `SELECT id, content, status, reply, created_at FROM pp_inquiries WHERE user_id=$1 ORDER BY id DESC LIMIT 20`, [id]
     )).rows;
-    res.json({ user, posts, reportsReceived, bans, activeBan, inquiries });
+    res.json({ user, posts, reportsReceived, bans, activeBan, inquiries, likesReceived: likes, tier });
   } catch (e) { console.error('[PP] admin user detail error:', e); res.status(500).json({ error: 'Failed' }); }
+});
+
+// POST /api/admin/pp/users/:id/admin — 앱 내 관리자 권한 부여/회수({grant:boolean})
+router.post('/pp/users/:id/admin', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool(); if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const id = parseInt(String(req.params.id), 10);
+    const admin = (req as any).admin?.username || 'admin';
+    const grant = req.body?.grant !== false;
+    const r = await pool.query(`UPDATE pp_users SET is_admin=$2, updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING id`, [id, grant]);
+    if (!r.rows[0]) { res.status(404).json({ error: 'not_found' }); return; }
+    await ppLog(pool, admin, grant ? 'user_admin_grant' : 'user_admin_revoke', 'user', id);
+    res.json({ success: true, isAdmin: grant });
+  } catch (e) { console.error('[PP] admin grant error:', e); res.status(500).json({ error: 'Failed' }); }
+});
+
+// POST /api/admin/pp/users/:id/tier — 창작자 계급 수동 지정(level 1~7) 또는 자동(null)
+router.post('/pp/users/:id/tier', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool(); if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const id = parseInt(String(req.params.id), 10);
+    const admin = (req as any).admin?.username || 'admin';
+    const raw = req.body?.level;
+    const level = (raw === null || raw === '' || raw === undefined) ? null : Math.max(1, Math.min(7, parseInt(String(raw), 10) || 0));
+    const r = await pool.query(`UPDATE pp_users SET tier_override=$2, updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING id`, [id, level]);
+    if (!r.rows[0]) { res.status(404).json({ error: 'not_found' }); return; }
+    await ppLog(pool, admin, 'user_tier_override', 'user', id, level === null ? 'auto' : `Lv${level}`);
+    res.json({ success: true, tierOverride: level });
+  } catch (e) { console.error('[PP] admin tier override error:', e); res.status(500).json({ error: 'Failed' }); }
 });
 
 export default router;

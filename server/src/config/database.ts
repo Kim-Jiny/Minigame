@@ -605,6 +605,8 @@ export async function setupDatabase() {
         UNIQUE (provider, provider_uid)
       );
       ALTER TABLE pp_users ADD COLUMN IF NOT EXISTS nickname_set BOOLEAN DEFAULT FALSE;
+      ALTER TABLE pp_users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;      -- 앱 내 관리자 권한(신고/문의/승인 처리 + 푸시 수신)
+      ALTER TABLE pp_users ADD COLUMN IF NOT EXISTS tier_override INTEGER;               -- 창작자 계급 수동 지정(NULL=좋아요 기반 자동)
       -- 닉네임 대소문자-무시 유니크 인덱스는 여기(메인 SQL)에서 만들지 않는다.
       -- 기존 중복이 있으면 실패해 공유 서버 전체가 못 뜨므로, 아래에서 비치명적으로 생성한다.
       CREATE TABLE IF NOT EXISTS pp_posts (
@@ -614,7 +616,7 @@ export async function setupDatabase() {
         description TEXT DEFAULT '',
         tags TEXT[] DEFAULT '{}',
         visibility VARCHAR(10) DEFAULT 'public',  -- public | unlisted(링크 전용)
-        status VARCHAR(10) DEFAULT 'active',      -- active | pending(신고누적) | hidden(관리자) | deleted
+        status VARCHAR(10) DEFAULT 'active',      -- active | review(승인대기) | pending(신고누적) | hidden(관리자) | rejected(승인반려) | deleted
         share_code VARCHAR(16) UNIQUE,            -- unlisted 접근용
         pattern_data BYTEA NOT NULL,              -- PatternCodec compact 바이너리
         preview_path TEXT,                        -- /pp/uploads/<file>.png
