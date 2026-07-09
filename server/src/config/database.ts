@@ -713,6 +713,14 @@ export async function setupDatabase() {
       );
       CREATE INDEX IF NOT EXISTS idx_pp_device_tokens_user ON pp_device_tokens(user_id);
 
+      -- 연관검색(동의어) 그룹: 대표어로 검색하면 tags 전체가 함께 검색됨(admin 관리).
+      CREATE TABLE IF NOT EXISTS pp_tag_groups (
+        id SERIAL PRIMARY KEY,
+        keyword TEXT NOT NULL,                    -- 대표어 (예: 동물)
+        tags TEXT[] NOT NULL DEFAULT '{}',        -- 연관 태그 (예: 고양이,강아지,햄스터,쥐)
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
       -- [LAB] 참고: 이 공유 DB 에는 라비린스 온라인 소유의 lab_* 테이블
       --       (lab_matches, lab_match_players, lab_user_stats)도 존재한다.
       --       그러나 그 테이블은 "별도 리포·별도 서버"(~/Documents/Jiny/LabyrinthOnline,

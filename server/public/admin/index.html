@@ -648,6 +648,7 @@
         <button onclick="ppTab('inquiries', this)">문의 <span class="badge pending" id="ppInquiryBadge" style="display:none">0</span></button>
         <button onclick="ppTab('posts', this)">도안</button>
         <button onclick="ppTab('users', this)">유저</button>
+        <button onclick="ppTab('tags', this)">연관검색</button>
         <button onclick="ppTab('logs', this)">처리 로그</button>
       </div>
 
@@ -690,6 +691,19 @@
         <table class="data-table"><thead>
           <tr><th>ID</th><th>유저</th><th>문의 내용</th><th>답변</th><th>상태</th><th>등록일</th><th></th></tr>
         </thead><tbody id="ppInquiriesBody"><tr><td colspan="7" class="empty">Loading...</td></tr></tbody></table>
+      </div>
+
+      <!-- 연관검색(태그 그룹) -->
+      <div class="pp-tab" id="pp-tags" style="display:none">
+        <div style="margin:10px 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <input id="ppTagKeyword" placeholder="대표어 (예: 동물)" style="width:140px">
+          <input id="ppTagMembers" placeholder="연관 태그 쉼표구분 (예: 고양이,강아지,햄스터,쥐)" style="width:360px">
+          <button onclick="ppAddTagGroup()">추가</button>
+          <span style="color:#888;font-size:12px">대표어/멤버 아무 단어로 검색해도 그룹 전체가 함께 검색됩니다.</span>
+        </div>
+        <table class="data-table"><thead>
+          <tr><th>ID</th><th>대표어</th><th>연관 태그</th><th>조치</th></tr>
+        </thead><tbody id="ppTagGroupsBody"><tr><td colspan="4" class="empty">Loading...</td></tr></tbody></table>
       </div>
 
       <!-- 처리 로그 -->
@@ -1210,7 +1224,52 @@
       document.getElementById('pp-' + name).style.display = 'block';
       if (name === 'reports') loadPpReports();
       else if (name === 'inquiries') loadPpInquiries();
+      else if (name === 'tags') loadPpTagGroups();
       else if (name === 'logs') loadPpLogs();
+    }
+    // 연관검색(태그 그룹) 관리
+    function loadPpTagGroups() {
+      api('/api/admin/pp/tag-groups').then(d => {
+        const rows = d.groups || [];
+        document.getElementById('ppTagGroupsBody').innerHTML = rows.length ? rows.map(g => `
+          <tr><td>${g.id}</td><td><b>${ppEsc(g.keyword)}</b></td>
+            <td>${(g.tags || []).map(t => '#' + ppEsc(t)).join(' ')}</td>
+            <td style="white-space:nowrap">
+              <button onclick="ppEditTagGroup(${g.id}, '${encodeURIComponent(g.keyword)}', '${encodeURIComponent((g.tags || []).join(', '))}')">수정</button>
+              <button onclick="ppDeleteTagGroup(${g.id})" style="color:#c00">삭제</button>
+            </td></tr>`).join('') : '<tr><td colspan="4" class="empty">그룹 없음 — 위에서 추가하세요</td></tr>';
+      }).catch(() => {});
+    }
+    function ppAddTagGroup() {
+      const keyword = document.getElementById('ppTagKeyword').value.trim();
+      const tags = document.getElementById('ppTagMembers').value.split(',').map(t => t.trim()).filter(Boolean);
+      if (!keyword) { alert('대표어를 입력하세요'); return; }
+      api('/api/admin/pp/tag-groups', { method: 'POST', body: JSON.stringify({ keyword, tags }) }).then(() => {
+        document.getElementById('ppTagKeyword').value = '';
+        document.getElementById('ppTagMembers').value = '';
+        loadPpTagGroups();
+      }).catch(() => alert('실패'));
+    }
+    function ppEditTagGroup(id, kw, tg) {
+      const keyword = prompt('대표어:', decodeURIComponent(kw));
+      if (keyword === null || !keyword.trim()) return;
+      const members = prompt('연관 태그(쉼표 구분):', decodeURIComponent(tg));
+      if (members === null) return;
+      const tags = members.split(',').map(t => t.trim()).filter(Boolean);
+      api(`/api/admin/pp/tag-groups/${id}`, { method: 'PUT', body: JSON.stringify({ keyword: keyword.trim(), tags }) })
+        .then(loadPpTagGroups).catch(() => alert('실패'));
+    }
+    function ppDeleteTagGroup(id) {
+      if (confirm('이 연관검색 그룹을 삭제할까요?'))
+        api(`/api/admin/pp/tag-groups/${id}`, { method: 'DELETE' }).then(loadPpTagGroups).catch(() => alert('실패'));
+    }
+    // 게시글 태그 편집(관리자)
+    function ppEditPostTags(id, cur) {
+      const val = prompt('태그(쉼표로 구분, 최대 10개):', decodeURIComponent(cur || ''));
+      if (val === null) return;
+      const tags = val.split(',').map(t => t.trim()).filter(Boolean).slice(0, 10);
+      api(`/api/admin/pp/posts/${id}/tags`, { method: 'PATCH', body: JSON.stringify({ tags }) })
+        .then(ppSearchPosts).catch(() => alert('실패'));
     }
     function loadPpStats() {
       api('/api/admin/pp/stats').then(d => {
@@ -1309,10 +1368,12 @@
       api(`/api/admin/pp/posts?query=${q}`).then(d => {
         const rows = d.posts || [];
         document.getElementById('ppPostsBody').innerHTML = rows.length ? rows.map(p => `
-          <tr><td>${p.id}</td><td>${ppPrev(p.preview_path)}</td><td>${ppEsc(p.title)}</td>
+          <tr><td>${p.id}</td><td>${ppPrev(p.preview_path)}</td>
+            <td>${ppEsc(p.title)}${(p.tags && p.tags.length) ? '<br><small style="color:#37c">#' + p.tags.map(ppEsc).join(' #') + '</small>' : ''}</td>
             <td>${p.author_id ? ppEsc(p.author_nickname) : '익명'}</td><td>${p.visibility}</td>
             <td>${p.status}</td><td>${p.report_count}</td><td>${p.like_count}</td><td>${p.download_count}</td>
             <td style="white-space:nowrap">
+              <button onclick="ppEditPostTags(${p.id}, '${encodeURIComponent((p.tags || []).join(', '))}')">태그</button>
               ${p.status !== 'deleted' ? `<button onclick="ppHide(${p.id})">비공개</button>
               <button onclick="ppRestore(${p.id})">복구</button>
               <button onclick="ppDelete(${p.id})" style="color:#c00">삭제</button>` : ''}

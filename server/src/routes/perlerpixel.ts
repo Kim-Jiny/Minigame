@@ -21,6 +21,34 @@ import {
   containsBannedWord, generateShareCode,
   REPORT_REASONS, REPORT_AUTO_HIDE_THRESHOLD,
 } from '../services/ppModeration';
+import { tierFor } from '../services/ppTier';
+
+/** 유저가 받은 좋아요 총합(모든 비삭제 도안의 like_count 합). */
+async function likesReceived(pool: any, userId: number): Promise<number> {
+  const r = await pool.query(
+    `SELECT COALESCE(SUM(like_count),0)::int AS s FROM pp_posts WHERE author_id=$1 AND status<>'deleted'`,
+    [userId]
+  );
+  return r.rows[0]?.s ?? 0;
+}
+
+/** 연관검색: q 가 어떤 태그그룹의 대표어/멤버와 일치하면 그 그룹 전체 단어로 확장(양방향). */
+async function expandSearchTerms(pool: any, q: string): Promise<string[]> {
+  const terms = new Set<string>([q]);
+  try {
+    const groups = (await pool.query(
+      `SELECT keyword, tags FROM pp_tag_groups
+        WHERE LOWER(keyword)=LOWER($1)
+           OR EXISTS (SELECT 1 FROM unnest(tags) t WHERE LOWER(t)=LOWER($1))`,
+      [q]
+    )).rows;
+    for (const g of groups) {
+      if (g.keyword) terms.add(g.keyword);
+      for (const t of (g.tags ?? [])) terms.add(t);
+    }
+  } catch { /* 테이블 미생성/오류 시 q 만 사용 */ }
+  return Array.from(terms).filter((t) => t && t.trim()).slice(0, 20);
+}
 
 const router = Router();
 
@@ -150,9 +178,15 @@ router.get('/posts', optionalAuth, async (req: AuthedRequest, res: Response): Pr
   const params: any[] = [];
   let where = `p.visibility='public' AND p.status='active'`;
   if (q) {
-    params.push(`%${q}%`);
-    const p = `$${params.length}`;
-    where += ` AND (p.title ILIKE ${p} OR EXISTS (SELECT 1 FROM unnest(p.tags) t WHERE t ILIKE ${p}))`;
+    const terms = await expandSearchTerms(pool, q);   // q + 연관 태그
+    const ors: string[] = [];
+    for (const term of terms) {
+      params.push(`%${term}%`);
+      const p = `$${params.length}`;
+      ors.push(`p.title ILIKE ${p}`);
+      ors.push(`EXISTS (SELECT 1 FROM unnest(p.tags) t WHERE t ILIKE ${p})`);
+    }
+    where += ` AND (${ors.join(' OR ')})`;
   }
   if (viewer) {
     params.push(viewer);
@@ -165,7 +199,9 @@ router.get('/posts', optionalAuth, async (req: AuthedRequest, res: Response): Pr
   const rows = (await pool.query(
     `SELECT p.id, p.title, p.width, p.height, p.bead_count, p.like_count, p.download_count,
             p.preview_path, p.created_at,
-            u.nickname AS author_nickname, p.author_id
+            u.nickname AS author_nickname, p.author_id,
+            (SELECT COALESCE(SUM(pl.like_count),0) FROM pp_posts pl
+              WHERE pl.author_id=p.author_id AND pl.status<>'deleted') AS author_likes
        FROM pp_posts p LEFT JOIN pp_users u ON u.id = p.author_id
       WHERE ${where}
       ORDER BY ${order}
@@ -181,7 +217,11 @@ function toListItem(r: any) {
     id: r.id, title: r.title, width: r.width, height: r.height, beadCount: r.bead_count,
     likeCount: r.like_count, downloadCount: r.download_count, previewPath: r.preview_path,
     createdAt: r.created_at,
-    author: r.author_id ? { id: r.author_id, nickname: r.author_nickname } : null, // null=익명화
+    author: r.author_id ? {
+      id: r.author_id,
+      nickname: r.author_nickname,
+      ...(r.author_likes != null ? { tier: tierFor(Number(r.author_likes)) } : {}),
+    } : null, // null=익명화
   };
 }
 
@@ -201,6 +241,8 @@ router.get('/posts/popular', optionalAuth, async (req: AuthedRequest, res: Respo
   const rows = (await pool.query(
     `SELECT p.id, p.title, p.width, p.height, p.bead_count, p.like_count, p.download_count,
             p.preview_path, p.created_at, u.nickname AS author_nickname, p.author_id,
+            (SELECT COALESCE(SUM(pl.like_count),0) FROM pp_posts pl
+              WHERE pl.author_id=p.author_id AND pl.status<>'deleted') AS author_likes,
             ((SELECT COUNT(*) FROM pp_likes l WHERE l.post_id=p.id AND l.created_at > NOW()-INTERVAL '7 days')
            + (SELECT COUNT(*) FROM pp_downloads d WHERE d.post_id=p.id AND d.created_at > NOW()-INTERVAL '7 days')) AS score
        FROM pp_posts p LEFT JOIN pp_users u ON u.id=p.author_id
@@ -238,7 +280,11 @@ router.get('/posts/:id', requireAuth, async (req: AuthedRequest, res: Response):
   const post = Number.isFinite(id) ? await loadVisiblePost(pool, id, req.ppUser!.id) : null;
   if (!post) { res.status(404).json({ error: 'not_found' }); return; }
   const liked = (await pool.query('SELECT 1 FROM pp_likes WHERE user_id=$1 AND post_id=$2', [req.ppUser!.id, id])).rows.length > 0;
-  res.json({ post: toDetail(post), liked, isOwner: post.author_id === req.ppUser!.id });
+  const detail = toDetail(post);
+  const author = detail.author
+    ? { ...detail.author, tier: tierFor(await likesReceived(pool, detail.author.id)) }
+    : null;
+  res.json({ post: { ...detail, author }, liked, isOwner: post.author_id === req.ppUser!.id });
 });
 
 function toDetail(p: any) {
@@ -346,6 +392,25 @@ router.delete('/posts/:id', requireAuth, async (req: AuthedRequest, res: Respons
   res.json({ success: true });
 });
 
+// 태그 수정(작성자 본인) — 금지어 체크 + 최대 10개.
+router.patch('/posts/:id/tags', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
+  const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
+  const id = parseInt(String(req.params.id), 10);
+  const raw = Array.isArray(req.body?.tags) ? req.body.tags : String(req.body?.tags || '').split(',');
+  const tags = raw.map((t: any) => String(t).trim()).filter(Boolean).slice(0, 10);
+  // containsBannedWord 는 async — .find 로는 Promise(항상 truthy)가 잡히므로 반드시 await 로 검사.
+  for (const t of tags) {
+    if (await containsBannedWord(t)) { res.status(400).json({ error: 'banned_word' }); return; }
+  }
+  const r = await pool.query(
+    `UPDATE pp_posts SET tags=$1, updated_at=CURRENT_TIMESTAMP
+      WHERE id=$2 AND author_id=$3 AND status<>'deleted' RETURNING id`,
+    [tags, id, req.ppUser!.id]
+  );
+  if (!r.rows[0]) { res.status(404).json({ error: 'not_found' }); return; }
+  res.json({ success: true, tags });
+});
+
 // 다운로드 — 집계 + pattern_data(base64) 반환
 router.post('/posts/:id/download', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
   const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
@@ -422,13 +487,14 @@ router.delete('/blocks/:userId', requireAuth, async (req: AuthedRequest, res: Re
 router.get('/me/posts', requireAuth, async (req: AuthedRequest, res: Response): Promise<void> => {
   const pool = getPool(); if (!pool) { res.status(500).json({ error: 'db' }); return; }
   const rows = (await pool.query(
-    `SELECT id,title,width,height,bead_count,like_count,download_count,report_count,preview_path,visibility,status,created_at
+    `SELECT id,title,width,height,bead_count,like_count,download_count,report_count,preview_path,visibility,status,tags,created_at
        FROM pp_posts WHERE author_id=$1 AND status<>'deleted' ORDER BY id DESC`, [req.ppUser!.id]
   )).rows;
   res.json({ posts: rows.map((r: any) => ({
     id: r.id, title: r.title, width: r.width, height: r.height, beadCount: r.bead_count,
     likeCount: r.like_count, downloadCount: r.download_count, reportCount: r.report_count,
-    previewPath: r.preview_path, visibility: r.visibility, status: r.status, createdAt: r.created_at,
+    previewPath: r.preview_path, visibility: r.visibility, status: r.status,
+    tags: r.tags ?? [], createdAt: r.created_at,
   })) });
 });
 
@@ -501,7 +567,8 @@ router.get('/users/:id/posts', requireAuth, async (req: AuthedRequest, res: Resp
       ORDER BY p.id DESC LIMIT 60`, [id]
   )).rows;
   const blocked = (await pool.query('SELECT 1 FROM pp_blocks WHERE blocker_id=$1 AND blocked_id=$2', [req.ppUser!.id, id])).rows.length > 0;
-  res.json({ nickname: u.nickname, posts: rows.map(toListItem), blocked });
+  const tier = tierFor(await likesReceived(pool, id));
+  res.json({ nickname: u.nickname, posts: rows.map(toListItem), blocked, tier });
 });
 
 router.get('/health', (_req: Request, res: Response) => { res.json({ ok: true }); });
