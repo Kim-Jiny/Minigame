@@ -11,6 +11,8 @@ services:
     # [SAJA] 사자툰 만화 이미지 업로드 영속화 — 재배포(이미지 재빌드)에도 업로드 파일 보존.
     volumes:
       - saja_comics:/app/public/saja/comics
+      # [PP] 비즈픽셀 도안 미리보기 업로드 영속화 — 재배포에도 미리보기 이미지 보존.
+      - pp_uploads:/app/public/pp/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -41,6 +43,7 @@ services:
 volumes:
   pgdata:
   saja_comics: # [SAJA] 사자툰 만화 이미지 업로드 영속 볼륨
+  pp_uploads: # [PP] 비즈픽셀 도안 미리보기 업로드 영속 볼륨
 
 networks:
   app-network:
