@@ -29,7 +29,7 @@
 
   <!-- 한국어 -->
   <div data-lang="ko">
-  <span class="badge">비즈픽셀 · Perler Pixel</span>
+  <span class="badge">비즈픽셀 · BeadsPixel</span>
   <h1>금지 콘텐츠 안내</h1>
   <div class="eff">아래 유형의 도안·콘텐츠는 업로드할 수 없습니다.</div>
 
@@ -67,11 +67,11 @@
 
   <!-- English -->
   <div data-lang="en">
-  <span class="badge">비즈픽셀 · Perler Pixel</span>
+  <span class="badge">비즈픽셀 · BeadsPixel</span>
   <h1>Prohibited Content</h1>
   <div class="eff">The following types of patterns and content may not be uploaded.</div>
 
-  <div class="callout"><b>Perler Pixel is a community for sharing original, self-made patterns only.</b> Upload only patterns you created yourself or have the right to share.</div>
+  <div class="callout"><b>BeadsPixel is a community for sharing original, self-made patterns only.</b> Upload only patterns you created yourself or have the right to share.</div>
 
   <h2>1. Copyright / Trademark Infringement</h2>
   <ul>
@@ -110,7 +110,7 @@
   var nav = (navigator.language || 'ko').toLowerCase();
   var lang = (q === 'en' || q === 'ko') ? q : (nav.indexOf('ko') === 0 ? 'ko' : 'en');
   document.documentElement.lang = lang;
-  document.title = (lang === 'ko') ? '비즈픽셀 — 금지 콘텐츠 안내' : 'Perler Pixel — Prohibited Content';
+  document.title = (lang === 'ko') ? '비즈픽셀 — 금지 콘텐츠 안내' : 'BeadsPixel — Prohibited Content';
   document.querySelectorAll('[data-lang]').forEach(function(el){
     el.style.display = (el.getAttribute('data-lang') === lang) ? 'block' : 'none';
   });

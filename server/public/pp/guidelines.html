@@ -29,7 +29,7 @@
 
   <!-- 한국어 -->
   <div data-lang="ko">
-  <span class="badge">비즈픽셀 · Perler Pixel</span>
+  <span class="badge">비즈픽셀 · BeadsPixel</span>
   <h1>커뮤니티 가이드라인</h1>
   <div class="eff">모두가 즐거운 도안 공유를 위해 함께 지켜요.</div>
 
@@ -59,7 +59,7 @@
 
   <!-- English -->
   <div data-lang="en">
-  <span class="badge">비즈픽셀 · Perler Pixel</span>
+  <span class="badge">비즈픽셀 · BeadsPixel</span>
   <h1>Community Guidelines</h1>
   <div class="eff">Let's keep pattern sharing fun for everyone.</div>
 
@@ -94,7 +94,7 @@
   var nav = (navigator.language || 'ko').toLowerCase();
   var lang = (q === 'en' || q === 'ko') ? q : (nav.indexOf('ko') === 0 ? 'ko' : 'en');
   document.documentElement.lang = lang;
-  document.title = (lang === 'ko') ? '비즈픽셀 — 커뮤니티 가이드라인' : 'Perler Pixel — Community Guidelines';
+  document.title = (lang === 'ko') ? '비즈픽셀 — 커뮤니티 가이드라인' : 'BeadsPixel — Community Guidelines';
   document.querySelectorAll('[data-lang]').forEach(function(el){
     el.style.display = (el.getAttribute('data-lang') === lang) ? 'block' : 'none';
   });
