@@ -885,7 +885,7 @@ router.delete('/ctr/inquiries/:id', verifyAdminToken, async (req: Request, res: 
 // 별도 리포(MathForAdults) 앱의 문의 관리. 삭제·리팩터링 금지.
 // ==================================================================
 
-// GET /api/admin/mfa/inquiries?status=pending|replied|all - MFA 문의 목록
+// GET /api/admin/mfa/inquiries?status=pending|replied|all&q=검색어 - MFA 문의 목록
 router.get('/mfa/inquiries', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
   try {
     const pool = getPool();
@@ -894,8 +894,21 @@ router.get('/mfa/inquiries', verifyAdminToken, async (req: Request, res: Respons
       return;
     }
     const status = typeof req.query.status === 'string' ? req.query.status : 'all';
-    const where = status === 'pending' || status === 'replied' ? 'WHERE status = $1' : '';
-    const params = where ? [status] : [];
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (status === 'pending' || status === 'replied') {
+      params.push(status);
+      conditions.push(`status = $${params.length}`);
+    }
+    if (q) {
+      params.push(`%${q}%`);
+      const idx = params.length;
+      conditions.push(`(nickname ILIKE $${idx} OR content ILIKE $${idx} OR device_id ILIKE $${idx})`);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
     const result = await pool.query(
       `SELECT id, device_id, nickname, content, status, reply, replied_at, is_read, created_at
        FROM mfa_inquiries ${where}
