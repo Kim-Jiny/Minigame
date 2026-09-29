@@ -10,6 +10,7 @@ import {
   verifyMfaToken,
   randomGuestNickname,
 } from '../services/mfaAuth';
+import { verifyApple as verifyAppleIap, verifyAndroid as verifyAndroidIap, MFA_PRODUCTS, VerifyResult } from '../services/mfaIap';
 
 const router = Router();
 
@@ -263,6 +264,109 @@ router.put('/progress', async (req: Request, res: Response): Promise<void> => {
   } catch (error) {
     console.error('MFA put progress error:', error);
     res.status(500).json({ error: 'Failed to save progress' });
+  }
+});
+
+// ---------------- 인앱결제 ----------------
+
+// POST /api/mathforadults/iap/verify — 인앱결제 영수증 검증 + 기록
+//   body(iOS):     { platform:"ios", productId, transactionId, payload(JWS) }
+//   body(Android): { platform:"android", productId, transactionId, payload(originalJson), signature }
+//   resp: { verified, kind, coupons, alreadyProcessed }
+// 로그인 필수(Bearer) — 구매는 계정에 귀속된다. 힌트쿠폰 개수는 여기서 직접 반영하지 않고
+// (진도의 단일 소스는 클라이언트 UserStats), 클라이언트가 verified:true를 받으면
+// 로컬에서 hintCoupons를 올린 뒤 기존 PUT /progress로 반영한다.
+router.post('/iap/verify', async (req: Request, res: Response): Promise<void> => {
+  const userId = mfaAuth(req, res);
+  if (userId === null) return;
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const body = req.body ?? {};
+    const platform = body.platform === 'ios' || body.platform === 'android' ? body.platform : null;
+    const payload = typeof body.payload === 'string' ? body.payload : '';
+    if (!platform || !payload) {
+      res.status(400).json({ error: 'platform and payload required' });
+      return;
+    }
+
+    let result: VerifyResult;
+    if (platform === 'ios') {
+      result = verifyAppleIap(payload);
+    } else {
+      result = verifyAndroidIap(
+        payload,
+        typeof body.signature === 'string' ? body.signature : ''
+      );
+    }
+
+    const productId = result.productId || (typeof body.productId === 'string' ? body.productId : '');
+    const transactionId =
+      result.transactionId || (typeof body.transactionId === 'string' ? body.transactionId : '');
+    const product = MFA_PRODUCTS[productId];
+    const kind = product?.kind ?? null;
+    const status = result.verified ? 'verified' : 'failed';
+
+    if (!transactionId) {
+      res.status(400).json({ error: 'transactionId missing' });
+      return;
+    }
+
+    // 기록(transaction 중복 시 재지급 방지). 새로 들어온 경우만 inserted.
+    const ins = await pool.query(
+      `INSERT INTO mfa_purchases (user_id, platform, product_id, transaction_id, kind, verified, status, environment, raw)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (platform, transaction_id) DO NOTHING
+       RETURNING id`,
+      [
+        userId,
+        platform,
+        productId,
+        transactionId,
+        kind,
+        result.verified,
+        status,
+        result.environment || null,
+        JSON.stringify({ reason: result.reason || null }).slice(0, 4000),
+      ]
+    );
+    const alreadyProcessed = ins.rows.length === 0;
+
+    res.json({
+      verified: result.verified,
+      kind,
+      coupons: product?.coupons ?? 0,
+      alreadyProcessed,
+      reason: result.reason,
+    });
+  } catch (error) {
+    console.error('MFA iap verify error:', error);
+    res.status(500).json({ error: 'verify failed' });
+  }
+});
+
+// GET /api/mathforadults/entitlements — 계정 기준 영구 엔타이틀먼트(광고 제거 등) 조회.
+// 다른 기기에서 로그인했을 때 "이 계정은 이미 광고 제거를 샀었다"를 복원하는 용도.
+router.get('/entitlements', async (req: Request, res: Response): Promise<void> => {
+  const userId = mfaAuth(req, res);
+  if (userId === null) return;
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const r = await pool.query(
+      `SELECT 1 FROM mfa_purchases WHERE user_id = $1 AND kind = 'remove_ads' AND verified = TRUE LIMIT 1`,
+      [userId]
+    );
+    res.json({ adsRemoved: r.rows.length > 0 });
+  } catch (error) {
+    console.error('MFA get entitlements error:', error);
+    res.status(500).json({ error: 'Failed to load entitlements' });
   }
 });
 

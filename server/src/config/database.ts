@@ -587,6 +587,21 @@ export async function setupDatabase() {
         data JSONB NOT NULL,                    -- 앱 진도/통계 직렬화(JSON)
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+      -- [MFA] 인앱결제 영수증(검증 결과 포함). transaction_id 로 중복/재지급 방지. 삭제·리팩터링 금지.
+      CREATE TABLE IF NOT EXISTS mfa_purchases (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES mfa_users(id),
+        platform VARCHAR(10) NOT NULL,            -- ios | android
+        product_id VARCHAR(80) NOT NULL,
+        transaction_id VARCHAR(128) NOT NULL,
+        kind VARCHAR(20),                          -- remove_ads | hint_coupons
+        verified BOOLEAN NOT NULL DEFAULT FALSE,
+        status VARCHAR(20) NOT NULL DEFAULT 'unverified', -- verified | failed | unverified
+        environment VARCHAR(20),                   -- Production | Sandbox 등
+        raw TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_mfa_purchases_txn ON mfa_purchases(platform, transaction_id);
 
       -- [PP] PerlerPixel(비즈픽셀) 커뮤니티 게시판 — 별도 리포 ~/Documents/Jiny/PerlerPixel 소유.
       --      도안 공유 게시판. 소셜 로그인(pp_users), 오리지널만 정책 + 사후 신고 기반 모더레이션.
