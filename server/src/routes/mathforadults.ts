@@ -213,6 +213,26 @@ router.put('/auth/nickname', async (req: Request, res: Response): Promise<void> 
   }
 });
 
+// DELETE /api/mathforadults/account — 회원탈퇴. 계정 삭제 시 mfa_progress는 함께 삭제(ON DELETE CASCADE),
+// mfa_purchases는 회계 기록 보존을 위해 user_id만 NULL 처리(ON DELETE SET NULL). Apple/Google 스토어
+// 정책상 "계정 생성을 지원하면 앱 내 계정 삭제도 제공해야 함" 요건 대응.
+router.delete('/account', async (req: Request, res: Response): Promise<void> => {
+  const userId = mfaAuth(req, res);
+  if (userId === null) return;
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    await pool.query('DELETE FROM mfa_users WHERE id = $1', [userId]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('MFA delete account error:', error);
+    res.status(500).json({ error: 'Failed to delete account' });
+  }
+});
+
 // GET /api/mathforadults/progress — 내 진도 내려받기
 router.get('/progress', async (req: Request, res: Response): Promise<void> => {
   const userId = mfaAuth(req, res);

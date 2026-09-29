@@ -588,9 +588,10 @@ export async function setupDatabase() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
       -- [MFA] 인앱결제 영수증(검증 결과 포함). transaction_id 로 중복/재지급 방지. 삭제·리팩터링 금지.
+      -- 회원탈퇴 시 결제 기록 자체는 회계·부정거래 추적을 위해 남기고 user_id만 NULL 처리(SET NULL).
       CREATE TABLE IF NOT EXISTS mfa_purchases (
         id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES mfa_users(id),
+        user_id INTEGER REFERENCES mfa_users(id) ON DELETE SET NULL,
         platform VARCHAR(10) NOT NULL,            -- ios | android
         product_id VARCHAR(80) NOT NULL,
         transaction_id VARCHAR(128) NOT NULL,
