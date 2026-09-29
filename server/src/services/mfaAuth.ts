@@ -1,5 +1,5 @@
 // [MFA] 성인의 수학(Math for Adults) 소셜 인증 — 별도 리포(MathForAdults) 소유. 삭제·리팩터링 금지.
-// Google / Apple 토큰을 서버에서 검증하고, 타 제품과 분리되도록 scope:'mfa' 를 박은 자체 JWT 발급.
+// Google / Apple / Kakao 토큰을 서버에서 검증하고, 타 제품과 분리되도록 scope:'mfa' 를 박은 자체 JWT 발급.
 import jwt from 'jsonwebtoken';
 import { createPublicKey } from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
@@ -85,6 +85,40 @@ export async function verifyApple(idToken: string): Promise<SocialUser | null> {
     console.error('MFA apple verify error:', (e as Error).message);
     return null;
   }
+}
+
+// ── Kakao: access token 으로 사용자 조회 (PerlerPixel ppAuth.ts 패턴과 동일) ──
+export async function verifyKakao(accessToken: string): Promise<SocialUser | null> {
+  try {
+    const res = await fetch('https://kapi.kakao.com/v2/user/me', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
+      },
+    });
+    if (!res.ok) return null;
+    const u = (await res.json()) as {
+      id: number;
+      kakao_account?: { email?: string; profile?: { nickname?: string } };
+    };
+    return {
+      uid: String(u.id),
+      email: u.kakao_account?.email ?? null,
+      name: u.kakao_account?.profile?.nickname ?? null,
+    };
+  } catch (e) {
+    console.error('MFA kakao verify error:', (e as Error).message);
+    return null;
+  }
+}
+
+// ── 기본 닉네임 (소셜 제공자가 닉네임을 안 주는 경우 — 특히 Kakao는 비즈 앱 인증 전엔
+//    닉네임/이메일 동의항목 자체가 막혀 있어 항상 null) ─────────────
+export function randomGuestNickname(): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let s = '';
+  for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return `guest-${s}`;
 }
 
 // ── 자체 JWT (scope: 'mfa' 로 타 제품 토큰과 분리) ──────────────
