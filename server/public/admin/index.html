@@ -617,10 +617,16 @@
       </div>
       <button onclick="logout()">Logout</button>
     </div>
+
     <div class="filter-tabs" id="mfaInquiryFilters">
       <button class="active" onclick="filterMfaInquiries('all', this)">전체</button>
       <button onclick="filterMfaInquiries('pending', this)">대기중 <span class="badge pending" id="mfaPendingBadge" style="display:none">0</span></button>
       <button onclick="filterMfaInquiries('replied', this)">답변완료</button>
+    </div>
+    <div style="margin:10px 0;display:flex;gap:8px">
+      <input id="mfaInquiryQuery" placeholder="닉네임·내용·deviceId 검색" style="flex:1;max-width:320px"
+        onkeydown="if(event.key==='Enter')searchMfaInquiries()">
+      <button onclick="searchMfaInquiries()">검색</button>
     </div>
     <table class="data-table">
       <thead>
@@ -2548,12 +2554,16 @@
     // ============================================================
     let mfaInquiries = [];
     let currentMfaInquiry = null;
+    let mfaCurrentStatus = 'all';
 
     async function loadMfaInquiries(status) {
       const tbody = document.getElementById('mfaInquiriesBody');
       tbody.innerHTML = '<tr><td colspan="5" class="empty">Loading...</td></tr>';
       try {
-        const data = await api('/api/admin/mfa/inquiries?status=' + (status || 'all'));
+        const q = (document.getElementById('mfaInquiryQuery')?.value || '').trim();
+        const params = new URLSearchParams({ status: status || 'all' });
+        if (q) params.set('q', q);
+        const data = await api('/api/admin/mfa/inquiries?' + params.toString());
         mfaInquiries = data.inquiries || [];
         const badge = document.getElementById('mfaPendingBadge');
         if (badge) {
@@ -2583,9 +2593,14 @@
     }
 
     function filterMfaInquiries(status, btn) {
+      mfaCurrentStatus = status;
       document.querySelectorAll('#mfaInquiryFilters button').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       loadMfaInquiries(status);
+    }
+
+    function searchMfaInquiries() {
+      loadMfaInquiries(mfaCurrentStatus);
     }
 
     function openMfaInquiry(id) {

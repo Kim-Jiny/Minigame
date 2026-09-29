@@ -574,7 +574,7 @@ export async function setupDatabase() {
       -- [MFA] 소셜 로그인 사용자 + 진도 동기화 (선택적 로그인). 삭제·리팩터링 금지.
       CREATE TABLE IF NOT EXISTS mfa_users (
         id SERIAL PRIMARY KEY,
-        provider VARCHAR(10) NOT NULL,          -- apple | google
+        provider VARCHAR(10) NOT NULL,          -- apple | google | kakao
         provider_uid VARCHAR(255) NOT NULL,     -- 소셜 고유 식별자(sub)
         email VARCHAR(255),
         nickname VARCHAR(40),

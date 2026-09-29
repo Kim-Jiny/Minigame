@@ -2,7 +2,14 @@
 // 로그인 없는 deviceId 기반. 문의 등록/조회/읽음 처리. 삭제·리팩터링 금지.
 import { Router, Request, Response } from 'express';
 import { getPool } from '../config/database';
-import { verifyGoogle, verifyApple, signMfaToken, verifyMfaToken } from '../services/mfaAuth';
+import {
+  verifyGoogle,
+  verifyApple,
+  verifyKakao,
+  signMfaToken,
+  verifyMfaToken,
+  randomGuestNickname,
+} from '../services/mfaAuth';
 
 const router = Router();
 
@@ -101,7 +108,8 @@ router.post('/inquiries/read', async (req: Request, res: Response): Promise<void
 
 // ---------------- 소셜 로그인 + 진도 동기화 (선택적) ----------------
 
-// POST /api/mathforadults/auth/social — { provider: 'google'|'apple', idToken }
+// POST /api/mathforadults/auth/social
+//   google/apple: { provider, idToken }  |  kakao: { provider: 'kakao', accessToken }
 // 소셜 토큰 검증 → 사용자 upsert → 자체 JWT 발급.
 router.post('/auth/social', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -111,28 +119,44 @@ router.post('/auth/social', async (req: Request, res: Response): Promise<void> =
       return;
     }
     const provider = req.body?.provider;
-    const idToken = req.body?.idToken;
-    if ((provider !== 'google' && provider !== 'apple') || typeof idToken !== 'string') {
-      res.status(400).json({ error: 'provider(google|apple) and idToken are required' });
+    if (provider !== 'google' && provider !== 'apple' && provider !== 'kakao') {
+      res.status(400).json({ error: 'provider(google|apple|kakao) is required' });
       return;
     }
 
-    const social = provider === 'google'
-        ? await verifyGoogle(idToken)
-        : await verifyApple(idToken);
+    let social: Awaited<ReturnType<typeof verifyGoogle>> = null;
+    if (provider === 'kakao') {
+      const accessToken = req.body?.accessToken;
+      if (typeof accessToken !== 'string') {
+        res.status(400).json({ error: 'accessToken is required for kakao' });
+        return;
+      }
+      social = await verifyKakao(accessToken);
+    } else {
+      const idToken = req.body?.idToken;
+      if (typeof idToken !== 'string') {
+        res.status(400).json({ error: 'idToken is required' });
+        return;
+      }
+      social = provider === 'google' ? await verifyGoogle(idToken) : await verifyApple(idToken);
+    }
     if (!social) {
       res.status(401).json({ error: 'Invalid social token' });
       return;
     }
 
+    // 소셜에서 닉네임을 안 주면(Kakao는 비즈 앱 인증 전엔 항상 null) 신규 계정에
+    // guest-xxxxxx 기본 닉네임을 부여한다. 기존 계정은 ON CONFLICT에서 nickname을
+    // 건드리지 않으므로 이미 있는 닉네임(기본값이든 직접 바꾼 값이든)은 유지된다.
+    const defaultNickname = social.name ?? randomGuestNickname();
     const upsert = await pool.query(
-      `INSERT INTO mfa_users (provider, provider_uid, email)
-       VALUES ($1, $2, $3)
+      `INSERT INTO mfa_users (provider, provider_uid, email, nickname)
+       VALUES ($1, $2, $3, $4)
        ON CONFLICT (provider, provider_uid)
        DO UPDATE SET last_login = CURRENT_TIMESTAMP,
                      email = COALESCE(EXCLUDED.email, mfa_users.email)
        RETURNING id, nickname, email`,
-      [provider, social.uid, social.email]
+      [provider, social.uid, social.email, defaultNickname]
     );
     const user = upsert.rows[0];
     const token = signMfaToken(user.id);
@@ -161,6 +185,32 @@ function mfaAuth(req: Request, res: Response): number | null {
   }
   return userId;
 }
+
+// PUT /api/mathforadults/auth/nickname — { nickname } 닉네임 변경(기본 guest-xxxxxx에서 바꾸기)
+router.put('/auth/nickname', async (req: Request, res: Response): Promise<void> => {
+  const userId = mfaAuth(req, res);
+  if (userId === null) return;
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const nickname = typeof req.body?.nickname === 'string' ? req.body.nickname.trim() : '';
+    if (!nickname || nickname.length > 20) {
+      res.status(400).json({ error: 'nickname is required (1-20 chars)' });
+      return;
+    }
+    const result = await pool.query(
+      `UPDATE mfa_users SET nickname = $1 WHERE id = $2 RETURNING id, nickname, email`,
+      [nickname, userId]
+    );
+    res.json({ success: true, user: result.rows[0] });
+  } catch (error) {
+    console.error('MFA update nickname error:', error);
+    res.status(500).json({ error: 'Failed to update nickname' });
+  }
+});
 
 // GET /api/mathforadults/progress — 내 진도 내려받기
 router.get('/progress', async (req: Request, res: Response): Promise<void> => {
