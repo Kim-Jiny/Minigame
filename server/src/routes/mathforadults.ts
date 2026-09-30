@@ -1,6 +1,7 @@
 // [MFA] 성인의 수학(Math for Adults) 공개 API — 별도 리포 ~/Documents/Jiny/MathForAdults 소유.
 // 로그인 없는 deviceId 기반. 문의 등록/조회/읽음 처리. 삭제·리팩터링 금지.
 import { Router, Request, Response } from 'express';
+import { randomUUID } from 'crypto';
 import { getPool } from '../config/database';
 import {
   verifyGoogle,
@@ -150,21 +151,31 @@ router.post('/auth/social', async (req: Request, res: Response): Promise<void> =
     // guest-xxxxxx 기본 닉네임을 부여한다. 기존 계정은 ON CONFLICT에서 nickname을
     // 건드리지 않으므로 이미 있는 닉네임(기본값이든 직접 바꾼 값이든)은 유지된다.
     const defaultNickname = social.name ?? randomGuestNickname();
+    // 인앱결제 영수증에 심을 계정 식별자 — 매번 새로 만들어서 넘기되, 이미 있으면
+    // COALESCE가 기존 값을 유지한다(신규 계정은 이걸로 최초 부여, 기존 계정은 다음
+    // 로그인 때 자동 백필).
+    const freshIapUuid = randomUUID();
     const upsert = await pool.query(
-      `INSERT INTO mfa_users (provider, provider_uid, email, nickname)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO mfa_users (provider, provider_uid, email, nickname, iap_account_uuid)
+       VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (provider, provider_uid)
        DO UPDATE SET last_login = CURRENT_TIMESTAMP,
-                     email = COALESCE(EXCLUDED.email, mfa_users.email)
-       RETURNING id, nickname, email`,
-      [provider, social.uid, social.email, defaultNickname]
+                     email = COALESCE(EXCLUDED.email, mfa_users.email),
+                     iap_account_uuid = COALESCE(mfa_users.iap_account_uuid, EXCLUDED.iap_account_uuid)
+       RETURNING id, nickname, email, iap_account_uuid`,
+      [provider, social.uid, social.email, defaultNickname, freshIapUuid]
     );
     const user = upsert.rows[0];
     const token = signMfaToken(user.id);
     res.json({
       success: true,
       token,
-      user: { id: user.id, nickname: user.nickname, email: user.email },
+      user: {
+        id: user.id,
+        nickname: user.nickname,
+        email: user.email,
+        iapAccountUuid: user.iap_account_uuid,
+      },
     });
   } catch (error) {
     console.error('MFA social auth error:', error);
@@ -203,10 +214,15 @@ router.put('/auth/nickname', async (req: Request, res: Response): Promise<void> 
       return;
     }
     const result = await pool.query(
-      `UPDATE mfa_users SET nickname = $1 WHERE id = $2 RETURNING id, nickname, email`,
+      `UPDATE mfa_users SET nickname = $1 WHERE id = $2
+       RETURNING id, nickname, email, iap_account_uuid`,
       [nickname, userId]
     );
-    res.json({ success: true, user: result.rows[0] });
+    const u = result.rows[0];
+    res.json({
+      success: true,
+      user: { id: u.id, nickname: u.nickname, email: u.email, iapAccountUuid: u.iap_account_uuid },
+    });
   } catch (error) {
     console.error('MFA update nickname error:', error);
     res.status(500).json({ error: 'Failed to update nickname' });
@@ -333,6 +349,23 @@ router.post('/iap/verify', async (req: Request, res: Response): Promise<void> =>
     if (!transactionId) {
       res.status(400).json({ error: 'transactionId missing' });
       return;
+    }
+
+    // 영수증에 계정 식별자(accountUuid)가 심어져 있으면, 지금 인증된 JWT 소유자와
+    // 실제로 일치하는지 대조해서 감사 로그를 남긴다. 값이 다르더라도 지급 자체는 항상
+    // "지금 검증을 마친 세션(JWT 소유자)"에게 한다 — 그래야 클라이언트가 로컬에 반영하는
+    // 계정과 서버 기록이 항상 일치한다(다른 계정에 기록만 해두고 아무도 못 받는 상황 방지).
+    // 불일치가 잦으면 이 로그를 근거로 "미수령 지급 인박스" 같은 별도 정산 기능을 고려할 것.
+    if (result.accountUuid) {
+      const owner = await pool.query('SELECT id FROM mfa_users WHERE iap_account_uuid = $1', [
+        result.accountUuid,
+      ]);
+      if (owner.rows.length > 0 && owner.rows[0].id !== userId) {
+        console.warn(
+          `MFA iap: receipt-embedded owner ${owner.rows[0].id} != verifying JWT user ${userId} ` +
+            `(txn ${transactionId}) — credited to JWT user per policy`
+        );
+      }
     }
 
     // 기록(transaction 중복 시 재지급 방지). 새로 들어온 경우만 inserted.

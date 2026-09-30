@@ -582,6 +582,12 @@ export async function setupDatabase() {
         last_login TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE (provider, provider_uid)
       );
+      -- 인앱결제 영수증(Apple appAccountToken / Android obfuscatedAccountId)에 직접 심어서
+      -- 스토어가 서명한 데이터만으로 "이 영수증이 원래 어느 계정 건지"를 JWT 유효기간과
+      -- 무관하게 복구할 수 있게 하는 식별자. 기존 사용자는 다음 로그인 때 자동 채움.
+      ALTER TABLE mfa_users ADD COLUMN IF NOT EXISTS iap_account_uuid VARCHAR(36);
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_mfa_users_iap_uuid ON mfa_users(iap_account_uuid)
+        WHERE iap_account_uuid IS NOT NULL;
       CREATE TABLE IF NOT EXISTS mfa_progress (
         user_id INTEGER PRIMARY KEY REFERENCES mfa_users(id) ON DELETE CASCADE,
         data JSONB NOT NULL,                    -- 앱 진도/통계 직렬화(JSON)

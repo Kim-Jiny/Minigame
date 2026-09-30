@@ -23,6 +23,10 @@ export interface VerifyResult {
   transactionId?: string;
   environment?: string;
   reason?: string;
+  /** 구매 요청 시 클라이언트가 심어둔 계정 식별자(iOS appAccountToken / Android
+   *  obfuscatedAccountId). 스토어가 서명한 데이터에 직접 들어있어 JWT 유효기간과
+   *  무관하게 "이 영수증이 원래 어느 계정 건지"를 서버가 복구할 수 있게 해준다. */
+  accountUuid?: string;
 }
 
 /** iOS StoreKit2 JWS(서명된 트랜잭션) 검증. */
@@ -69,6 +73,7 @@ export function verifyApple(jws: string): VerifyResult {
       productId: payload.productId,
       transactionId: String(payload.transactionId ?? payload.originalTransactionId ?? ''),
       environment: payload.environment,
+      accountUuid: typeof payload.appAccountToken === 'string' ? payload.appAccountToken : undefined,
     };
   } catch (e: any) {
     return { verified: false, reason: 'apple_verify_error:' + (e?.message || 'unknown') };
@@ -93,11 +98,20 @@ export function verifyAndroid(originalJson: string, signature: string): VerifyRe
     if (data.packageName && data.packageName !== ANDROID_PACKAGE) {
       return { verified: false, reason: 'package_mismatch' };
     }
+    // Billing Library 버전에 따라 최상위 obfuscatedAccountId 또는 accountIdentifiers 하위에
+    // 들어있을 수 있어 방어적으로 둘 다 확인한다.
+    const accountUuid: string | undefined =
+      (typeof data.obfuscatedAccountId === 'string' && data.obfuscatedAccountId) ||
+      (typeof data.accountIdentifiers?.obfuscatedAccountId === 'string' &&
+        data.accountIdentifiers.obfuscatedAccountId) ||
+      undefined;
+
     return {
       verified: true,
       productId: data.productId,
       transactionId: String(data.orderId || data.purchaseToken || ''),
       environment: data.purchaseState === 0 ? 'Production' : 'Pending',
+      accountUuid,
     };
   } catch (e: any) {
     return { verified: false, reason: 'android_verify_error:' + (e?.message || 'unknown') };
