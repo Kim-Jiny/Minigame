@@ -358,7 +358,8 @@ router.post('/iap/verify', async (req: Request, res: Response): Promise<void> =>
     res.json({
       verified: result.verified,
       kind,
-      coupons: product?.coupons ?? 0,
+      // 이미 기록된 트랜잭션(재검증·재전달)이면 0 — 클라이언트가 매번 다시 지급하는 걸 막는다.
+      coupons: alreadyProcessed ? 0 : (product?.coupons ?? 0),
       alreadyProcessed,
       reason: result.reason,
     });
