@@ -108,6 +108,44 @@ router.post('/inquiries/read', async (req: Request, res: Response): Promise<void
   }
 });
 
+// POST /api/mathforadults/device-ping — 앱 시작 시 1회 호출(로그인 불필요, 게스트 포함).
+// 어드민 DAU/WAU/MAU 통계용 — CatchTheRule의 ctr_devices/ctr_device_daily 패턴 미러링.
+router.post('/device-ping', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const deviceId = typeof req.body?.deviceId === 'string' ? req.body.deviceId.trim().slice(0, 64) : '';
+    if (!deviceId) {
+      res.status(400).json({ error: 'deviceId is required' });
+      return;
+    }
+    const platform = req.body?.platform === 'ios' || req.body?.platform === 'android' ? req.body.platform : null;
+
+    await pool.query(
+      `INSERT INTO mfa_devices (device_id, platform)
+       VALUES ($1, $2)
+       ON CONFLICT (device_id) DO UPDATE SET
+         platform = COALESCE(EXCLUDED.platform, mfa_devices.platform),
+         launch_count = mfa_devices.launch_count + 1,
+         last_seen = CURRENT_TIMESTAMP`,
+      [deviceId, platform]
+    );
+    await pool.query(
+      `INSERT INTO mfa_device_daily (device_id, day, platform)
+       VALUES ($1, CURRENT_DATE, $2)
+       ON CONFLICT (device_id, day) DO NOTHING`,
+      [deviceId, platform]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error('MFA device ping error:', error);
+    res.status(500).json({ error: 'Failed to ping' });
+  }
+});
+
 // ---------------- 소셜 로그인 + 진도 동기화 (선택적) ----------------
 
 // POST /api/mathforadults/auth/social
@@ -408,6 +446,10 @@ router.post('/iap/verify', async (req: Request, res: Response): Promise<void> =>
             [userId, product.coupons]
           );
           balance = upd.rows[0]?.hint_coupon_balance;
+          await client.query(
+            `INSERT INTO mfa_coupon_log (user_id, delta, reason, balance_after) VALUES ($1, $2, 'purchase', $3)`,
+            [userId, product.coupons, balance]
+          );
         } else {
           const bal = await client.query('SELECT hint_coupon_balance FROM mfa_users WHERE id = $1', [userId]);
           balance = bal.rows[0]?.hint_coupon_balance ?? 0;
@@ -493,6 +535,10 @@ router.post('/hint-coupons/checkin', async (req: Request, res: Response): Promis
       'UPDATE mfa_users SET hint_coupon_balance = hint_coupon_balance + 1 WHERE id = $1 RETURNING hint_coupon_balance',
       [userId]
     );
+    await client.query(
+      `INSERT INTO mfa_coupon_log (user_id, delta, reason, balance_after) VALUES ($1, 1, 'checkin', $2)`,
+      [userId, upd.rows[0].hint_coupon_balance]
+    );
     await client.query('COMMIT');
     res.json({ granted: true, balance: upd.rows[0].hint_coupon_balance });
   } catch (error) {
@@ -509,26 +555,39 @@ router.post('/hint-coupons/checkin', async (req: Request, res: Response): Promis
 router.post('/hint-coupons/spend', async (req: Request, res: Response): Promise<void> => {
   const userId = mfaAuth(req, res);
   if (userId === null) return;
+  const pool = getPool();
+  if (!pool) {
+    res.status(500).json({ error: 'Database not available' });
+    return;
+  }
+  // 잔액 차감 + 운영 로그 기록(mfa_coupon_log)을 한 트랜잭션으로 묶는다 — 로그 INSERT가
+  // 추가되면서 두 문장이 됐으니, checkin/iap-verify와 동일하게 BEGIN/COMMIT으로 보호한다.
+  const client = await pool.connect();
   try {
-    const pool = getPool();
-    if (!pool) {
-      res.status(500).json({ error: 'Database not available' });
-      return;
-    }
-    const upd = await pool.query(
+    await client.query('BEGIN');
+    const upd = await client.query(
       `UPDATE mfa_users SET hint_coupon_balance = hint_coupon_balance - 1
        WHERE id = $1 AND hint_coupon_balance > 0
        RETURNING hint_coupon_balance`,
       [userId]
     );
     if (upd.rows.length === 0) {
+      await client.query('COMMIT');
       res.status(409).json({ success: false, error: 'insufficient_balance' });
       return;
     }
+    await client.query(
+      `INSERT INTO mfa_coupon_log (user_id, delta, reason, balance_after) VALUES ($1, -1, 'spend', $2)`,
+      [userId, upd.rows[0].hint_coupon_balance]
+    );
+    await client.query('COMMIT');
     res.json({ success: true, balance: upd.rows[0].hint_coupon_balance });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('MFA spend hint coupon error:', error);
     res.status(500).json({ error: 'spend failed' });
+  } finally {
+    client.release();
   }
 });
 

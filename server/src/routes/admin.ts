@@ -972,6 +972,209 @@ router.delete('/mfa/inquiries/:id', verifyAdminToken, async (req: Request, res: 
   }
 });
 
+// GET /api/admin/mfa/stats - MFA 가입자/접속/결제/쿠폰 통계 (CTR의 ctr/stats 패턴 미러링)
+router.get('/mfa/stats', verifyAdminToken, async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const [signups, devices, active, purchases, checkins, coupons] = await Promise.all([
+      pool.query(`
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE created_at::date = CURRENT_DATE)::int AS today,
+          COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE - 6)::int AS week,
+          COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE - 29)::int AS month
+        FROM mfa_users`),
+      pool.query(`SELECT COALESCE(platform, 'unknown') AS platform, COUNT(*)::int AS c FROM mfa_devices GROUP BY platform`),
+      pool.query(`
+        SELECT
+          COUNT(DISTINCT device_id) FILTER (WHERE day = CURRENT_DATE)::int AS dau,
+          COUNT(DISTINCT device_id) FILTER (WHERE day >= CURRENT_DATE - 6)::int AS wau,
+          COUNT(DISTINCT device_id) FILTER (WHERE day >= CURRENT_DATE - 29)::int AS mau
+        FROM mfa_device_daily`),
+      pool.query(`
+        SELECT kind, platform, verified, COUNT(*)::int AS c
+        FROM mfa_purchases GROUP BY kind, platform, verified ORDER BY kind, platform`),
+      pool.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE day = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date)::int AS today,
+          COUNT(*) FILTER (WHERE day >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date - 6)::int AS week
+        FROM mfa_checkins`),
+      pool.query(`
+        SELECT reason, COALESCE(SUM(delta), 0)::int AS total
+        FROM mfa_coupon_log GROUP BY reason`),
+    ]);
+
+    const byPlatform: Record<string, number> = {};
+    devices.rows.forEach((r) => { byPlatform[r.platform] = r.c; });
+    const couponByReason: Record<string, number> = {};
+    coupons.rows.forEach((r) => { couponByReason[r.reason] = r.total; });
+
+    res.json({
+      signups: signups.rows[0],
+      devices: { ios: byPlatform['ios'] || 0, android: byPlatform['android'] || 0 },
+      dau: active.rows[0].dau || 0,
+      wau: active.rows[0].wau || 0,
+      mau: active.rows[0].mau || 0,
+      purchases: purchases.rows,
+      checkins: checkins.rows[0],
+      coupons: {
+        granted: (couponByReason['checkin'] || 0) + (couponByReason['purchase'] || 0),
+        spent: Math.abs(couponByReason['spend'] || 0),
+      },
+    });
+  } catch (error) {
+    console.error('MFA admin stats error:', error);
+    res.status(500).json({ error: 'Failed to load stats' });
+  }
+});
+
+// GET /api/admin/mfa/users?q=검색어&page=1 - MFA 가입 유저 목록(검색/페이지네이션)
+router.get('/mfa/users', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const q = ((req.query.q as string) || '').trim();
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 20));
+    const offset = (page - 1) * limit;
+
+    const params: unknown[] = [];
+    let where = '';
+    if (q) {
+      params.push(`%${q}%`);
+      where = `WHERE nickname ILIKE $1 OR email ILIKE $1 OR CAST(id AS TEXT) = $${params.length + 1}`;
+      params.push(q);
+    }
+
+    const countResult = await pool.query(`SELECT COUNT(*) FROM mfa_users ${where}`, params);
+    const total = parseInt(countResult.rows[0].count, 10);
+
+    const usersResult = await pool.query(
+      `SELECT id, nickname, email, provider, created_at, last_login, hint_coupon_balance
+       FROM mfa_users ${where}
+       ORDER BY id DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset]
+    );
+
+    res.json({ users: usersResult.rows, total, page, totalPages: Math.ceil(total / limit) });
+  } catch (error) {
+    console.error('MFA admin list users error:', error);
+    res.status(500).json({ error: 'Failed to get users' });
+  }
+});
+
+// GET /api/admin/mfa/users/:id - MFA 유저 상세(구매내역/쿠폰이력/진도요약 포함) — CS 확인용
+router.get('/mfa/users/:id', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const userResult = await pool.query(`SELECT * FROM mfa_users WHERE id = $1`, [id]);
+    if (userResult.rows.length === 0) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    const [adsRemoved, purchases, couponLog, progress] = await Promise.all([
+      pool.query(
+        `SELECT 1 FROM mfa_purchases WHERE user_id = $1 AND kind = 'remove_ads' AND verified = TRUE LIMIT 1`,
+        [id]
+      ),
+      pool.query(
+        `SELECT id, platform, product_id, transaction_id, kind, verified, status, environment, created_at
+         FROM mfa_purchases WHERE user_id = $1 ORDER BY created_at DESC`,
+        [id]
+      ),
+      pool.query(
+        `SELECT delta, reason, balance_after, created_at
+         FROM mfa_coupon_log WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`,
+        [id]
+      ),
+      pool.query(`SELECT data, updated_at FROM mfa_progress WHERE user_id = $1`, [id]),
+    ]);
+
+    // 진도 JSONB 전체를 다 내려줄 필요는 없고, CS가 자주 묻는 핵심 수치만 뽑아 요약한다.
+    const progressData = progress.rows[0]?.data?.stats ?? null;
+    const progressSummary = progressData
+      ? {
+          totalSolved: progressData.totalSolved ?? 0,
+          totalCorrect: progressData.totalCorrect ?? 0,
+          streakDays: progressData.streakDays ?? 0,
+          updatedAt: progress.rows[0].updated_at,
+        }
+      : null;
+
+    res.json({
+      user: userResult.rows[0],
+      adsRemoved: adsRemoved.rows.length > 0,
+      purchases: purchases.rows,
+      couponLog: couponLog.rows,
+      progressSummary,
+    });
+  } catch (error) {
+    console.error('MFA admin user detail error:', error);
+    res.status(500).json({ error: 'Failed to get user detail' });
+  }
+});
+
+// GET /api/admin/mfa/purchases?status=verified|failed|all&q=닉네임검색 - MFA 인앱결제 검증 내역
+router.get('/mfa/purchases', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const status = typeof req.query.status === 'string' ? req.query.status : 'all';
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (status === 'verified' || status === 'failed') {
+      params.push(status === 'verified');
+      conditions.push(`p.verified = $${params.length}`);
+    }
+    if (q) {
+      params.push(`%${q}%`);
+      conditions.push(`(u.nickname ILIKE $${params.length} OR u.email ILIKE $${params.length})`);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const result = await pool.query(
+      `SELECT p.id, p.user_id, u.nickname, u.email, p.platform, p.product_id, p.transaction_id,
+              p.kind, p.verified, p.status, p.environment, p.created_at
+       FROM mfa_purchases p
+       LEFT JOIN mfa_users u ON p.user_id = u.id
+       ${where}
+       ORDER BY p.created_at DESC
+       LIMIT 500`,
+      params
+    );
+    const agg = await pool.query(
+      `SELECT
+         COUNT(*)::int AS total,
+         COUNT(*) FILTER (WHERE verified)::int AS verified,
+         COUNT(*) FILTER (WHERE NOT verified)::int AS failed
+       FROM mfa_purchases`
+    );
+    res.json({ purchases: result.rows, summary: agg.rows[0] });
+  } catch (error) {
+    console.error('MFA admin list purchases error:', error);
+    res.status(500).json({ error: 'Failed to load purchases' });
+  }
+});
+
 // GET /api/admin/ctr/rankings?mode=timeAttack - CTR 랭킹 목록(운영 관리용)
 router.get('/ctr/rankings', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
   try {

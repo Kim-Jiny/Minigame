@@ -622,6 +622,35 @@ export async function setupDatabase() {
         PRIMARY KEY (user_id, day)
       );
 
+      -- 디바이스 단위 접속 추적(DAU/WAU/MAU 어드민 통계용) — CTR의 ctr_devices/
+      -- ctr_device_daily(이 파일 상단)를 그대로 미러링. 게스트도 포함(로그인 불필요).
+      CREATE TABLE IF NOT EXISTS mfa_devices (
+        device_id VARCHAR(64) PRIMARY KEY,
+        platform VARCHAR(10),
+        first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        launch_count INTEGER NOT NULL DEFAULT 1
+      );
+      CREATE TABLE IF NOT EXISTS mfa_device_daily (
+        device_id VARCHAR(64) NOT NULL,
+        day DATE NOT NULL,
+        platform VARCHAR(10),
+        PRIMARY KEY (device_id, day)
+      );
+      CREATE INDEX IF NOT EXISTS idx_mfa_device_daily_day ON mfa_device_daily(day);
+
+      -- 힌트쿠폰 거래 이력(운영/CS 조회 전용 — 앱에서 유저에게 노출 안 함). 잔액이
+      -- 바뀌는 모든 지점(출석/구매/소비)에서 같은 트랜잭션 안에 한 줄씩 남긴다.
+      CREATE TABLE IF NOT EXISTS mfa_coupon_log (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES mfa_users(id) ON DELETE CASCADE,
+        delta INTEGER NOT NULL,              -- +1(출석) / +10(구매) / -1(소비)
+        reason VARCHAR(20) NOT NULL,         -- checkin | purchase | spend
+        balance_after INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_mfa_coupon_log_user ON mfa_coupon_log(user_id, created_at DESC);
+
       -- [PP] PerlerPixel(비즈픽셀) 커뮤니티 게시판 — 별도 리포 ~/Documents/Jiny/PerlerPixel 소유.
       --      도안 공유 게시판. 소셜 로그인(pp_users), 오리지널만 정책 + 사후 신고 기반 모더레이션.
       --      pp_* 테이블 — 삭제·리팩터링 금지. 소유권: 리포 루트 CLAUDE.md 의 [PP] 섹션.
