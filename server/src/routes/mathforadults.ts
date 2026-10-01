@@ -308,19 +308,19 @@ router.put('/progress', async (req: Request, res: Response): Promise<void> => {
 // POST /api/mathforadults/iap/verify — 인앱결제 영수증 검증 + 기록
 //   body(iOS):     { platform:"ios", productId, transactionId, payload(JWS) }
 //   body(Android): { platform:"android", productId, transactionId, payload(originalJson), signature }
-//   resp: { verified, kind, coupons, alreadyProcessed }
-// 로그인 필수(Bearer) — 구매는 계정에 귀속된다. 힌트쿠폰 개수는 여기서 직접 반영하지 않고
-// (진도의 단일 소스는 클라이언트 UserStats), 클라이언트가 verified:true를 받으면
-// 로컬에서 hintCoupons를 올린 뒤 기존 PUT /progress로 반영한다.
+//   resp: { verified, kind, coupons, alreadyProcessed, balance }
+// 로그인 필수(Bearer) — 구매는 계정에 귀속된다. 힌트쿠폰은 여기서 서버 계정 잔액
+// (mfa_users.hint_coupon_balance)에 직접 반영하고 그 최종값을 balance로 내려준다 —
+// 클라이언트는 로컬에 증분을 더하지 않고 이 값을 그대로 신뢰해서 덮어쓴다(진도 동기화와 무관).
 router.post('/iap/verify', async (req: Request, res: Response): Promise<void> => {
   const userId = mfaAuth(req, res);
   if (userId === null) return;
+  const pool = getPool();
+  if (!pool) {
+    res.status(500).json({ error: 'Database not available' });
+    return;
+  }
   try {
-    const pool = getPool();
-    if (!pool) {
-      res.status(500).json({ error: 'Database not available' });
-      return;
-    }
     const body = req.body ?? {};
     const platform = body.platform === 'ios' || body.platform === 'android' ? body.platform : null;
     const payload = typeof body.payload === 'string' ? body.payload : '';
@@ -368,43 +368,57 @@ router.post('/iap/verify', async (req: Request, res: Response): Promise<void> =>
       }
     }
 
-    // 기록(transaction 중복 시 재지급 방지). 새로 들어온 경우만 inserted.
-    const ins = await pool.query(
-      `INSERT INTO mfa_purchases (user_id, platform, product_id, transaction_id, kind, verified, status, environment, raw)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-       ON CONFLICT (platform, transaction_id) DO NOTHING
-       RETURNING id`,
-      [
-        userId,
-        platform,
-        productId,
-        transactionId,
-        kind,
-        result.verified,
-        status,
-        result.environment || null,
-        JSON.stringify({ reason: result.reason || null }).slice(0, 4000),
-      ]
-    );
-    const alreadyProcessed = ins.rows.length === 0;
-
-    // 힌트쿠폰은 클라이언트가 증분을 로컬에 더하는 대신, 서버 계정 잔액을 원자적으로
-    // 올리고 그 최종값(balance)을 내려준다 — 클라이언트는 이 값을 그대로 신뢰해서 덮어쓴다.
-    // (로컬 병합(max merge) 기반이던 예전 방식의 "로그아웃 후 소모→재로그인 시 부활" 버그를
-    // 원천 차단하기 위함.) 이미 처리된 재검증이어도 최신 잔액을 함께 돌려줘 클라이언트
-    // 상태가 서버와 어긋나지 않게 한다.
+    // 거래 기록(mfa_purchases)과 힌트쿠폰 잔액 증가를 한 트랜잭션으로 묶는다 — 따로
+    // 커밋되면 커넥션이 중간에 끊겼을 때 "이미 처리됨"으로 기록만 남고 지급은 영영 안
+    // 되는 사고가 날 수 있다(server/src/services/shopService.ts의 BEGIN/COMMIT 패턴과 동일).
+    const client = await pool.connect();
+    let alreadyProcessed: boolean;
     let balance: number | undefined;
-    if (kind === 'hint_coupons') {
-      if (!alreadyProcessed && result.verified && product?.coupons) {
-        const upd = await pool.query(
-          'UPDATE mfa_users SET hint_coupon_balance = hint_coupon_balance + $2 WHERE id = $1 RETURNING hint_coupon_balance',
-          [userId, product.coupons]
-        );
-        balance = upd.rows[0]?.hint_coupon_balance;
-      } else {
-        const bal = await pool.query('SELECT hint_coupon_balance FROM mfa_users WHERE id = $1', [userId]);
-        balance = bal.rows[0]?.hint_coupon_balance ?? 0;
+    try {
+      await client.query('BEGIN');
+      // 기록(transaction 중복 시 재지급 방지). 새로 들어온 경우만 inserted.
+      const ins = await client.query(
+        `INSERT INTO mfa_purchases (user_id, platform, product_id, transaction_id, kind, verified, status, environment, raw)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         ON CONFLICT (platform, transaction_id) DO NOTHING
+         RETURNING id`,
+        [
+          userId,
+          platform,
+          productId,
+          transactionId,
+          kind,
+          result.verified,
+          status,
+          result.environment || null,
+          JSON.stringify({ reason: result.reason || null }).slice(0, 4000),
+        ]
+      );
+      alreadyProcessed = ins.rows.length === 0;
+
+      // 힌트쿠폰은 클라이언트가 증분을 로컬에 더하는 대신, 서버 계정 잔액을 원자적으로
+      // 올리고 그 최종값(balance)을 내려준다 — 클라이언트는 이 값을 그대로 신뢰해서 덮어쓴다.
+      // (로컬 병합(max merge) 기반이던 예전 방식의 "로그아웃 후 소모→재로그인 시 부활" 버그를
+      // 원천 차단하기 위함.) 이미 처리된 재검증이어도 최신 잔액을 함께 돌려줘 클라이언트
+      // 상태가 서버와 어긋나지 않게 한다.
+      if (kind === 'hint_coupons') {
+        if (!alreadyProcessed && result.verified && product?.coupons) {
+          const upd = await client.query(
+            'UPDATE mfa_users SET hint_coupon_balance = hint_coupon_balance + $2 WHERE id = $1 RETURNING hint_coupon_balance',
+            [userId, product.coupons]
+          );
+          balance = upd.rows[0]?.hint_coupon_balance;
+        } else {
+          const bal = await client.query('SELECT hint_coupon_balance FROM mfa_users WHERE id = $1', [userId]);
+          balance = bal.rows[0]?.hint_coupon_balance ?? 0;
+        }
       }
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
     }
 
     res.json({
@@ -451,13 +465,18 @@ router.get('/entitlements', async (req: Request, res: Response): Promise<void> =
 router.post('/hint-coupons/checkin', async (req: Request, res: Response): Promise<void> => {
   const userId = mfaAuth(req, res);
   if (userId === null) return;
+  const pool = getPool();
+  if (!pool) {
+    res.status(500).json({ error: 'Database not available' });
+    return;
+  }
+  // 출석 기록(mfa_checkins)과 잔액 증가를 한 트랜잭션으로 묶는다 — 따로 커밋되면
+  // 커넥션이 중간에 끊겼을 때 "오늘 이미 출석함"만 영구히 남고 쿠폰은 영영 안 받는
+  // 사고가 날 수 있다(server/src/services/shopService.ts의 BEGIN/COMMIT 패턴과 동일).
+  const client = await pool.connect();
   try {
-    const pool = getPool();
-    if (!pool) {
-      res.status(500).json({ error: 'Database not available' });
-      return;
-    }
-    const ins = await pool.query(
+    await client.query('BEGIN');
+    const ins = await client.query(
       `INSERT INTO mfa_checkins (user_id, day)
        VALUES ($1, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date)
        ON CONFLICT (user_id, day) DO NOTHING
@@ -465,18 +484,23 @@ router.post('/hint-coupons/checkin', async (req: Request, res: Response): Promis
       [userId]
     );
     if (ins.rows.length === 0) {
-      const bal = await pool.query('SELECT hint_coupon_balance FROM mfa_users WHERE id = $1', [userId]);
+      const bal = await client.query('SELECT hint_coupon_balance FROM mfa_users WHERE id = $1', [userId]);
+      await client.query('COMMIT');
       res.json({ granted: false, balance: bal.rows[0]?.hint_coupon_balance ?? 0 });
       return;
     }
-    const upd = await pool.query(
+    const upd = await client.query(
       'UPDATE mfa_users SET hint_coupon_balance = hint_coupon_balance + 1 WHERE id = $1 RETURNING hint_coupon_balance',
       [userId]
     );
+    await client.query('COMMIT');
     res.json({ granted: true, balance: upd.rows[0].hint_coupon_balance });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('MFA checkin error:', error);
     res.status(500).json({ error: 'checkin failed' });
+  } finally {
+    client.release();
   }
 });
 
