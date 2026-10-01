@@ -388,6 +388,25 @@ router.post('/iap/verify', async (req: Request, res: Response): Promise<void> =>
     );
     const alreadyProcessed = ins.rows.length === 0;
 
+    // 힌트쿠폰은 클라이언트가 증분을 로컬에 더하는 대신, 서버 계정 잔액을 원자적으로
+    // 올리고 그 최종값(balance)을 내려준다 — 클라이언트는 이 값을 그대로 신뢰해서 덮어쓴다.
+    // (로컬 병합(max merge) 기반이던 예전 방식의 "로그아웃 후 소모→재로그인 시 부활" 버그를
+    // 원천 차단하기 위함.) 이미 처리된 재검증이어도 최신 잔액을 함께 돌려줘 클라이언트
+    // 상태가 서버와 어긋나지 않게 한다.
+    let balance: number | undefined;
+    if (kind === 'hint_coupons') {
+      if (!alreadyProcessed && result.verified && product?.coupons) {
+        const upd = await pool.query(
+          'UPDATE mfa_users SET hint_coupon_balance = hint_coupon_balance + $2 WHERE id = $1 RETURNING hint_coupon_balance',
+          [userId, product.coupons]
+        );
+        balance = upd.rows[0]?.hint_coupon_balance;
+      } else {
+        const bal = await pool.query('SELECT hint_coupon_balance FROM mfa_users WHERE id = $1', [userId]);
+        balance = bal.rows[0]?.hint_coupon_balance ?? 0;
+      }
+    }
+
     res.json({
       verified: result.verified,
       kind,
@@ -395,6 +414,7 @@ router.post('/iap/verify', async (req: Request, res: Response): Promise<void> =>
       coupons: alreadyProcessed ? 0 : (product?.coupons ?? 0),
       alreadyProcessed,
       reason: result.reason,
+      balance,
     });
   } catch (error) {
     console.error('MFA iap verify error:', error);
@@ -417,10 +437,74 @@ router.get('/entitlements', async (req: Request, res: Response): Promise<void> =
       `SELECT 1 FROM mfa_purchases WHERE user_id = $1 AND kind = 'remove_ads' AND verified = TRUE LIMIT 1`,
       [userId]
     );
-    res.json({ adsRemoved: r.rows.length > 0 });
+    const bal = await pool.query('SELECT hint_coupon_balance FROM mfa_users WHERE id = $1', [userId]);
+    res.json({ adsRemoved: r.rows.length > 0, hintCoupons: bal.rows[0]?.hint_coupon_balance ?? 0 });
   } catch (error) {
     console.error('MFA get entitlements error:', error);
     res.status(500).json({ error: 'Failed to load entitlements' });
+  }
+});
+
+// POST /api/mathforadults/hint-coupons/checkin — 계정당 하루 1회 출석 쿠폰 지급(로그인 필수).
+// 기기 로컬 출석 체크와 별개로, 쿠폰 지급 자체는 이 서버 호출이 유일한 진실 — 두 기기로
+// 각각 눌러도 하루 한 번만 지급된다(mfa_checkins PK(user_id, day) 충돌로 보장).
+router.post('/hint-coupons/checkin', async (req: Request, res: Response): Promise<void> => {
+  const userId = mfaAuth(req, res);
+  if (userId === null) return;
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const ins = await pool.query(
+      `INSERT INTO mfa_checkins (user_id, day)
+       VALUES ($1, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date)
+       ON CONFLICT (user_id, day) DO NOTHING
+       RETURNING day`,
+      [userId]
+    );
+    if (ins.rows.length === 0) {
+      const bal = await pool.query('SELECT hint_coupon_balance FROM mfa_users WHERE id = $1', [userId]);
+      res.json({ granted: false, balance: bal.rows[0]?.hint_coupon_balance ?? 0 });
+      return;
+    }
+    const upd = await pool.query(
+      'UPDATE mfa_users SET hint_coupon_balance = hint_coupon_balance + 1 WHERE id = $1 RETURNING hint_coupon_balance',
+      [userId]
+    );
+    res.json({ granted: true, balance: upd.rows[0].hint_coupon_balance });
+  } catch (error) {
+    console.error('MFA checkin error:', error);
+    res.status(500).json({ error: 'checkin failed' });
+  }
+});
+
+// POST /api/mathforadults/hint-coupons/spend — 힌트쿠폰 1개 원자적 차감(로그인 필수).
+// WHERE 절에 잔액 조건을 같이 걸어서 음수로 내려가는 걸 DB 레벨에서 막는다(동시 요청 안전).
+router.post('/hint-coupons/spend', async (req: Request, res: Response): Promise<void> => {
+  const userId = mfaAuth(req, res);
+  if (userId === null) return;
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const upd = await pool.query(
+      `UPDATE mfa_users SET hint_coupon_balance = hint_coupon_balance - 1
+       WHERE id = $1 AND hint_coupon_balance > 0
+       RETURNING hint_coupon_balance`,
+      [userId]
+    );
+    if (upd.rows.length === 0) {
+      res.status(409).json({ success: false, error: 'insufficient_balance' });
+      return;
+    }
+    res.json({ success: true, balance: upd.rows[0].hint_coupon_balance });
+  } catch (error) {
+    console.error('MFA spend hint coupon error:', error);
+    res.status(500).json({ error: 'spend failed' });
   }
 });
 

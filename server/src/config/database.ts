@@ -610,6 +610,18 @@ export async function setupDatabase() {
       );
       CREATE UNIQUE INDEX IF NOT EXISTS uq_mfa_purchases_txn ON mfa_purchases(platform, transaction_id);
 
+      -- 힌트쿠폰 잔액은 기기 로컬 병합(max merge) 대신 계정 서버 잔액으로 원자적 증감한다
+      -- (로그아웃 후 소모→재로그인 시 부활하는 구멍을 막기 위함). 삭제·리팩터링 금지.
+      ALTER TABLE mfa_users ADD COLUMN IF NOT EXISTS hint_coupon_balance INTEGER NOT NULL DEFAULT 0;
+      -- 계정당 하루 1회 출석 지급 제한(두 기기 동시 출석으로 중복 지급되는 걸 막음).
+      -- CatchTheRule의 ctr_device_daily(이 파일 437-443줄)를 device_id 대신 user_id로 미러링.
+      -- day는 KST 자정 기준으로 기록(서버 쿼리에서 AT TIME ZONE 'Asia/Seoul' 명시).
+      CREATE TABLE IF NOT EXISTS mfa_checkins (
+        user_id INTEGER NOT NULL REFERENCES mfa_users(id) ON DELETE CASCADE,
+        day DATE NOT NULL,
+        PRIMARY KEY (user_id, day)
+      );
+
       -- [PP] PerlerPixel(비즈픽셀) 커뮤니티 게시판 — 별도 리포 ~/Documents/Jiny/PerlerPixel 소유.
       --      도안 공유 게시판. 소셜 로그인(pp_users), 오리지널만 정책 + 사후 신고 기반 모더레이션.
       --      pp_* 테이블 — 삭제·리팩터링 금지. 소유권: 리포 루트 CLAUDE.md 의 [PP] 섹션.
