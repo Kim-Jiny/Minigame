@@ -236,6 +236,22 @@ function mfaAuth(req: Request, res: Response): number | null {
   return userId;
 }
 
+// 로그인 없이도 쓸 수 있는 라우트(IAP 영수증 검증 등 — App Store Review Guideline
+// 5.1.1(v): 계정과 무관한 상품 구매에 로그인을 강제할 수 없음)에 쓴다. 토큰 자체가
+// 없으면 게스트로 보고 null(정상), 토큰은 있는데 무효/만료면 401 응답하고
+// undefined(호출부가 이 값이면 바로 return) — mfaAuth()와 달리 "토큰 없음"은
+// 에러로 취급하지 않는다.
+function mfaAuthOptional(req: Request, res: Response): number | null | undefined {
+  const h = req.headers.authorization;
+  if (!h || !h.startsWith('Bearer ')) return null;
+  const userId = verifyMfaToken(h.slice(7));
+  if (userId === null) {
+    res.status(401).json({ error: 'Invalid token' });
+    return undefined;
+  }
+  return userId;
+}
+
 // PUT /api/mathforadults/auth/nickname — { nickname } 닉네임 변경(기본 guest-xxxxxx에서 바꾸기)
 router.put('/auth/nickname', async (req: Request, res: Response): Promise<void> => {
   const userId = mfaAuth(req, res);
@@ -347,12 +363,15 @@ router.put('/progress', async (req: Request, res: Response): Promise<void> => {
 //   body(iOS):     { platform:"ios", productId, transactionId, payload(JWS) }
 //   body(Android): { platform:"android", productId, transactionId, payload(originalJson), signature }
 //   resp: { verified, kind, coupons, alreadyProcessed, balance }
-// 로그인 필수(Bearer) — 구매는 계정에 귀속된다. 힌트쿠폰은 여기서 서버 계정 잔액
-// (mfa_users.hint_coupon_balance)에 직접 반영하고 그 최종값을 balance로 내려준다 —
-// 클라이언트는 로컬에 증분을 더하지 않고 이 값을 그대로 신뢰해서 덮어쓴다(진도 동기화와 무관).
+// 로그인은 선택(Bearer 없어도 됨) — App Store Review Guideline 5.1.1(v): 계정과
+// 무관한 상품(힌트쿠폰/광고제거) 구매에 로그인을 강제할 수 없다. 로그인 상태면
+// 기존처럼 서버 계정 잔액(mfa_users.hint_coupon_balance)에 반영하고 그 최종값을
+// balance로 내려주고(클라이언트는 로컬에 증분을 더하지 않고 이 값을 그대로 신뢰),
+// 로그인 안 된 요청(토큰 없음)은 게스트로 보고 검증 결과(coupons 증분량)만 내려준다
+// — 계정 잔액은 안 건드리고, 클라이언트가 이 기기에만 로컬로 반영한다.
 router.post('/iap/verify', async (req: Request, res: Response): Promise<void> => {
-  const userId = mfaAuth(req, res);
-  if (userId === null) return;
+  const userId = mfaAuthOptional(req, res);
+  if (userId === undefined) return;
   const pool = getPool();
   if (!pool) {
     res.status(500).json({ error: 'Database not available' });
@@ -394,7 +413,7 @@ router.post('/iap/verify', async (req: Request, res: Response): Promise<void> =>
     // "지금 검증을 마친 세션(JWT 소유자)"에게 한다 — 그래야 클라이언트가 로컬에 반영하는
     // 계정과 서버 기록이 항상 일치한다(다른 계정에 기록만 해두고 아무도 못 받는 상황 방지).
     // 불일치가 잦으면 이 로그를 근거로 "미수령 지급 인박스" 같은 별도 정산 기능을 고려할 것.
-    if (result.accountUuid) {
+    if (userId !== null && result.accountUuid) {
       const owner = await pool.query('SELECT id FROM mfa_users WHERE iap_account_uuid = $1', [
         result.accountUuid,
       ]);
@@ -434,12 +453,14 @@ router.post('/iap/verify', async (req: Request, res: Response): Promise<void> =>
       );
       alreadyProcessed = ins.rows.length === 0;
 
-      // 힌트쿠폰은 클라이언트가 증분을 로컬에 더하는 대신, 서버 계정 잔액을 원자적으로
-      // 올리고 그 최종값(balance)을 내려준다 — 클라이언트는 이 값을 그대로 신뢰해서 덮어쓴다.
+      // 로그인 계정(userId != null)이면 힌트쿠폰을 서버 계정 잔액에 원자적으로 반영하고
+      // 그 최종값(balance)을 내려준다 — 클라이언트는 이 값을 그대로 신뢰해서 덮어쓴다.
       // (로컬 병합(max merge) 기반이던 예전 방식의 "로그아웃 후 소모→재로그인 시 부활" 버그를
       // 원천 차단하기 위함.) 이미 처리된 재검증이어도 최신 잔액을 함께 돌려줘 클라이언트
       // 상태가 서버와 어긋나지 않게 한다.
-      if (kind === 'hint_coupons') {
+      // 게스트(userId == null)는 서버 잔액 개념이 없음 — balance는 응답에 안 실리고
+      // (undefined), 클라이언트가 응답의 coupons(증분량)를 이 기기 로컬에만 반영한다.
+      if (kind === 'hint_coupons' && userId !== null) {
         if (!alreadyProcessed && result.verified && product?.coupons) {
           const upd = await client.query(
             'UPDATE mfa_users SET hint_coupon_balance = hint_coupon_balance + $2 WHERE id = $1 RETURNING hint_coupon_balance',
