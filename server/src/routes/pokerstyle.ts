@@ -7,7 +7,8 @@
 // ── 권한 모델 (카카오 로그인 + 평가 링크) ───────────────────────────────────
 //   OWNER  카카오로 로그인한 사용자. POST /auth/kakao 로 받은 JWT(scope:'ps')를
 //          `Authorization: Bearer` 로 보낸다. 사용자당 프로필 1개(재테스트하면 갱신, 평가는 유지).
-//          할 수 있는 것: 평가 링크(프로필) 생성·갱신, 본인 프로필의 집계 결과 조회, 프로필 삭제, 계정 탈퇴.
+//          할 수 있는 것: 평가 링크(프로필) 생성·갱신, 본인 프로필의 집계 결과 조회, 계정 탈퇴.
+//          프로필은 계정에 소속된다(별도 프로필 삭제 기능 없음 — 지우려면 계정 탈퇴).
 //   RATER  로그인 불필요. 프로필 공개 코드(id)만 알면 된다(친구에게 보낸 링크).
 //          할 수 있는 것: 프로필 존재 확인, 평가 1회 제출.
 //          할 수 없는 것: 오너의 응답·유형·평가 수·다른 평가자의 응답을 보는 것(편향 방지).
@@ -17,11 +18,12 @@
 //   로그인 사용자: 카카오 회원번호(kakao_id)와 닉네임만 저장한다(이메일·프로필사진·연락처는 요청하지 않는다).
 //   평가자: 이름·연락처·자유 입력 텍스트는 받지 않는다. 축별 점수(숫자), 관계(고정 선택지),
 //          평가자 식별용 해시 2종(raterKey 해시, IP 해시 — 원문 저장 안 함)만 저장한다.
-//   프로필·평가는 90일 후 삭제된다. 계정 탈퇴 시 ps_users 와 프로필·평가가 모두 삭제된다(CASCADE).
+//   프로필·평가는 마지막 이용(생성·갱신·오너의 결과 조회) 후 90일이 지나면 삭제된다.
+//   계정 탈퇴 시 ps_users 와 프로필·평가가 모두 삭제된다(CASCADE).
 //
 // ── 알려진 한계 ────────────────────────────────────────────────────────────
-//   · 평가자가 3명 미만이면 집계를 내려주지 않는다. 다만 3명 이후 평가가 추가될 때마다 오너가
-//     조회하면 평균 변화량으로 새 평가자의 값을 역산할 수 있다(익명성은 "명백한 식별 불가" 수준).
+//   · 평가가 한 명만 들어와도 결과를 내려준다. 그래서 평가자가 한두 명뿐이면 집계값이 곧 그 사람의 답이라
+//     오너가 누가 답했는지 짐작할 수 있다(이름은 받지 않지만 "완전 익명"은 아니다). 평가자에게 이를 안내한다.
 //   · 점수는 클라이언트가 계산해 보낸다 — 악의적 평가자의 값 조작은 서버가 막을 수 없다
 //     (범위/형식 검증과 횟수 제한만 한다).
 import { Router, Request, Response } from 'express';
@@ -42,7 +44,7 @@ const router = Router();
 const AXES = 4; // 축 개수 (JinyShop/pokerstyle/pokerstyle-data.js PS_AXES 와 동일)
 const QUESTIONS_PER_AXIS = 8; // 축당 문항 수
 const MIN_ANSWERED_TOTAL = 8; // 평가자가 최소 이만큼은 "모름"이 아니어야 제출 가능
-const MIN_RATERS_TO_REVEAL = 3; // 이 인원 미만이면 집계를 숨긴다
+const MIN_RATERS_TO_REVEAL = 1; // 평가자가 이 인원 미만이면 집계를 숨긴다(1 = 한 명만 있어도 공개)
 const PROFILE_TTL_DAYS = 90;
 const MAX_RATINGS_PER_PROFILE = 200;
 const MAX_RATINGS_PER_IP_PER_PROFILE = 3; // 같은 네트워크(가족·회사) 허용치
@@ -242,7 +244,7 @@ router.post('/profiles', async (req: Request, res: Response): Promise<void> => {
 });
 
 // ── GET /api/pokerstyle/profiles/me/results — [OWNER] 내 프로필의 집계 결과 ───
-// 평가자 3명 미만이면 others=null (인원 수만 노출). 프로필이 없으면 404.
+// 평가가 한 건도 없으면 others=null (인원 수만 노출). 프로필이 없으면 404. 조회할 때마다 프로필 유효기간을 갱신한다.
 // → { id, code, selfPcts, ratingCount, minToReveal, expiresAt, others: null | { axes:[{pct,answered,raters}], relations:{...} } }
 router.get('/profiles/me/results', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -259,6 +261,12 @@ router.get('/profiles/me/results', async (req: Request, res: Response): Promise<
     );
     const prof = pr.rows[0];
     if (!prof) { res.status(404).json({ error: 'no profile' }); return; }
+    // 계속 쓰는 사람의 프로필·평가가 어느 날 사라지지 않도록, 오너가 열어볼 때마다 90일을 새로 센다.
+    const touched = await getPool().query(
+      `UPDATE ps_profiles SET expires_at = NOW() + ($2 || ' days')::interval WHERE id = $1 RETURNING expires_at`,
+      [prof.id, String(PROFILE_TTL_DAYS)]
+    );
+    prof.expires_at = touched.rows[0]?.expires_at ?? prof.expires_at;
     const r = await getPool().query(`SELECT relation, axes FROM ps_ratings WHERE profile_id = $1`, [prof.id]);
     const ratingCount = r.rows.length;
     let others: unknown = null;
@@ -280,7 +288,7 @@ router.get('/profiles/me/results', async (req: Request, res: Response): Promise<
         });
       }
       others = {
-        // raters 가 3 미만인 축은 pct 를 숨겨 "모름"이 많은 축이 소수 평가자를 노출하지 않게 한다.
+        // 그 축에 답한 평가자가 없으면(모두 "모름") pct 는 null.
         axes: sum.map((s, i) => ({
           pct: raters[i] >= MIN_RATERS_TO_REVEAL && ans[i] > 0 ? Math.round(s / ans[i]) : null,
           answered: ans[i],
@@ -302,21 +310,6 @@ router.get('/profiles/me/results', async (req: Request, res: Response): Promise<
   } catch (error) {
     console.error('[PS] results error:', error);
     res.status(500).json({ error: 'Failed to load results' });
-  }
-});
-
-// ── DELETE /api/pokerstyle/profiles/me — [OWNER] 내 프로필과 평가 전부 삭제 ───
-// 계정은 유지된다(탈퇴는 DELETE /auth/me).
-router.delete('/profiles/me', async (req: Request, res: Response): Promise<void> => {
-  try {
-    if (!getPool()) { res.status(500).json({ error: 'Database not available' }); return; }
-    const user = await requireUser(req, res);
-    if (!user) return;
-    await getPool().query(`DELETE FROM ps_profiles WHERE owner_user_id = $1`, [user.id]); // ps_ratings 는 CASCADE
-    res.json({ success: true });
-  } catch (error) {
-    console.error('[PS] delete profile error:', error);
-    res.status(500).json({ error: 'Failed to delete profile' });
   }
 });
 
