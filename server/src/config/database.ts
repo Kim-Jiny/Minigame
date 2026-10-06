@@ -818,11 +818,13 @@ export async function setupDatabase() {
         rater_key_hash CHAR(64) NOT NULL,          -- 평가자 기기 랜덤키의 해시 (프로필당 1회 제한용)
         ip_hash CHAR(64) NOT NULL,                 -- IP 해시 (같은 네트워크 횟수 제한용)
         relation VARCHAR(10),                      -- friend | table | family | online | other | NULL
-        axes JSONB NOT NULL,                       -- [{p:0~100|null, n:0~8}] ×4 ("모름" 제외 집계값)
+        axes JSONB NOT NULL,                       -- [{p:0~100|null, n:문항 수}] ×4 ("모름" 제외 집계값)
+        message VARCHAR(100),                      -- 평가자가 남긴 한마디(선택, 80자 이내). 오너가 개별 삭제하면 NULL
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE (profile_id, rater_key_hash)
       );
       CREATE INDEX IF NOT EXISTS idx_ps_ratings_profile ON ps_ratings(profile_id);
+      ALTER TABLE ps_ratings ADD COLUMN IF NOT EXISTS message VARCHAR(100);  -- [PS] 한마디 도입 전 테이블용 (신규 DB 에서는 no-op)
 
       -- [LAB] 참고: 이 공유 DB 에는 라비린스 온라인 소유의 lab_* 테이블
       --       (lab_matches, lab_match_players, lab_user_stats)도 존재한다.
