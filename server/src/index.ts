@@ -15,6 +15,7 @@ import catchTheRuleRouter from './routes/catchtherule'; // [CTR] CatchTheRule �
 import sajatoonRouter from './routes/sajatoon'; // [SAJA] 사자툰 소유 — 삭제 금지
 import mathForAdultsRouter from './routes/mathforadults'; // [MFA] 성인의 수학 소유 — 삭제 금지
 import perlerPixelRouter, { ppAppleAppSiteAssociation, ppSharePage } from './routes/perlerpixel'; // [PP] PerlerPixel 소유 — 삭제 금지
+import pokerStyleRouter from './routes/pokerstyle'; // [PS] PokerStyle 소유 — 삭제 금지
 import path from 'path';
 
 // 전역 에러 안전망: 비동기 소켓 핸들러/타이머 콜백에서 발생한 에러가
@@ -83,6 +84,10 @@ app.use('/api/mathforadults', mathForAdultsRouter);
 // [PP] PerlerPixel(비즈픽셀) 커뮤니티 게시판 API — 별도 리포(PerlerPixel) 소유. 삭제·리팩터링 금지.
 // 소셜 로그인(pp_users) 기반. 리스트는 비로그인, 상세/업로드/상호작용은 로그인 필요.
 app.use('/api/perlerpixel', perlerPixelRouter);
+
+// [PS] PokerStyle(홀덤 성향 테스트) "남들이 본 나" 평가 API — 별도 리포(JinyShop) 소유. 삭제·리팩터링 금지.
+// 로그인 없는 토큰 기반(소유자 토큰/평가 링크). 브라우저(jiny.shop)에서 호출하므로 ALLOWED_ORIGINS 에 https://jiny.shop 필요.
+app.use('/api/pokerstyle', pokerStyleRouter);
 
 // 관리자 페이지 — /backstage 로만 접근 (기존 /admin 경로는 제거).
 app.use('/backstage', express.static(path.join(__dirname, '../public/admin')));

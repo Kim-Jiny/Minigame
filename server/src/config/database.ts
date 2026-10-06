@@ -787,6 +787,31 @@ export async function setupDatabase() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
+      -- [PS] PokerStyle(홀덤 성향 테스트) "남들이 본 나" 평가 — 별도 리포 ~/Documents/Jiny/JinyShop 소유.
+      --      ps_* 테이블 — 삭제·리팩터링 금지. 소유권/권한 모델: 리포 루트 CLAUDE.md 의 [PS] 섹션,
+      --      src/routes/pokerstyle.ts 상단 주석. 로그인·개인정보 없음(토큰 해시·점수·IP 해시만 저장).
+      CREATE TABLE IF NOT EXISTS ps_profiles (
+        id VARCHAR(10) PRIMARY KEY,                -- 공개 코드(평가 링크에 노출)
+        owner_token_hash CHAR(64) NOT NULL,        -- 소유자 토큰의 SHA-256 (원문은 저장하지 않음)
+        code VARCHAR(4) NOT NULL,                  -- 본인 유형 코드 (서버가 pcts 로 계산)
+        self_pcts INTEGER[] NOT NULL,              -- 본인 응답: 축별 첫 번째 극 퍼센트 ×4
+        creator_ip_hash CHAR(64),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP NOT NULL              -- 생성 후 90일, 만료 시 삭제
+      );
+      CREATE INDEX IF NOT EXISTS idx_ps_profiles_expires ON ps_profiles(expires_at);
+      CREATE TABLE IF NOT EXISTS ps_ratings (
+        id SERIAL PRIMARY KEY,
+        profile_id VARCHAR(10) NOT NULL REFERENCES ps_profiles(id) ON DELETE CASCADE,
+        rater_key_hash CHAR(64) NOT NULL,          -- 평가자 기기 랜덤키의 해시 (프로필당 1회 제한용)
+        ip_hash CHAR(64) NOT NULL,                 -- IP 해시 (같은 네트워크 횟수 제한용)
+        relation VARCHAR(10),                      -- friend | table | family | online | other | NULL
+        axes JSONB NOT NULL,                       -- [{p:0~100|null, n:0~8}] ×4 ("모름" 제외 집계값)
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (profile_id, rater_key_hash)
+      );
+      CREATE INDEX IF NOT EXISTS idx_ps_ratings_profile ON ps_ratings(profile_id);
+
       -- [LAB] 참고: 이 공유 DB 에는 라비린스 온라인 소유의 lab_* 테이블
       --       (lab_matches, lab_match_players, lab_user_stats)도 존재한다.
       --       그러나 그 테이블은 "별도 리포·별도 서버"(~/Documents/Jiny/LabyrinthOnline,
