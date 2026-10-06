@@ -7,17 +7,20 @@
 // ── 권한 모델 (카카오 로그인 + 평가 링크) ───────────────────────────────────
 //   OWNER  카카오로 로그인한 사용자. POST /auth/kakao 로 받은 JWT(scope:'ps')를
 //          `Authorization: Bearer` 로 보낸다. 사용자당 프로필 1개(재테스트하면 갱신, 평가는 유지).
-//          할 수 있는 것: 평가 링크(프로필) 생성·갱신, 본인 프로필의 집계 결과 조회, 계정 탈퇴.
+//          할 수 있는 것: 평가 링크(프로필) 생성·갱신, 본인 프로필의 집계 결과·받은 한마디 조회,
+//                         받은 한마디 개별 삭제, 계정 탈퇴.
 //          프로필은 계정에 소속된다(별도 프로필 삭제 기능 없음 — 지우려면 계정 탈퇴).
 //   RATER  로그인 불필요. 프로필 공개 코드(id)만 알면 된다(친구에게 보낸 링크).
-//          할 수 있는 것: 프로필 존재 확인, 평가 1회 제출.
-//          할 수 없는 것: 오너의 응답·유형·평가 수·다른 평가자의 응답을 보는 것(편향 방지).
+//          할 수 있는 것: 오너의 성향 결과(유형 코드·축별 퍼센트) 보기, 평가 1회 제출(선택 한마디 포함).
+//          할 수 없는 것: 오너의 닉네임·받은 평가 수·다른 평가자의 응답·한마디를 보는 것.
+//          ※ 오너가 보낸 평가 링크를 받은 사람은 오너의 성향 결과를 볼 수 있다(링크 공유 = 결과 공개).
 //   ANY    위 둘 외에는 아무것도 읽을 수 없다. 개별 평가 원본은 어떤 응답에도 내려가지 않는다.
 //
 // ── 개인정보 ───────────────────────────────────────────────────────────────
 //   로그인 사용자: 카카오 회원번호(kakao_id)와 닉네임만 저장한다(이메일·프로필사진·연락처는 요청하지 않는다).
-//   평가자: 이름·연락처·자유 입력 텍스트는 받지 않는다. 축별 점수(숫자), 관계(고정 선택지),
+//   평가자: 이름·연락처는 받지 않는다. 축별 점수(숫자), 관계(고정 선택지), 선택 입력 한마디(80자 이내, 링크·HTML 불가),
 //          평가자 식별용 해시 2종(raterKey 해시, IP 해시 — 원문 저장 안 함)만 저장한다.
+//          한마디는 해당 프로필의 오너에게만 보이고, 오너가 개별 삭제할 수 있다. 서버는 길이·링크 외의 내용 검열은 하지 않는다.
 //   프로필·평가는 마지막 이용(생성·갱신·오너의 결과 조회) 후 90일이 지나면 삭제된다.
 //   계정 탈퇴 시 ps_users 와 프로필·평가가 모두 삭제된다(CASCADE).
 //
@@ -42,6 +45,7 @@ import {
 const router = Router();
 
 const AXES = 4; // 축 개수 (JinyShop/pokerstyle/pokerstyle-data.js PS_AXES 와 동일)
+const MAX_MESSAGE_LEN = 80; // 평가자가 남기는 한마디의 최대 글자 수
 const MAX_ANSWERS_PER_AXIS = 24; // 한 축에 대해 평가자가 답할 수 있는 문항 수의 상한(클라이언트 친구 설문이 이 값을 넘지 않게 유지)
 const MIN_ANSWERED_TOTAL = 8; // 평가자가 최소 이만큼은 "모름"이 아니어야 제출 가능
 const MIN_RATERS_TO_REVEAL = 1; // 평가자가 이 인원 미만이면 집계를 숨긴다(1 = 한 명만 있어도 공개)
@@ -267,7 +271,10 @@ router.get('/profiles/me/results', async (req: Request, res: Response): Promise<
       [prof.id, String(PROFILE_TTL_DAYS)]
     );
     prof.expires_at = touched.rows[0]?.expires_at ?? prof.expires_at;
-    const r = await getPool().query(`SELECT relation, axes FROM ps_ratings WHERE profile_id = $1`, [prof.id]);
+    const r = await getPool().query(
+      `SELECT id, relation, axes, message, created_at FROM ps_ratings WHERE profile_id = $1 ORDER BY id DESC`,
+      [prof.id]
+    );
     const ratingCount = r.rows.length;
     let others: unknown = null;
 
@@ -306,6 +313,11 @@ router.get('/profiles/me/results', async (req: Request, res: Response): Promise<
       minToReveal: MIN_RATERS_TO_REVEAL,
       expiresAt: prof.expires_at,
       others,
+      // 받은 한마디(최신순, 최대 50개). 누가 썼는지는 알 수 없고 관계만 보인다.
+      messages: r.rows
+        .filter((row) => row.message)
+        .slice(0, 50)
+        .map((row) => ({ id: row.id, relation: row.relation, message: row.message, createdAt: row.created_at })),
     });
   } catch (error) {
     console.error('[PS] results error:', error);
@@ -313,8 +325,31 @@ router.get('/profiles/me/results', async (req: Request, res: Response): Promise<
   }
 });
 
-// ── GET /api/pokerstyle/profiles/:id — [RATER] 프로필 존재 확인 ──────────────
-// 본인 응답·유형·평가 수는 내려주지 않는다. 링크가 유효한지만 알려준다.
+// ── DELETE /api/pokerstyle/profiles/me/messages/:mid — [OWNER] 받은 한마디 한 개 삭제 ──
+// 평가(점수) 자체는 그대로 두고 한마디만 지운다. 본인 프로필에 속한 평가만 대상이 된다.
+router.delete('/profiles/me/messages/:mid', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!getPool()) { res.status(500).json({ error: 'Database not available' }); return; }
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const mid = Number(req.params.mid);
+    if (!Number.isInteger(mid) || mid <= 0) { res.status(404).json({ error: 'not found' }); return; }
+    const r = await getPool().query(
+      `UPDATE ps_ratings SET message = NULL
+        WHERE id = $1 AND message IS NOT NULL
+          AND profile_id IN (SELECT id FROM ps_profiles WHERE owner_user_id = $2)`,
+      [mid, user.id]
+    );
+    if (!r.rowCount) { res.status(404).json({ error: 'not found' }); return; }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[PS] delete message error:', error);
+    res.status(500).json({ error: 'Failed to delete message' });
+  }
+});
+
+// ── GET /api/pokerstyle/profiles/:id — [RATER] 평가 링크가 가리키는 사람의 성향 결과 ─────
+// → { id, exists, code, selfPcts }. 닉네임·받은 평가 수·평가 내용은 내려주지 않는다.
 router.get('/profiles/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const id = String(req.params.id);
@@ -324,9 +359,9 @@ router.get('/profiles/:id', async (req: Request, res: Response): Promise<void> =
       res.status(429).json({ error: 'too many requests' });
       return;
     }
-    const r = await getPool().query(`SELECT 1 FROM ps_profiles WHERE id = $1 AND expires_at > NOW()`, [id]);
+    const r = await getPool().query(`SELECT code, self_pcts FROM ps_profiles WHERE id = $1 AND expires_at > NOW()`, [id]);
     if (!r.rows.length) { res.status(404).json({ error: 'not found' }); return; }
-    res.json({ id, exists: true });
+    res.json({ id, exists: true, code: r.rows[0].code, selfPcts: r.rows[0].self_pcts });
   } catch (error) {
     console.error('[PS] get profile error:', error);
     res.status(500).json({ error: 'Failed to get profile' });
@@ -358,6 +393,15 @@ router.post('/profiles/:id/ratings', async (req: Request, res: Response): Promis
     if (relation !== null && !(RELATIONS as readonly string[]).includes(relation)) {
       res.status(400).json({ error: 'invalid relation' });
       return;
+    }
+    // 한마디(선택): 공백 정리 후 80자 이내, 링크·HTML·제어문자 불가
+    let message: string | null = null;
+    if (body.message != null) {
+      if (typeof body.message !== 'string') { res.status(400).json({ error: 'invalid message' }); return; }
+      const m = body.message.replace(/\s+/g, ' ').trim();
+      if (Array.from(m).length > MAX_MESSAGE_LEN) { res.status(400).json({ error: 'message too long' }); return; }
+      if (/https?:\/\/|www\.|[<>]|[\u0000-\u001f\u007f]/i.test(m)) { res.status(400).json({ error: 'message not allowed' }); return; }
+      message = m || null;
     }
     const axes = body.axes;
     if (!Array.isArray(axes) || axes.length !== AXES) {
@@ -401,9 +445,9 @@ router.post('/profiles/:id/ratings', async (req: Request, res: Response): Promis
 
     try {
       await pool.query(
-        `INSERT INTO ps_ratings (profile_id, rater_key_hash, ip_hash, relation, axes)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [id, sha256(hashSalt() + '|rk|' + raterKey), ip, relation, JSON.stringify(clean)]
+        `INSERT INTO ps_ratings (profile_id, rater_key_hash, ip_hash, relation, axes, message)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [id, sha256(hashSalt() + '|rk|' + raterKey), ip, relation, JSON.stringify(clean), message]
       );
     } catch (e: any) {
       if (e?.code === '23505') { res.status(409).json({ error: 'already rated' }); return; }
