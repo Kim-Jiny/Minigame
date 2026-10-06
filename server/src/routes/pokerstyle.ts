@@ -42,7 +42,7 @@ import {
 const router = Router();
 
 const AXES = 4; // 축 개수 (JinyShop/pokerstyle/pokerstyle-data.js PS_AXES 와 동일)
-const QUESTIONS_PER_AXIS = 8; // 축당 문항 수
+const MAX_ANSWERS_PER_AXIS = 24; // 한 축에 대해 평가자가 답할 수 있는 문항 수의 상한(클라이언트 친구 설문이 이 값을 넘지 않게 유지)
 const MIN_ANSWERED_TOTAL = 8; // 평가자가 최소 이만큼은 "모름"이 아니어야 제출 가능
 const MIN_RATERS_TO_REVEAL = 1; // 평가자가 이 인원 미만이면 집계를 숨긴다(1 = 한 명만 있어도 공개)
 const PROFILE_TTL_DAYS = 90;
@@ -335,7 +335,7 @@ router.get('/profiles/:id', async (req: Request, res: Response): Promise<void> =
 
 // ── POST /api/pokerstyle/profiles/:id/ratings — [RATER] 평가 제출 ───────────
 // body: { raterKey: string(16~64, 기기 로컬 랜덤값), relation?: 'friend'|..., axes: [{p:int|null, n:int}×4] }
-//   axes[i].p = 그 축에서 "모름"을 제외하고 계산한 첫 번째 극 퍼센트(0~100), n = 답한 문항 수(0~8).
+//   axes[i].p = 그 축에서 "모름"을 제외하고 계산한 첫 번째 극 퍼센트(0~100), n = 그 축에 걸친 문항 중 답한 수(0~MAX_ANSWERS_PER_AXIS).
 //   n=0 이면 p 는 null.
 router.post('/profiles/:id/ratings', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -369,7 +369,7 @@ router.post('/profiles/:id/ratings', async (req: Request, res: Response): Promis
     for (const a of axes) {
       const n = a?.n;
       const p = a?.p;
-      if (!Number.isInteger(n) || n < 0 || n > QUESTIONS_PER_AXIS) {
+      if (!Number.isInteger(n) || n < 0 || n > MAX_ANSWERS_PER_AXIS) {
         res.status(400).json({ error: 'invalid n' });
         return;
       }

@@ -220,7 +220,7 @@
 - **평가자:** 이름·연락처·**자유 입력 텍스트는 받지 않는다**(추가하지 말 것 — 모더레이션·개인정보 이슈가 생긴다). 저장하는 것은 축별 점수(숫자), 관계(고정 선택지 `friend|table|family|online|other`), 평가자 키 해시, IP 해시. **원문 IP·원문 키는 저장하지 않는다.**
 - 해시 솔트는 `PS_HASH_SALT`(없으면 `JWT_SECRET`). 바꾸면 기존 평가자 중복 판정이 리셋된다.
 - 개인정보처리방침 페이지는 JinyShop 리포의 `/pokerstyle/privacy/` 에 있다. **수집 항목이나 보관 기간을 바꾸면 그 페이지도 같이 고칠 것.**
-- 클라이언트(JinyShop `pokerstyle/pokerstyle-data.js`)의 축 개수(4)·축당 문항 수(8)와 이 라우트의 `AXES`/`QUESTIONS_PER_AXIS` 상수는 **같아야 한다**. 한쪽을 바꾸면 다른 쪽도 같이 바꿀 것.
+- 클라이언트(JinyShop `pokerstyle/pokerstyle-data.js`)의 축 개수(4)와 이 라우트의 `AXES` 는 **같아야 한다**. 평가자(친구) 설문은 한 문항이 여러 축에 걸칠 수 있어, 서버는 축별 답변 수 `n` 을 `MAX_ANSWERS_PER_AXIS`(24) 까지만 허용한다. 친구 설문(JinyShop `pokerstyle-friend.js`)에서 한 축에 걸치는 문항 수가 이 값을 넘지 않게 유지할 것.
 
 ### 운영 메모
 
