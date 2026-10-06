@@ -789,16 +789,28 @@ export async function setupDatabase() {
 
       -- [PS] PokerStyle(홀덤 성향 테스트) "남들이 본 나" 평가 — 별도 리포 ~/Documents/Jiny/JinyShop 소유.
       --      ps_* 테이블 — 삭제·리팩터링 금지. 소유권/권한 모델: 리포 루트 CLAUDE.md 의 [PS] 섹션,
-      --      src/routes/pokerstyle.ts 상단 주석. 로그인·개인정보 없음(토큰 해시·점수·IP 해시만 저장).
+      --      src/routes/pokerstyle.ts 상단 주석. 카카오 로그인(ps_users: 카카오 회원번호·닉네임만), 평가자는 익명(점수·IP 해시만 저장).
+      CREATE TABLE IF NOT EXISTS ps_users (
+        id SERIAL PRIMARY KEY,
+        kakao_id VARCHAR(32) UNIQUE NOT NULL,      -- 카카오 회원번호 (이메일·연락처는 받지 않음)
+        nickname VARCHAR(40),                      -- 카카오 닉네임 (로그인 때마다 갱신)
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_login_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
       CREATE TABLE IF NOT EXISTS ps_profiles (
         id VARCHAR(10) PRIMARY KEY,                -- 공개 코드(평가 링크에 노출)
-        owner_token_hash CHAR(64) NOT NULL,        -- 소유자 토큰의 SHA-256 (원문은 저장하지 않음)
+        owner_user_id INTEGER REFERENCES ps_users(id) ON DELETE CASCADE,  -- 소유자. 탈퇴하면 프로필·평가 삭제
+        owner_token_hash CHAR(64),                 -- [레거시] 로그인 도입 전 토큰 방식. 새 행은 NULL, 더 이상 쓰지 않음
         code VARCHAR(4) NOT NULL,                  -- 본인 유형 코드 (서버가 pcts 로 계산)
         self_pcts INTEGER[] NOT NULL,              -- 본인 응답: 축별 첫 번째 극 퍼센트 ×4
         creator_ip_hash CHAR(64),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        expires_at TIMESTAMP NOT NULL              -- 생성 후 90일, 만료 시 삭제
+        expires_at TIMESTAMP NOT NULL              -- 생성(갱신) 후 90일, 만료 시 삭제
       );
+      -- [PS] 로그인 도입 전에 만들어진 ps_profiles 를 위한 마이그레이션 (신규 DB 에서는 no-op).
+      ALTER TABLE ps_profiles ADD COLUMN IF NOT EXISTS owner_user_id INTEGER REFERENCES ps_users(id) ON DELETE CASCADE;
+      ALTER TABLE ps_profiles ALTER COLUMN owner_token_hash DROP NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_ps_profiles_owner ON ps_profiles(owner_user_id) WHERE owner_user_id IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_ps_profiles_expires ON ps_profiles(expires_at);
       CREATE TABLE IF NOT EXISTS ps_ratings (
         id SERIAL PRIMARY KEY,

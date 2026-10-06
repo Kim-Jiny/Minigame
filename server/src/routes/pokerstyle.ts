@@ -4,16 +4,20 @@
 // ── 프리픽스 ────────────────────────────────────────────────────────────────
 //   DB 테이블 `ps_*` · 라우트 `/api/pokerstyle/*` · 환경변수 `PS_*` 만 이 파일이 소유한다.
 //
-// ── 권한 모델 (로그인 없음, 토큰 기반) ─────────────────────────────────────
-//   OWNER  프로필 생성자. 생성 응답으로 받은 ownerToken(64hex, 서버에는 SHA-256 해시만 저장)을
-//          `X-Owner-Token` 헤더로 보낸다. 할 수 있는 것: 본인 프로필의 집계 결과 조회, 프로필 삭제.
-//   RATER  프로필 공개 코드(id)만 아는 누구나. 할 수 있는 것: 프로필 존재 확인, 평가 1회 제출.
-//          할 수 없는 것: 본인 응답(selfPcts)·유형·다른 평가자의 응답을 보는 것(편향 방지).
+// ── 권한 모델 (카카오 로그인 + 평가 링크) ───────────────────────────────────
+//   OWNER  카카오로 로그인한 사용자. POST /auth/kakao 로 받은 JWT(scope:'ps')를
+//          `Authorization: Bearer` 로 보낸다. 사용자당 프로필 1개(재테스트하면 갱신, 평가는 유지).
+//          할 수 있는 것: 평가 링크(프로필) 생성·갱신, 본인 프로필의 집계 결과 조회, 프로필 삭제, 계정 탈퇴.
+//   RATER  로그인 불필요. 프로필 공개 코드(id)만 알면 된다(친구에게 보낸 링크).
+//          할 수 있는 것: 프로필 존재 확인, 평가 1회 제출.
+//          할 수 없는 것: 오너의 응답·유형·평가 수·다른 평가자의 응답을 보는 것(편향 방지).
 //   ANY    위 둘 외에는 아무것도 읽을 수 없다. 개별 평가 원본은 어떤 응답에도 내려가지 않는다.
 //
 // ── 개인정보 ───────────────────────────────────────────────────────────────
-//   이름·연락처·자유 입력 텍스트는 받지 않는다. 저장하는 것: 축별 점수(숫자), 관계(고정 선택지),
-//   평가자 식별용 해시 2종(raterKey 해시, IP 해시 — 원문 저장 안 함). 프로필은 90일 후 삭제된다.
+//   로그인 사용자: 카카오 회원번호(kakao_id)와 닉네임만 저장한다(이메일·프로필사진·연락처는 요청하지 않는다).
+//   평가자: 이름·연락처·자유 입력 텍스트는 받지 않는다. 축별 점수(숫자), 관계(고정 선택지),
+//          평가자 식별용 해시 2종(raterKey 해시, IP 해시 — 원문 저장 안 함)만 저장한다.
+//   프로필·평가는 90일 후 삭제된다. 계정 탈퇴 시 ps_users 와 프로필·평가가 모두 삭제된다(CASCADE).
 //
 // ── 알려진 한계 ────────────────────────────────────────────────────────────
 //   · 평가자가 3명 미만이면 집계를 내려주지 않는다. 다만 3명 이후 평가가 추가될 때마다 오너가
@@ -21,8 +25,17 @@
 //   · 점수는 클라이언트가 계산해 보낸다 — 악의적 평가자의 값 조작은 서버가 막을 수 없다
 //     (범위/형식 검증과 횟수 제한만 한다).
 import { Router, Request, Response } from 'express';
-import { createHash, randomBytes, timingSafeEqual } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { getPool } from '../config/database';
+import {
+  allowedRedirects,
+  kakaoConfigured,
+  kakaoLoginWithCode,
+  signPsToken,
+  upsertPsUser,
+  userFromRequest,
+  PsUser,
+} from '../services/psAuth';
 
 const router = Router();
 
@@ -93,29 +106,14 @@ function isPct(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 100;
 }
 
-// 소유자 토큰 검증. 성공 시 프로필 행을 돌려준다.
-async function authOwner(req: Request, res: Response, id: string) {
-  const pool = getPool();
-  const token = req.header('x-owner-token') || '';
-  if (!/^[0-9a-f]{64}$/.test(token)) {
-    res.status(401).json({ error: 'owner token required' });
+// 로그인 사용자 확인. 실패하면 401 을 응답하고 null.
+async function requireUser(req: Request, res: Response): Promise<PsUser | null> {
+  const user = await userFromRequest(req);
+  if (!user) {
+    res.status(401).json({ error: 'login required' });
     return null;
   }
-  const r = await pool.query(
-    `SELECT id, code, self_pcts, owner_token_hash, created_at, expires_at
-       FROM ps_profiles WHERE id = $1 AND expires_at > NOW()`,
-    [id]
-  );
-  const row = r.rows[0];
-  const given = Buffer.from(sha256(token), 'hex');
-  const stored = row ? Buffer.from(row.owner_token_hash, 'hex') : Buffer.alloc(32);
-  const ok = row && given.length === stored.length && timingSafeEqual(given, stored);
-  if (!ok) {
-    // 존재 여부를 흘리지 않도록 같은 응답.
-    res.status(404).json({ error: 'not found' });
-    return null;
-  }
-  return row;
+  return user;
 }
 
 async function purgeExpired(): Promise<void> {
@@ -126,46 +124,199 @@ async function purgeExpired(): Promise<void> {
   }
 }
 
-// ── POST /api/pokerstyle/profiles — [OWNER 생성] 본인 결과로 프로필 생성 ─────
-// body: { pcts: [int×4] }  → { id, ownerToken, expiresAt }
+// ── POST /api/pokerstyle/auth/kakao — 카카오 인가 코드로 로그인 ───────────────
+// body: { code, redirectUri }  → { token, user: { id, nickname } }
+// redirectUri 는 PS_ALLOWED_REDIRECTS 에 있는 값만 허용한다.
+router.post('/auth/kakao', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!getPool()) { res.status(500).json({ error: 'Database not available' }); return; }
+    if (!kakaoConfigured()) { res.status(503).json({ error: 'login not configured' }); return; }
+    if (limited('ps:auth:' + ipHash(req), 30, 60 * 60 * 1000)) {
+      res.status(429).json({ error: 'too many requests' });
+      return;
+    }
+    const code = req.body?.code;
+    const redirectUri = req.body?.redirectUri;
+    if (typeof code !== 'string' || code.length < 1 || code.length > 512) {
+      res.status(400).json({ error: 'code required' });
+      return;
+    }
+    if (typeof redirectUri !== 'string' || !allowedRedirects().includes(redirectUri)) {
+      res.status(400).json({ error: 'redirectUri not allowed' });
+      return;
+    }
+    const k = await kakaoLoginWithCode(code, redirectUri);
+    if (!k) { res.status(401).json({ error: 'kakao login failed' }); return; }
+    const user = await upsertPsUser(k.uid, k.nickname);
+    res.json({ token: signPsToken(user.id), user: { id: user.id, nickname: user.nickname } });
+  } catch (error) {
+    console.error('[PS] kakao auth error:', error);
+    res.status(500).json({ error: 'Failed to login' });
+  }
+});
+
+// ── GET /api/pokerstyle/auth/me — [OWNER] 로그인 상태 확인 ────────────────────
+router.get('/auth/me', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!getPool()) { res.status(500).json({ error: 'Database not available' }); return; }
+    const user = await requireUser(req, res);
+    if (!user) return;
+    res.json({ user: { id: user.id, nickname: user.nickname } });
+  } catch (error) {
+    console.error('[PS] me error:', error);
+    res.status(500).json({ error: 'Failed to load user' });
+  }
+});
+
+// ── DELETE /api/pokerstyle/auth/me — [OWNER] 계정 탈퇴 (프로필·평가까지 CASCADE 삭제) ─
+router.delete('/auth/me', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!getPool()) { res.status(500).json({ error: 'Database not available' }); return; }
+    const user = await requireUser(req, res);
+    if (!user) return;
+    await getPool().query(`DELETE FROM ps_users WHERE id = $1`, [user.id]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[PS] delete account error:', error);
+    res.status(500).json({ error: 'Failed to delete account' });
+  }
+});
+
+// ── POST /api/pokerstyle/profiles — [OWNER] 평가 링크(프로필) 생성·갱신 ───────
+// body: { pcts: [int×4] }  → { id, expiresAt }
+// 사용자당 1개. 이미 있으면 본인 응답만 갱신하고 평가는 그대로 둔다(재테스트해도 평가 링크 유지).
 // 유형 코드는 pcts 에서 서버가 직접 계산한다(클라이언트 값을 신뢰하지 않음).
 router.post('/profiles', async (req: Request, res: Response): Promise<void> => {
   try {
     if (!getPool()) { res.status(500).json({ error: 'Database not available' }); return; }
     const ip = ipHash(req);
-    if (limited('ps:create:' + ip, 10, 60 * 60 * 1000)) {
+    if (limited('ps:create:' + ip, 30, 60 * 60 * 1000)) {
       res.status(429).json({ error: 'too many requests' });
       return;
     }
+    const user = await requireUser(req, res);
+    if (!user) return;
     const pcts = req.body?.pcts;
     if (!Array.isArray(pcts) || pcts.length !== AXES || !pcts.every(isPct)) {
       res.status(400).json({ error: 'pcts must be 4 integers 0-100' });
       return;
     }
     const code = pcts.map((p: number, i: number) => (p > 50 ? FIRST_LETTERS[i] : SECOND_LETTERS[i])).join('');
-    const ownerToken = randomBytes(32).toString('hex');
+    const pool = getPool();
+    const ttl = String(PROFILE_TTL_DAYS);
 
-    let id = '';
+    const upd = await pool.query(
+      `UPDATE ps_profiles SET code = $2, self_pcts = $3, expires_at = NOW() + ($4 || ' days')::interval
+        WHERE owner_user_id = $1 RETURNING id, expires_at`,
+      [user.id, code, pcts, ttl]
+    );
+    if (upd.rows[0]) {
+      res.json({ id: upd.rows[0].id, expiresAt: upd.rows[0].expires_at });
+      return;
+    }
+
     for (let attempt = 0; attempt < 5; attempt++) {
-      id = newProfileId();
+      const id = newProfileId();
       try {
-        await getPool().query(
-          `INSERT INTO ps_profiles (id, owner_token_hash, code, self_pcts, creator_ip_hash, expires_at)
-           VALUES ($1, $2, $3, $4, $5, NOW() + ($6 || ' days')::interval)`,
-          [id, sha256(ownerToken), code, pcts, ip, String(PROFILE_TTL_DAYS)]
+        const ins = await pool.query(
+          `INSERT INTO ps_profiles (id, owner_user_id, code, self_pcts, creator_ip_hash, expires_at)
+           VALUES ($1, $2, $3, $4, $5, NOW() + ($6 || ' days')::interval)
+           RETURNING id, expires_at`,
+          [id, user.id, code, pcts, ip, ttl]
         );
-        break;
+        void purgeExpired();
+        res.json({ id: ins.rows[0].id, expiresAt: ins.rows[0].expires_at });
+        return;
       } catch (e: any) {
-        if (e?.code === '23505' && attempt < 4) continue; // id 충돌 → 재시도
-        throw e;
+        if (e?.code !== '23505') throw e;
+        // 같은 사용자의 동시 요청이 먼저 만들었다면 그 프로필을 돌려준다. 아니면 id 충돌 → 재시도.
+        const again = await pool.query(`SELECT id, expires_at FROM ps_profiles WHERE owner_user_id = $1`, [user.id]);
+        if (again.rows[0]) { res.json({ id: again.rows[0].id, expiresAt: again.rows[0].expires_at }); return; }
       }
     }
-    void purgeExpired();
-    const exp = await getPool().query(`SELECT expires_at FROM ps_profiles WHERE id = $1`, [id]);
-    res.json({ id, ownerToken, expiresAt: exp.rows[0]?.expires_at });
+    res.status(500).json({ error: 'Failed to create profile' });
   } catch (error) {
     console.error('[PS] create profile error:', error);
     res.status(500).json({ error: 'Failed to create profile' });
+  }
+});
+
+// ── GET /api/pokerstyle/profiles/me/results — [OWNER] 내 프로필의 집계 결과 ───
+// 평가자 3명 미만이면 others=null (인원 수만 노출). 프로필이 없으면 404.
+// → { id, code, selfPcts, ratingCount, minToReveal, expiresAt, others: null | { axes:[{pct,answered,raters}], relations:{...} } }
+router.get('/profiles/me/results', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!getPool()) { res.status(500).json({ error: 'Database not available' }); return; }
+    if (limited('ps:res:' + ipHash(req), 120, 60 * 60 * 1000)) {
+      res.status(429).json({ error: 'too many requests' });
+      return;
+    }
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const pr = await getPool().query(
+      `SELECT id, code, self_pcts, expires_at FROM ps_profiles WHERE owner_user_id = $1 AND expires_at > NOW()`,
+      [user.id]
+    );
+    const prof = pr.rows[0];
+    if (!prof) { res.status(404).json({ error: 'no profile' }); return; }
+    const r = await getPool().query(`SELECT relation, axes FROM ps_ratings WHERE profile_id = $1`, [prof.id]);
+    const ratingCount = r.rows.length;
+    let others: unknown = null;
+
+    if (ratingCount >= MIN_RATERS_TO_REVEAL) {
+      const sum = new Array(AXES).fill(0);
+      const ans = new Array(AXES).fill(0);
+      const raters = new Array(AXES).fill(0);
+      const relations: Record<string, number> = {};
+      for (const row of r.rows) {
+        const key = row.relation || 'unknown';
+        relations[key] = (relations[key] || 0) + 1;
+        (row.axes as { p: number | null; n: number }[]).forEach((a, i) => {
+          if (a.p !== null && a.n > 0) {
+            sum[i] += a.p * a.n; // 많이 답한 평가자의 값에 가중
+            ans[i] += a.n;
+            raters[i] += 1;
+          }
+        });
+      }
+      others = {
+        // raters 가 3 미만인 축은 pct 를 숨겨 "모름"이 많은 축이 소수 평가자를 노출하지 않게 한다.
+        axes: sum.map((s, i) => ({
+          pct: raters[i] >= MIN_RATERS_TO_REVEAL && ans[i] > 0 ? Math.round(s / ans[i]) : null,
+          answered: ans[i],
+          raters: raters[i],
+        })),
+        relations,
+      };
+    }
+
+    res.json({
+      id: prof.id,
+      code: prof.code,
+      selfPcts: prof.self_pcts,
+      ratingCount,
+      minToReveal: MIN_RATERS_TO_REVEAL,
+      expiresAt: prof.expires_at,
+      others,
+    });
+  } catch (error) {
+    console.error('[PS] results error:', error);
+    res.status(500).json({ error: 'Failed to load results' });
+  }
+});
+
+// ── DELETE /api/pokerstyle/profiles/me — [OWNER] 내 프로필과 평가 전부 삭제 ───
+// 계정은 유지된다(탈퇴는 DELETE /auth/me).
+router.delete('/profiles/me', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!getPool()) { res.status(500).json({ error: 'Database not available' }); return; }
+    const user = await requireUser(req, res);
+    if (!user) return;
+    await getPool().query(`DELETE FROM ps_profiles WHERE owner_user_id = $1`, [user.id]); // ps_ratings 는 CASCADE
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[PS] delete profile error:', error);
+    res.status(500).json({ error: 'Failed to delete profile' });
   }
 });
 
@@ -269,82 +420,6 @@ router.post('/profiles/:id/ratings', async (req: Request, res: Response): Promis
   } catch (error) {
     console.error('[PS] create rating error:', error);
     res.status(500).json({ error: 'Failed to submit rating' });
-  }
-});
-
-// ── GET /api/pokerstyle/profiles/:id/results — [OWNER] 집계 결과 ─────────────
-// 헤더 X-Owner-Token 필수. 평가자 3명 미만이면 others=null (인원 수만 노출).
-// → { code, selfPcts, ratingCount, minToReveal, expiresAt, others: null | { axes:[{pct,answered,raters}], relations:{...} } }
-router.get('/profiles/:id/results', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const id = String(req.params.id);
-    if (!ID_RE.test(id)) { res.status(404).json({ error: 'not found' }); return; }
-    if (!getPool()) { res.status(500).json({ error: 'Database not available' }); return; }
-    if (limited('ps:res:' + ipHash(req), 120, 60 * 60 * 1000)) {
-      res.status(429).json({ error: 'too many requests' });
-      return;
-    }
-    const prof = await authOwner(req, res, id);
-    if (!prof) return;
-
-    const r = await getPool().query(`SELECT relation, axes FROM ps_ratings WHERE profile_id = $1`, [id]);
-    const ratingCount = r.rows.length;
-    let others: unknown = null;
-
-    if (ratingCount >= MIN_RATERS_TO_REVEAL) {
-      const sum = new Array(AXES).fill(0);
-      const ans = new Array(AXES).fill(0);
-      const raters = new Array(AXES).fill(0);
-      const relations: Record<string, number> = {};
-      for (const row of r.rows) {
-        const key = row.relation || 'unknown';
-        relations[key] = (relations[key] || 0) + 1;
-        (row.axes as { p: number | null; n: number }[]).forEach((a, i) => {
-          if (a.p !== null && a.n > 0) {
-            sum[i] += a.p * a.n; // 많이 답한 평가자의 값에 가중
-            ans[i] += a.n;
-            raters[i] += 1;
-          }
-        });
-      }
-      others = {
-        // raters 가 3 미만인 축은 pct 를 숨겨 "모름"이 많은 축이 소수 평가자를 노출하지 않게 한다.
-        axes: sum.map((s, i) => ({
-          pct: raters[i] >= MIN_RATERS_TO_REVEAL && ans[i] > 0 ? Math.round(s / ans[i]) : null,
-          answered: ans[i],
-          raters: raters[i],
-        })),
-        relations,
-      };
-    }
-
-    res.json({
-      code: prof.code,
-      selfPcts: prof.self_pcts,
-      ratingCount,
-      minToReveal: MIN_RATERS_TO_REVEAL,
-      expiresAt: prof.expires_at,
-      others,
-    });
-  } catch (error) {
-    console.error('[PS] results error:', error);
-    res.status(500).json({ error: 'Failed to load results' });
-  }
-});
-
-// ── DELETE /api/pokerstyle/profiles/:id — [OWNER] 프로필과 평가 전부 삭제 ────
-router.delete('/profiles/:id', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const id = String(req.params.id);
-    if (!ID_RE.test(id)) { res.status(404).json({ error: 'not found' }); return; }
-    if (!getPool()) { res.status(500).json({ error: 'Database not available' }); return; }
-    const prof = await authOwner(req, res, id);
-    if (!prof) return;
-    await getPool().query(`DELETE FROM ps_profiles WHERE id = $1`, [id]); // ps_ratings 는 CASCADE
-    res.json({ success: true });
-  } catch (error) {
-    console.error('[PS] delete profile error:', error);
-    res.status(500).json({ error: 'Failed to delete profile' });
   }
 });
 

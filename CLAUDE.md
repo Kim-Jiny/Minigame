@@ -159,65 +159,74 @@
 
 > **다른 제품 작업 중 아래 파일/구역을 "안 쓰는 것 같다"고 지우지 말 것.**
 > jiny.shop 의 PokerStyle 웹도구(별도 리포 `~/Documents/Jiny/JinyShop`, `/pokerstyle/`)가 브라우저에서 직접 호출하는 라이브 백엔드다.
-> 홀덤 성향 테스트 결과를 링크로 공유하고, 링크를 받은 사람이 "남들이 본 나"를 평가하는 기능이다.
+> 홀덤 성향 테스트 결과로 "남들이 본 나" 평가를 받는 기능이며, **카카오 로그인(웹)** 을 쓴다.
 > PokerStyle 관련 변경이 필요하면 먼저 사용자에게 확인할 것.
 
 ### 프리픽스 (이 제품이 소유하는 이름 공간)
 
 | 종류 | 소유 범위 |
 |------|-----------|
-| DB 테이블 | `ps_profiles`, `ps_ratings` (그리고 앞으로 추가되는 `ps_*`) |
+| DB 테이블 | `ps_users`, `ps_profiles`, `ps_ratings` (그리고 앞으로 추가되는 `ps_*`) |
 | API 라우트 | `/api/pokerstyle/*` |
-| 환경변수 | `PS_*` (`PS_HASH_SALT`) |
+| 환경변수 | `PS_*` (`PS_KAKAO_REST_KEY`, `PS_KAKAO_CLIENT_SECRET`, `PS_ALLOWED_REDIRECTS`, `PS_HASH_SALT`) |
+| JWT scope | `'ps'` — 타 제품 토큰(`pp` 등)과 서로 통용되지 않는다 |
 | 코드 마커 | `[PS]` — `git grep -n "\[PS\]"` 로 전체 확인 |
 
 `ps_` 로 시작하지 않는 테이블·라우트를 PokerStyle 이 만들거나 건드려서는 안 된다. 반대로 다른 제품이 `ps_*` 를 건드려서도 안 된다.
-기존 공용 테이블(`dm_*` 듀오 / `ctr_*` / `sj_*` / `mfa_*` / `pp_*`)과 FK·조인 없이 **완전히 독립**이다 — 유저 테이블 참조 없음(로그인 없는 제품).
+기존 공용 테이블(`dm_*` 듀오 / `ctr_*` / `sj_*` / `mfa_*` / `pp_*`)과 FK·조인 없이 **완전히 독립**이다. **`ps_users` 는 PokerStyle 전용 계정**이며 듀오 `dm_users`·`pp_users` 와 계정을 공유하지 않는다.
 
 ### PS 전용 파일 (파일 전체가 PokerStyle 소유)
 
 | 파일 | 용도 |
 |------|------|
-| `server/src/routes/pokerstyle.ts` | 프로필 생성, 평가 제출, 오너 집계 조회, 삭제. 권한 모델과 한계가 파일 상단 주석에 있다. |
+| `server/src/routes/pokerstyle.ts` | 카카오 로그인, 프로필 생성·갱신, 평가 제출, 오너 집계 조회, 삭제·탈퇴. 권한 모델과 한계가 파일 상단 주석에 있다. |
+| `server/src/services/psAuth.ts` | 카카오 인가 코드 교환·사용자 조회, `scope:'ps'` JWT 발급/검증, `ps_users` upsert. |
 
 ### 공용 파일 안의 PS 구역 (해당 줄/블록만 PokerStyle 소유)
 
 | 파일 | PS 구역 |
 |------|----------|
 | `server/src/index.ts` | `import pokerStyleRouter`, `app.use('/api/pokerstyle', ...)` |
-| `server/src/config/database.ts` | `ps_profiles` · `ps_ratings` 생성 블록 (메인 SQL 안, `[LAB]` 참고 주석 바로 위) |
-| `server/.env.example` | `PS_HASH_SALT` |
+| `server/src/config/database.ts` | `ps_users` · `ps_profiles` · `ps_ratings` 생성 블록 + 로그인 도입 전 스키마용 `ALTER`(메인 SQL 안, `[LAB]` 참고 주석 바로 위) |
+| `server/.env.example` | `PS_*` 키 |
 
 각 위치에는 `[PS]` 마커 주석이 달려 있다.
 
-### 권한 모델 (로그인 없음 — 토큰 기반)
+### 권한 모델 (카카오 로그인 + 평가 링크)
 
 | 역할 | 자격 | 할 수 있는 것 | 할 수 없는 것 |
 |------|------|---------------|----------------|
-| **OWNER** | 프로필 생성 응답의 `ownerToken` (64hex). 서버에는 SHA-256 해시만 저장. `X-Owner-Token` 헤더로 전달 | 본인 프로필 집계 결과 조회, 프로필 삭제 | 개별 평가자의 원본 응답 보기 (집계값만) |
-| **RATER** | 프로필 공개 코드(`id`, 10자)만 알면 됨 | 프로필 존재 확인, 프로필당 **1회** 평가 제출 | 본인(오너) 응답·유형·평가 수·다른 평가 보기 |
+| **OWNER** | 카카오 로그인 후 받은 JWT(`scope:'ps'`)를 `Authorization: Bearer` 로 전달. 사용자당 프로필 1개 | 평가 링크(프로필) 생성·갱신, 내 집계 결과 조회, 내 프로필 삭제, 계정 탈퇴 | 다른 사용자의 프로필·결과 접근, 개별 평가자의 원본 응답 보기 (집계값만) |
+| **RATER** | 로그인 **불필요**. 프로필 공개 코드(`id`, 10자)만 알면 됨 | 프로필 존재 확인, 프로필당 **1회** 평가 제출 | 오너의 응답·유형·평가 수·다른 평가 보기 |
 | **그 외** | — | 아무것도 못 읽음 | — |
 
 | 엔드포인트 | 역할 | 비고 |
 |------------|------|------|
-| `POST /api/pokerstyle/profiles` | (생성자 → OWNER 부여) | 유형 코드는 서버가 `pcts` 로 직접 계산. IP당 시간당 10회 |
+| `POST /api/pokerstyle/auth/kakao` | (로그인) | body `{code, redirectUri}`. `redirectUri` 는 `PS_ALLOWED_REDIRECTS` 에 있는 값만. 서버가 카카오와 코드 교환 → `ps_users` upsert → JWT 발급. IP당 시간당 30회. 키 미설정이면 503 |
+| `GET /api/pokerstyle/auth/me` | OWNER | 로그인 상태 확인 |
+| `DELETE /api/pokerstyle/auth/me` | OWNER | **계정 탈퇴** — `ps_users` 삭제, 프로필·평가는 CASCADE 로 함께 삭제 |
+| `POST /api/pokerstyle/profiles` | OWNER | 사용자당 1개. 이미 있으면 본인 응답만 갱신(평가·평가 링크 유지). 유형 코드는 서버가 `pcts` 로 계산 |
+| `GET /api/pokerstyle/profiles/me/results` | OWNER | 평가자 **3명 미만이면 `others: null`**. 축별 응답자가 3명 미만이면 그 축 `pct: null`. 프로필이 없으면 404 |
+| `DELETE /api/pokerstyle/profiles/me` | OWNER | 프로필과 평가 삭제(계정은 유지) |
 | `GET /api/pokerstyle/profiles/:id` | RATER | `{id, exists}` 만 반환 |
 | `POST /api/pokerstyle/profiles/:id/ratings` | RATER | `raterKey` 해시로 프로필당 1회(중복 409). 같은 IP는 프로필당 3회까지. IP당 시간당 40회. 프로필당 최대 200건 |
-| `GET /api/pokerstyle/profiles/:id/results` | OWNER | 평가자 **3명 미만이면 `others: null`**. 축별 응답자가 3명 미만이면 그 축 `pct: null` |
-| `DELETE /api/pokerstyle/profiles/:id` | OWNER | `ps_ratings` 는 CASCADE 로 함께 삭제 |
 
-- 토큰이 틀리거나 프로필이 없으면 동일하게 `404` (존재 여부를 흘리지 않음). 헤더 자체가 없거나 형식이 틀리면 `401`.
-- 프로필은 생성 후 **90일** 뒤 자동 삭제(`expires_at`, 새 프로필 생성 시 만료분 정리).
+- 토큰이 없거나 틀리면 `401 login required`. 계정이 삭제된 뒤에는 토큰이 유효해도 `401`.
+- 프로필은 생성(재테스트로 갱신 포함) 후 **90일** 뒤 자동 삭제(`expires_at`, 새 프로필 생성 시 만료분 정리).
+- `ps_profiles.owner_token_hash` 는 로그인 도입 전 방식의 **레거시 컬럼**이다(NULL 허용, 더 이상 읽지 않음). 레거시 행은 소유자가 없어 아무도 조회할 수 없고 90일 뒤 사라진다.
 
 ### 개인정보 · 데이터 규칙
 
-- 이름·연락처·**자유 입력 텍스트는 받지 않는다**(추가하지 말 것 — 모더레이션·개인정보 이슈가 생긴다).
-- 저장하는 것: 축별 점수(숫자), 관계(고정 선택지 `friend|table|family|online|other`), 평가자 키 해시, IP 해시. **원문 IP·원문 키는 저장하지 않는다.**
+- **로그인 사용자:** 카카오 **회원번호와 닉네임만** 저장한다. 이메일·프로필사진·연락처 등은 요청하지 않는다(카카오 동의항목도 닉네임만 켤 것 — 늘리지 말 것).
+- **평가자:** 이름·연락처·**자유 입력 텍스트는 받지 않는다**(추가하지 말 것 — 모더레이션·개인정보 이슈가 생긴다). 저장하는 것은 축별 점수(숫자), 관계(고정 선택지 `friend|table|family|online|other`), 평가자 키 해시, IP 해시. **원문 IP·원문 키는 저장하지 않는다.**
 - 해시 솔트는 `PS_HASH_SALT`(없으면 `JWT_SECRET`). 바꾸면 기존 평가자 중복 판정이 리셋된다.
+- 개인정보처리방침 페이지는 JinyShop 리포의 `/pokerstyle/privacy/` 에 있다. **수집 항목이나 보관 기간을 바꾸면 그 페이지도 같이 고칠 것.**
 - 클라이언트(JinyShop `pokerstyle/pokerstyle-data.js`)의 축 개수(4)·축당 문항 수(8)와 이 라우트의 `AXES`/`QUESTIONS_PER_AXIS` 상수는 **같아야 한다**. 한쪽을 바꾸면 다른 쪽도 같이 바꿀 것.
 
 ### 운영 메모
 
 - 브라우저(`https://jiny.shop`)에서 직접 호출하므로 **`ALLOWED_ORIGINS` 에 `https://jiny.shop` 포함**(미설정이면 `*`).
+- 카카오 로그인: 카카오 디벨로퍼스 앱의 **Redirect URI** 와 서버 `PS_ALLOWED_REDIRECTS` 가 정확히 같아야 한다(기본 `https://jiny.shop/pokerstyle/`, 끝 슬래시 포함).
+- `PS_KAKAO_AUTH_BASE` / `PS_KAKAO_API_BASE` 는 테스트에서 가짜 카카오 서버로 바꾸는 용도다. **운영에서는 설정하지 않는다.**
 - 레이트 리미터는 메모리 기반이라 재시작하면 초기화된다. IP는 `X-Forwarded-For` 의 **마지막** 값을 사용한다(nginx 가 뒤에 덧붙이는 값; 앞쪽은 클라이언트가 위조 가능).
 - 알려진 한계: 평가자 3명 공개 이후 평가가 추가될 때마다 오너가 조회하면 평균 변화로 새 평가자 값을 역산할 수 있다.
