@@ -568,9 +568,9 @@
     <div class="ctr-tab-content" id="ctr-tab-rankings" style="display:none">
       <table class="data-table">
         <thead>
-          <tr><th>#</th><th>닉네임</th><th>국가</th><th>점수</th><th>수정일</th><th>관리</th></tr>
+          <tr><th>#</th><th>닉네임</th><th>국가</th><th>점수</th><th>기간(KST월)</th><th>수정일</th><th>관리</th></tr>
         </thead>
-        <tbody id="ctrRankingsBody"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody>
+        <tbody id="ctrRankingsBody"><tr><td colspan="7" class="empty">Loading...</td></tr></tbody>
       </table>
     </div>
 
@@ -2475,18 +2475,18 @@
 
     async function loadCtrRankings() {
       const tbody = document.getElementById('ctrRankingsBody');
-      tbody.innerHTML = '<tr><td colspan="6" class="empty">Loading...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="empty">Loading...</td></tr>';
       try {
         const data = await api('/api/admin/ctr/rankings?mode=timeAttack');
         const rows = data.rankings || [];
-        if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">랭킹이 없습니다</td></tr>'; return; }
+        if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">랭킹이 없습니다</td></tr>'; return; }
         tbody.innerHTML = rows.map((r, i) =>
           `<tr><td>${i + 1}</td><td>${escapeHtml(r.nickname || '')}</td><td>${escapeHtml(r.country || '-')}</td>`
-          + `<td><b>${r.score}</b></td><td>${formatDateTime(r.updated_at)}</td>`
+          + `<td><b>${r.score}</b></td><td>${escapeHtml(r.period || '-')}</td><td>${formatDateTime(r.updated_at)}</td>`
           + `<td><button onclick="deleteCtrRanking(${r.id})" style="padding:4px 12px;background:#ff5b5b;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px">삭제</button></td></tr>`
         ).join('');
       } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty">불러오기 실패</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">불러오기 실패</td></tr>';
       }
     }
 

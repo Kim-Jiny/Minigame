@@ -11,6 +11,7 @@ import multer from 'multer'; // [SAJA] 사자툰 만화 이미지 업로드용
 // [SAJA] sharp 는 네이티브 모듈 — 로드 실패가 서버 전체를 죽이지 않도록 업로드 시점에 지연 로딩한다.
 import path from 'path';
 import fs from 'fs';
+import { kstPeriod } from './catchtherule'; // [CTR] 월간 랭킹 period 계산
 
 const router = Router();
 
@@ -1175,7 +1176,7 @@ router.get('/mfa/purchases', verifyAdminToken, async (req: Request, res: Respons
   }
 });
 
-// GET /api/admin/ctr/rankings?mode=timeAttack - CTR 랭킹 목록(운영 관리용)
+// GET /api/admin/ctr/rankings?mode=timeAttack&period=YYYY-MM - CTR 랭킹 목록(운영 관리용)
 router.get('/ctr/rankings', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
   try {
     const pool = getPool();
@@ -1184,14 +1185,19 @@ router.get('/ctr/rankings', verifyAdminToken, async (req: Request, res: Response
       return;
     }
     const mode = typeof req.query.mode === 'string' && req.query.mode ? req.query.mode : 'timeAttack';
+    // [CTR] 월간 랭킹 — period(YYYY-MM, KST) 필터. 기본 현재 월, 형식 오류도 현재 월.
+    const period =
+      typeof req.query.period === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(req.query.period)
+        ? req.query.period
+        : kstPeriod(new Date());
     const result = await pool.query(
-      `SELECT id, mode, device_id, nickname, country, score, created_at, updated_at
-       FROM ctr_rankings WHERE mode = $1
+      `SELECT id, mode, device_id, nickname, country, score, period, created_at, updated_at
+       FROM ctr_rankings WHERE mode = $1 AND period = $2
        ORDER BY score DESC, updated_at ASC
        LIMIT 500`,
-      [mode]
+      [mode, period]
     );
-    res.json({ rankings: result.rows });
+    res.json({ period, rankings: result.rows });
   } catch (error) {
     console.error('CTR admin list rankings error:', error);
     res.status(500).json({ error: 'Failed to load rankings' });

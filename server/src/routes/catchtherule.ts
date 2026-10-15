@@ -11,10 +11,43 @@ import { verifyApple, verifyAndroid, CTR_PRODUCTS, type VerifyResult } from '../
  * 닉네임 + 점수로 등록하고, 기기당 1행을 유지하기 위해 선택적으로 deviceId 를 받는다.
  * 테이블 프리픽스는 ctr_ 로 다른 앱(dm_)과 분리. (스키마는 config/database.ts)
  *
- *   POST /api/catchtherule/scores       { nickname, score, mode?, deviceId? } -> { rank, score }
- *   GET  /api/catchtherule/leaderboard?mode=timeAttack&limit=100 -> { entries: [{ rank, nickname, score }] }
+ * 랭킹은 "월간" — 한국 시간(KST) 달력 월(period="YYYY-MM") 단위로 집계되고 매월 1일 00:00 KST 에
+ * 새 기간이 시작된다. 지난 달 행은 삭제하지 않고 보존(period= 로 조회 가능, 명예의 전당용).
+ *
+ *   POST /api/catchtherule/scores       { nickname, score, mode?, deviceId, country? }
+ *        -> { success, mode, period, nickname, score, rank }   (현재 KST 월 기준 upsert, 최고점 유지)
+ *   GET  /api/catchtherule/leaderboard?mode=timeAttack&limit=100&period=2026-10
+ *        -> { mode, period, resetsAt, entries: [{ rank, nickname, country, score }] }
+ *        period 생략/형식오류 = 현재 KST 월. resetsAt = 다음 달 1일 00:00 KST 의 ISO8601(UTC)
+ *        (예: 2026-10-31T15:00:00.000Z). 동점은 같은 rank. entries 형식은 구버전 앱 호환을 위해 불변.
  */
 const router = Router();
+
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+/** KST 달력 월 "YYYY-MM". 서버 시간대와 무관(now + 9h 의 UTC 연-월). */
+export function kstPeriod(now: Date): string {
+  const k = new Date(now.getTime() + KST_OFFSET_MS);
+  return `${k.getUTCFullYear()}-${String(k.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/** 다음 달 1일 00:00 KST 의 UTC ISO8601 문자열(= 현재 기간 종료 시각). */
+export function nextResetAt(now: Date): string {
+  const k = new Date(now.getTime() + KST_OFFSET_MS);
+  // Date.UTC 는 월 오버플로(12 -> 다음 해 1월)를 처리한다. KST 자정 = UTC 전날 15:00.
+  return new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth() + 1, 1) - KST_OFFSET_MS).toISOString();
+}
+
+// 현재 시각 공급자 — 월 경계 테스트에서 주입.
+let clock: () => Date = () => new Date();
+export function setCtrClock(fn: (() => Date) | null): void {
+  clock = fn ?? (() => new Date());
+}
+
+function resolvePeriod(value: unknown, now: Date): string {
+  if (typeof value === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return value;
+  return kstPeriod(now);
+}
 
 const MAX_SCORE = 100000;
 const ALLOWED_MODES = new Set(['timeAttack']);
@@ -60,29 +93,31 @@ router.post('/scores', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // 기기당 1행 upsert(최고점 유지).
+    const period = kstPeriod(clock());
+
+    // 기기당 (모드, 기간)별 1행 upsert(최고점 유지).
     const upserted = await pool.query(
-      `INSERT INTO ctr_rankings (mode, device_id, nickname, country, score)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (mode, device_id) WHERE device_id IS NOT NULL
+      `INSERT INTO ctr_rankings (mode, device_id, nickname, country, score, period)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (mode, device_id, period) WHERE device_id IS NOT NULL
        DO UPDATE SET
          score = GREATEST(ctr_rankings.score, EXCLUDED.score),
          nickname = EXCLUDED.nickname,
          country = EXCLUDED.country,
          updated_at = CURRENT_TIMESTAMP
        RETURNING score`,
-      [mode, deviceId, nickname, country, score]
+      [mode, deviceId, nickname, country, score, period]
     );
     const bestScore = upserted.rows[0].score;
 
     // 내 최고점보다 높은 점수의 개수 + 1 = 순위 (동점은 같은 순위).
     const rankResult = await pool.query(
-      `SELECT COUNT(*) + 1 AS rank FROM ctr_rankings WHERE mode = $1 AND score > $2`,
-      [mode, bestScore]
+      `SELECT COUNT(*) + 1 AS rank FROM ctr_rankings WHERE mode = $1 AND period = $2 AND score > $3`,
+      [mode, period, bestScore]
     );
     const rank = parseInt(rankResult.rows[0].rank, 10);
 
-    res.json({ success: true, mode, nickname, score: bestScore, rank });
+    res.json({ success: true, mode, period, nickname, score: bestScore, rank });
   } catch (error) {
     console.error('CTR submit score error:', error);
     res.status(500).json({ error: 'Failed to submit score' });
@@ -103,16 +138,19 @@ router.get('/leaderboard', async (req: Request, res: Response): Promise<void> =>
     if (!Number.isFinite(limit) || limit <= 0) limit = 100;
     limit = Math.min(limit, 200);
 
+    const now = clock();
+    const period = resolvePeriod(req.query.period, now);
+
     const result = await pool.query(
       `SELECT nickname,
               country,
               score,
               RANK() OVER (ORDER BY score DESC) AS rank
        FROM ctr_rankings
-       WHERE mode = $1
+       WHERE mode = $1 AND period = $2
        ORDER BY score DESC, created_at ASC
-       LIMIT $2`,
-      [mode, limit]
+       LIMIT $3`,
+      [mode, period, limit]
     );
 
     const entries = result.rows.map((row) => ({
@@ -122,7 +160,8 @@ router.get('/leaderboard', async (req: Request, res: Response): Promise<void> =>
       score: row.score as number,
     }));
 
-    res.json({ mode, entries });
+    // resetsAt 은 현재 기간 기준(과거 기간 조회 시에도 "현재" 리셋 시각).
+    res.json({ mode, period, resetsAt: nextResetAt(now), entries });
   } catch (error) {
     console.error('CTR leaderboard error:', error);
     res.status(500).json({ error: 'Failed to get leaderboard' });

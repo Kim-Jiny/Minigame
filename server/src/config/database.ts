@@ -396,9 +396,18 @@ export async function setupDatabase() {
       );
       -- country 컬럼 추가 (기존 테이블용) — ISO 3166-1 alpha-2 (예: KR)
       ALTER TABLE ctr_rankings ADD COLUMN IF NOT EXISTS country VARCHAR(2);
-      -- 기기당 모드별 1행(최고점). device_id 가 있을 때만 유니크.
-      CREATE UNIQUE INDEX IF NOT EXISTS uq_ctr_rankings_mode_device
-        ON ctr_rankings(mode, device_id) WHERE device_id IS NOT NULL;
+      -- 월간 랭킹: period = KST 달력 월 'YYYY-MM'. 지난 달 행은 보존(삭제 안 함).
+      ALTER TABLE ctr_rankings ADD COLUMN IF NOT EXISTS period VARCHAR(7);
+      -- 기존 행(NULL)은 현재 KST 월로 백필(멱등: NULL 인 행만). NOT NULL 은 롤링 배포 중 구버전
+      -- 인스턴스 insert 를 깨뜨릴 수 있어 걸지 않는다(앱 코드가 항상 period 를 채움).
+      UPDATE ctr_rankings SET period = to_char(NOW() AT TIME ZONE 'Asia/Seoul', 'YYYY-MM')
+        WHERE period IS NULL;
+      -- 기기당 (모드, 기간)별 1행(최고점). 새 인덱스를 먼저 만든 뒤 옛 인덱스를 제거(무중단).
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_ctr_rankings_mode_device_period
+        ON ctr_rankings(mode, device_id, period) WHERE device_id IS NOT NULL;
+      DROP INDEX IF EXISTS uq_ctr_rankings_mode_device;
+      CREATE INDEX IF NOT EXISTS idx_ctr_rankings_mode_period_score
+        ON ctr_rankings(mode, period, score DESC, created_at ASC);
       -- 리더보드 정렬용.
       CREATE INDEX IF NOT EXISTS idx_ctr_rankings_mode_score
         ON ctr_rankings(mode, score DESC, created_at ASC);
