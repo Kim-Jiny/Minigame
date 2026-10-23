@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import '../navigation/game_routes.dart';
 import '../utils/game_registry.dart';
+import '../theme/candy_theme.dart';
+import '../widgets/cartoon/cartoon_card.dart';
+import '../widgets/cartoon/chunky_button.dart';
+import '../widgets/cartoon/floating_bg.dart';
+import '../widgets/cartoon/pop_in.dart';
 import 'ranked_screen.dart';
 
 /// 진입 맥락(혼자 연습 / 온라인 대결)별로 즐길 수 있는 게임 목록 화면.
@@ -17,8 +22,8 @@ class ModeGamesScreen extends StatelessWidget {
     final entryMode = entry;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F7FB),
-      body: SafeArea(
+      body: FloatingBackground(
+       child: SafeArea(
         bottom: false,
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -42,8 +47,10 @@ class ModeGamesScreen extends StatelessWidget {
                         sliver: SliverList.separated(
                           itemCount: section.games.length,
                           separatorBuilder: (_, _) => const SizedBox(height: 12),
-                          itemBuilder: (_, i) =>
-                              _GameRow(game: section.games[i], entryMode: entryMode),
+                          itemBuilder: (_, i) => PopIn(
+                            delay: Duration(milliseconds: 60 * i),
+                            child: _GameRow(game: section.games[i], entryMode: entryMode),
+                          ),
                         ),
                       ),
                     ],
@@ -60,69 +67,65 @@ class ModeGamesScreen extends StatelessWidget {
             );
           },
         ),
+       ),
       ),
     );
   }
 
   Widget _buildHeader(BuildContext context, int count) {
+    final color = entry == GameEntryMode.versus ? CandyColors.pink : CandyColors.mint;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 4, 20, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: Row(
         children: [
-          Row(
-            children: [
-              IconButton(
-                onPressed: () => Navigator.of(context).maybePop(),
-                icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
-                color: const Color(0xFF1F2430),
-              ),
-              const Spacer(),
-            ],
-          ),
-          Padding(
-            padding: const EdgeInsets.only(left: 12, top: 4),
-            child: Row(
-              children: [
-                Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    color: entry.color.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: Icon(entry.icon, color: entry.color, size: 28),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        entry.title,
-                        style: const TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF1F2430),
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '$count개 게임 · ${entry.tagline}',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.grey.shade500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+          SizedBox(
+            width: 48,
+            child: ChunkyButton(
+              color: Colors.white,
+              height: 42,
+              radius: 14,
+              onPressed: () => Navigator.of(context).maybePop(),
+              child: const Icon(Icons.arrow_back_rounded, color: CandyColors.ink),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(width: 14),
+          Expanded(
+            child: CartoonCard(
+              color: color,
+              radius: 22,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  Icon(entry.icon, color: Colors.white, size: 30),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          entry.title,
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                        Text(
+                          '$count개 게임 · ${entry.tagline}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -133,71 +136,46 @@ class ModeGamesScreen extends StatelessWidget {
   /// 혼자하기 → 1인전 랭크전 안내(게임을 골라 기록에 도전). 솔로에서만 노출.
   /// 2인전 랭크전 강조 카드 (둘이하기에서만 노출).
   Widget _buildRankedHighlight(BuildContext context) {
-    const color = Color(0xFFEA580C);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
-      child: Material(
-        color: color,
-        borderRadius: BorderRadius.circular(22),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(22),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const RankedScreen()),
-          ),
-          child: Ink(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(22),
-              boxShadow: [
-                BoxShadow(
-                  color: color.withValues(alpha: 0.28),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(16),
+      child: CartoonCard(
+        color: CandyColors.tangerine,
+        radius: 22,
+        padding: const EdgeInsets.all(16),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const RankedScreen()),
+        ),
+        child: const Row(
+          children: [
+            Icon(Icons.emoji_events_rounded, color: Colors.white, size: 36),
+            SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '랭크전 · 2인전',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                    ),
                   ),
-                  child: const Icon(Icons.emoji_events_rounded, color: Colors.white),
-                ),
-                const SizedBox(width: 14),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '랭크전 · 2인전',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                        ),
-                      ),
-                      SizedBox(height: 3),
-                      Text(
-                        'Bo3 · ELO 기반 매칭',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.white70,
-                        ),
-                      ),
-                    ],
+                  SizedBox(height: 2),
+                  Text(
+                    'Bo3 · ELO 기반 매칭',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
                   ),
-                ),
-                const Icon(Icons.arrow_forward_rounded, color: Colors.white),
-              ],
+                ],
+              ),
             ),
-          ),
+            Icon(Icons.arrow_forward_rounded, color: Colors.white),
+          ],
         ),
       ),
     );
@@ -211,18 +189,26 @@ class ModeGamesScreen extends StatelessWidget {
           Text(
             tempo.label,
             style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF1F2430),
+              fontSize: 17,
+              fontWeight: FontWeight.w900,
+              color: CandyColors.ink,
             ),
           ),
           const SizedBox(width: 8),
-          Text(
-            tempo.duration,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey.shade400,
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: CandyColors.sun,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: CandyColors.ink, width: 2),
+            ),
+            child: Text(
+              tempo.duration,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+                color: CandyColors.ink,
+              ),
             ),
           ),
         ],
@@ -231,27 +217,24 @@ class ModeGamesScreen extends StatelessWidget {
   }
 
   Widget _buildSoloHint() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFF0EA5A6).withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(18),
-        ),
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(20, 12, 20, 0),
+      child: CartoonCard(
+        color: CandyColors.creamDeep,
+        radius: 18,
+        shadow: 3,
         child: Row(
           children: [
-            Icon(Icons.auto_awesome_rounded,
-                color: const Color(0xFF0EA5A6).withValues(alpha: 0.9), size: 20),
-            const SizedBox(width: 12),
+            Icon(Icons.auto_awesome_rounded, color: CandyColors.tangerine, size: 22),
+            SizedBox(width: 12),
             Expanded(
               child: Text(
                 '연습 모드는 계속 늘어나요. 더 많은 게임을 혼자서도 즐길 수 있게 준비 중이에요.',
                 style: TextStyle(
                   fontSize: 13,
                   height: 1.5,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.grey.shade700,
+                  fontWeight: FontWeight.w700,
+                  color: CandyColors.ink,
                 ),
               ),
             ),
@@ -297,73 +280,52 @@ class _GameRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(20),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: () => _open(context),
-        child: Ink(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFEDEDF2)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.03),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
+    return CartoonCard(
+      radius: 20,
+      padding: const EdgeInsets.all(12),
+      shadow: 4,
+      onTap: () => _open(context),
+      child: Row(
+        children: [
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              color: game.color,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: CandyColors.ink, width: 2.5),
+            ),
+            child: Icon(game.icon, color: Colors.white, size: 28),
           ),
-          child: Row(
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: game.color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(16),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  game.name,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                    color: CandyColors.ink,
+                  ),
                 ),
-                child: Icon(game.icon, color: game.color, size: 26),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      game.name,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF1F2430),
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      game.tagline,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.grey.shade500,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
+                const SizedBox(height: 2),
+                Text(
+                  game.tagline,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: CandyColors.inkSoft,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-              const SizedBox(width: 8),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: Colors.grey.shade300,
-                size: 24,
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+          const Icon(Icons.play_circle_fill_rounded, color: CandyColors.pink, size: 30),
+        ],
       ),
     );
   }
