@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../config/app_config.dart';
 import '../../providers/auth_provider.dart';
@@ -10,14 +11,21 @@ import '../../providers/shop_provider.dart';
 import '../../services/socket_service.dart';
 import '../../services/socket_listener_registry.dart';
 import '../../models/shop_item.dart';
+import '../../theme/candy_theme.dart';
 import '../../utils/game_theme.dart';
 import '../../utils/game_registry.dart';
+import '../../widgets/cartoon/cartoon_card.dart';
+import '../../widgets/cartoon/chunky_button.dart';
+import '../../widgets/cartoon/confetti_burst.dart';
+import '../../widgets/cartoon/pop_in.dart';
 import '../../widgets/game_player_profile.dart';
 import '../common/game_rematch_preparing_view.dart';
 import '../common/game_end_action_panel.dart';
 import '../common/game_scaffold.dart';
 import '../common/match_status_views.dart';
 import '../common/game_reconnect_helper.dart';
+import '../common/game_result_summary.dart';
+import '../common/game_timer_badge.dart';
 
 enum PyramidGameStatus {
   idle,
@@ -32,10 +40,10 @@ enum PyramidGameStatus {
 /// 피라미드 카드 데이터
 class PyramidCard {
   final int position; // 0-9
-  final int row;      // 0-3
-  final int col;      // 0~row
+  final int row; // 0-3
+  final int col; // 0~row
   final String operator; // +, -, *
-  final int value;       // 1-9
+  final int value; // 1-9
 
   PyramidCard({
     required this.position,
@@ -71,12 +79,16 @@ class PyramidScreen extends StatefulWidget {
   State<PyramidScreen> createState() => _PyramidScreenState();
 }
 
-class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateMixin {
+class _PyramidScreenState extends State<PyramidScreen>
+    with TickerProviderStateMixin {
   final SocketService _socketService = SocketService();
   // 게임 고유색 대신 사용자 테마 컬러를 accent로 사용.
-  Color get _accent =>
-      GameTheme.fromProfileSettings(context.read<ShopProvider>().profileSettings).primary;
-  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
+  Color get _accent => GameTheme.fromProfileSettings(
+    context.read<ShopProvider>().profileSettings,
+  ).primary;
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(
+    _socketService,
+  );
 
   // 게임 상태
   PyramidGameStatus _status = PyramidGameStatus.idle;
@@ -144,6 +156,13 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
   String? _lastResultMessage;
   Color? _lastResultColor;
 
+  // 정답/오답 카드 반짝임 + 컨페티
+  List<int> _flashCards = [];
+  bool _flashCorrect = true;
+  int _flashTick = 0;
+  int _confettiTick = 0;
+  Timer? _flashTimer;
+
   @override
   void initState() {
     super.initState();
@@ -175,6 +194,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
     _idleTimer?.cancel();
     _buzzTimer?.cancel();
     _reconnectTimer?.cancel();
+    _flashTimer?.cancel();
     _resultAnimController.dispose();
     super.dispose();
   }
@@ -182,10 +202,12 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
   void _initFromGameProvider() {
     try {
       final game = context.read<GameProvider>();
-      final isActiveInvitation = game.isInvitationGame &&
+      final isActiveInvitation =
+          game.isInvitationGame &&
           game.roomId != null &&
           game.opponentNickname != null &&
-          (game.status == GameStatus.matched || game.status == GameStatus.playing);
+          (game.status == GameStatus.matched ||
+              game.status == GameStatus.playing);
       if (isActiveInvitation) {
         setState(() {
           _roomId = game.roomId;
@@ -205,7 +227,8 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
   void _setupSocketListeners() {
     // 소켓 재연결 감지: 게임 중이었으면 재연결 대기
     _socketListeners.on('connect', (_) {
-      final isInGame = _status != PyramidGameStatus.idle &&
+      final isInGame =
+          _status != PyramidGameStatus.idle &&
           _status != PyramidGameStatus.finished &&
           _status != PyramidGameStatus.searching;
       if (isInGame && _roomId != null) {
@@ -238,13 +261,17 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
       final scoreData = data['scores'] as List<dynamic>? ?? [0, 0];
       final roundState = data['roundState'] as String? ?? 'playing';
 
-      _cards = cardsData.map((c) => PyramidCard(
-        position: (c['position'] as num).toInt(),
-        row: (c['row'] as num).toInt(),
-        col: (c['col'] as num).toInt(),
-        operator: c['operator'] as String,
-        value: (c['value'] as num).toInt(),
-      )).toList();
+      _cards = cardsData
+          .map(
+            (c) => PyramidCard(
+              position: (c['position'] as num).toInt(),
+              row: (c['row'] as num).toInt(),
+              col: (c['col'] as num).toInt(),
+              operator: c['operator'] as String,
+              value: (c['value'] as num).toInt(),
+            ),
+          )
+          .toList();
       _targetNumber = (data['targetNumber'] as num?)?.toInt() ?? 0;
       _currentRound = (data['round'] as num?)?.toInt() ?? 0;
       _scores = scoreData.map((s) => (s as num).toInt()).toList();
@@ -254,9 +281,12 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
 
       final validPathsData = data['validPaths'] as List<dynamic>?;
       if (validPathsData != null) {
-        _validPaths = validPathsData.map((p) =>
-          (p as List<dynamic>).map((v) => (v as num).toInt()).toList()
-        ).toList();
+        _validPaths = validPathsData
+            .map(
+              (p) =>
+                  (p as List<dynamic>).map((v) => (v as num).toInt()).toList(),
+            )
+            .toList();
       }
 
       _buzzingPlayerIndex = data['buzzingPlayer'] != null
@@ -311,7 +341,9 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
         _opponentAvatarUrl = players[opponentIdx]['avatarUrl'] as String?;
         final profileSettings = players[opponentIdx]['profileSettings'];
         if (profileSettings != null) {
-          _opponentProfileSettings = UserProfileSettings.fromJson(profileSettings);
+          _opponentProfileSettings = UserProfileSettings.fromJson(
+            profileSettings,
+          );
         }
       }
       setState(() => _status = PyramidGameStatus.matched);
@@ -324,7 +356,9 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
     _socketListeners.on('pyramid_rankings', (data) {
       final list = data['rankings'] as List<dynamic>? ?? [];
       setState(() {
-        _rankings = list.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+        _rankings = list
+            .map((r) => Map<String, dynamic>.from(r as Map))
+            .toList();
       });
       _rankingsListenable.value = _rankings; // 열려 있는 랭킹 시트 갱신
     });
@@ -352,18 +386,27 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
     });
 
     _socketListeners.on('pyramid_round_start', (data) {
-      debugPrint('🔺 pyramid_round_start 수신: round=${data['round']}, target=${data['targetNumber']}');
+      debugPrint(
+        '🔺 pyramid_round_start 수신: round=${data['round']}, target=${data['targetNumber']}',
+      );
       final cardsData = data['cards'] as List<dynamic>;
-      _cards = cardsData.map((c) => PyramidCard(
-        position: (c['position'] as num).toInt(),
-        row: (c['row'] as num).toInt(),
-        col: (c['col'] as num).toInt(),
-        operator: c['operator'] as String,
-        value: (c['value'] as num).toInt(),
-      )).toList();
+      _cards = cardsData
+          .map(
+            (c) => PyramidCard(
+              position: (c['position'] as num).toInt(),
+              row: (c['row'] as num).toInt(),
+              col: (c['col'] as num).toInt(),
+              operator: c['operator'] as String,
+              value: (c['value'] as num).toInt(),
+            ),
+          )
+          .toList();
       _targetNumber = (data['targetNumber'] as num).toInt();
       _currentRound = (data['round'] as num).toInt();
       _selectedSequence = [];
+      _myAnswerPath = [];
+      _flashCards = [];
+      _lastResultMessage = null;
       _buzzingPlayerIndex = null;
       _skipAvailable = false;
       _mySkipVoted = false;
@@ -371,9 +414,12 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
 
       final validPathsData = data['validPaths'] as List<dynamic>?;
       if (validPathsData != null) {
-        _validPaths = validPathsData.map((p) =>
-          (p as List<dynamic>).map((v) => (v as num).toInt()).toList()
-        ).toList();
+        _validPaths = validPathsData
+            .map(
+              (p) =>
+                  (p as List<dynamic>).map((v) => (v as num).toInt()).toList(),
+            )
+            .toList();
       }
 
       final scoreData = data['scores'] as List<dynamic>?;
@@ -418,23 +464,34 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
 
       _buzzTimer?.cancel();
       _buzzingPlayerIndex = null;
+      final prevSelected = List<int>.from(_selectedSequence);
       if (correct && playerIdx == _myPlayerIndex) {
         _myAnswerPath = List.from(_selectedSequence);
       }
       _selectedSequence = [];
+
+      // 정답/오답 카드 반짝임 (내 답일 때만 어떤 카드인지 안다)
+      if (playerIdx == _myPlayerIndex) {
+        _triggerFlash(prevSelected, correct, celebrate: correct);
+        if (correct) {
+          HapticFeedback.mediumImpact();
+        } else {
+          HapticFeedback.heavyImpact();
+        }
+      }
 
       if (correct) {
         _lastResultMessage = playerIdx == _myPlayerIndex
             ? '정답! (+1)'
             : '$nickname: 정답! (+1)';
         _lastResultColor = playerIdx == _myPlayerIndex
-            ? Colors.green
-            : Colors.orange;
+            ? CandyColors.mintDeep
+            : CandyColors.tangerine;
       } else {
         _lastResultMessage = playerIdx == _myPlayerIndex
             ? '오답! (-1)'
             : '$nickname: 오답 (-1)';
-        _lastResultColor = Colors.red;
+        _lastResultColor = const Color(0xFFFF5A5F);
       }
       _resultAnimController.forward(from: 0);
 
@@ -455,7 +512,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
       _selectedSequence = [];
 
       _lastResultMessage = '시간 초과! (-1)';
-      _lastResultColor = Colors.red;
+      _lastResultColor = const Color(0xFFFF5A5F);
       _resultAnimController.forward(from: 0);
 
       setState(() => _status = PyramidGameStatus.playing);
@@ -472,14 +529,22 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
 
       final validPathsData = data['validPaths'] as List<dynamic>?;
       if (validPathsData != null) {
-        _validPaths = validPathsData.map((p) =>
-          (p as List<dynamic>).map((v) => (v as num).toInt()).toList()
-        ).toList();
+        _validPaths = validPathsData
+            .map(
+              (p) =>
+                  (p as List<dynamic>).map((v) => (v as num).toInt()).toList(),
+            )
+            .toList();
         // 내가 맞춘 경로를 맨 앞으로 (보드에서 하이라이트됨)
         if (_myAnswerPath.isNotEmpty) {
-          _validPaths.removeWhere((p) =>
-            p.length == _myAnswerPath.length &&
-            List.generate(p.length, (i) => p[i] == _myAnswerPath[i]).every((v) => v));
+          _validPaths.removeWhere(
+            (p) =>
+                p.length == _myAnswerPath.length &&
+                List.generate(
+                  p.length,
+                  (i) => p[i] == _myAnswerPath[i],
+                ).every((v) => v),
+          );
           _validPaths.insert(0, _myAnswerPath);
           _myAnswerPath = [];
         }
@@ -487,13 +552,17 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
 
       final cardsData = data['cards'] as List<dynamic>?;
       if (cardsData != null) {
-        _cards = cardsData.map((c) => PyramidCard(
-          position: (c['position'] as num).toInt(),
-          row: (c['row'] as num).toInt(),
-          col: (c['col'] as num).toInt(),
-          operator: c['operator'] as String,
-          value: (c['value'] as num).toInt(),
-        )).toList();
+        _cards = cardsData
+            .map(
+              (c) => PyramidCard(
+                position: (c['position'] as num).toInt(),
+                row: (c['row'] as num).toInt(),
+                col: (c['col'] as num).toInt(),
+                operator: c['operator'] as String,
+                value: (c['value'] as num).toInt(),
+              ),
+            )
+            .toList();
       }
 
       // 시각적으로 같은 수식(순열만 다른 경로, 동일 value+operator 카드로 인한
@@ -501,7 +570,9 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
       // 실행해야 _pathToString이 현재 라운드 기준으로 키를 만든다.
       if (_validPaths.isNotEmpty && _cards.isNotEmpty) {
         final seen = <String>{};
-        _validPaths = _validPaths.where((p) => seen.add(_pathToString(p))).toList();
+        _validPaths = _validPaths
+            .where((p) => seen.add(_pathToString(p)))
+            .toList();
       }
 
       setState(() => _status = PyramidGameStatus.roundEnd);
@@ -554,7 +625,10 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('상대방이 나갔습니다'), backgroundColor: Colors.orange),
+          const SnackBar(
+            content: Text('상대방이 나갔습니다'),
+            backgroundColor: Colors.orange,
+          ),
         );
       }
     });
@@ -579,12 +653,28 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
     });
   }
 
+  void _triggerFlash(List<int> cards, bool correct, {bool celebrate = false}) {
+    _flashTimer?.cancel();
+    if (celebrate) _confettiTick++;
+    if (cards.isEmpty) return;
+    _flashCards = List<int>.from(cards);
+    _flashCorrect = correct;
+    _flashTick++;
+    _flashTimer = Timer(const Duration(milliseconds: 750), () {
+      if (!mounted) return;
+      setState(() => _flashCards = []);
+    });
+  }
+
   // 타이머
   void _startIdleTimer() {
     _idleTimer?.cancel();
     _idleRemaining = 60;
     _idleTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) { timer.cancel(); return; }
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       if (_idleRemaining > 0) {
         setState(() => _idleRemaining--);
       } else {
@@ -597,7 +687,10 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
     _buzzTimer?.cancel();
     _buzzRemaining = 15;
     _buzzTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) { timer.cancel(); return; }
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       if (_buzzRemaining > 0) {
         setState(() => _buzzRemaining--);
       } else {
@@ -608,9 +701,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
 
   // 액션
   void _findMatch() {
-    _socketService.emit('find_match', {
-      'gameType': AppConfig.gameTypePyramid,
-    });
+    _socketService.emit('find_match', {'gameType': AppConfig.gameTypePyramid});
     setState(() => _status = PyramidGameStatus.searching);
   }
 
@@ -643,6 +734,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
 
   void _buzz() {
     if (_status != PyramidGameStatus.playing || _roomId == null) return;
+    HapticFeedback.heavyImpact();
     _socketService.emit('game_action', {
       'roomId': _roomId,
       'action': {'type': 'buzz'},
@@ -656,10 +748,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
 
     _socketService.emit('game_action', {
       'roomId': _roomId,
-      'action': {
-        'type': 'answer',
-        'sequence': _selectedSequence,
-      },
+      'action': {'type': 'answer', 'sequence': _selectedSequence},
     });
   }
 
@@ -681,13 +770,12 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
         // 마지막 선택 취소 (되돌리기)
         _selectedSequence.removeLast();
       } else if (!_selectedSequence.contains(cardIdx) &&
-                 _isCardSelectable(cardIdx) &&
-                 _selectedSequence.length < 3) {
+          _isCardSelectable(cardIdx) &&
+          _selectedSequence.length < 3) {
         _selectedSequence.add(cardIdx);
       }
     });
   }
-
 
   void _skipRound() {
     if (_roomId == null || _mySkipVoted) return;
@@ -707,6 +795,8 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
   }
 
   void _handleRoomInvalid() {
+    _idleTimer?.cancel();
+    _buzzTimer?.cancel();
     setState(() {
       _status = PyramidGameStatus.idle;
       _roomId = null;
@@ -722,7 +812,9 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
             : GameTheme.defaultTheme;
 
         return PopScope(
-          canPop: _status == PyramidGameStatus.idle || _status == PyramidGameStatus.finished,
+          canPop:
+              _status == PyramidGameStatus.idle ||
+              _status == PyramidGameStatus.finished,
           onPopInvokedWithResult: (didPop, _) {
             if (!didPop) {
               _showExitDialog(theme);
@@ -743,16 +835,40 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
                     _buildBody(theme),
                     if (_isReconnecting)
                       Container(
-                        color: Colors.black54,
-                        child: const Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              CircularProgressIndicator(color: Colors.white),
-                              SizedBox(height: 16),
-                              Text('재연결 중...', style: TextStyle(color: Colors.white, fontSize: 18)),
-                            ],
+                        color: CandyColors.ink.withValues(alpha: 0.6),
+                        child: Center(
+                          child: PopIn(
+                            child: CartoonCard(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 28,
+                                vertical: 22,
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CircularProgressIndicator(color: _accent),
+                                  const SizedBox(height: 16),
+                                  const Text(
+                                    '재연결 중...',
+                                    style: TextStyle(
+                                      color: CandyColors.ink,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
+                        ),
+                      ),
+                    // 정답 컨페티 (화면 전환에도 유지)
+                    if (_confettiTick > 0)
+                      Positioned.fill(
+                        child: ConfettiBurst(
+                          key: ValueKey('confetti-$_confettiTick'),
+                          count: 30,
+                          duration: const Duration(milliseconds: 1600),
                         ),
                       ),
                   ],
@@ -785,113 +901,150 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
 
   // ==================== IDLE ====================
   Widget _buildIdleView(GameTheme theme) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        children: [
-          Icon(Icons.change_history, size: 80, color: _accent),
-          const SizedBox(height: 16),
-          Text('수식피라미드', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: _accent)),
-          const SizedBox(height: 12),
-          Text(
-            '카드를 골라 목표 숫자를 맞춰라!',
-            style: TextStyle(fontSize: 16, color: Colors.grey[700]),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.8),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _ruleRow('1.', '피라미드에서 아래줄부터 카드 선택'),
-                _ruleRow('2.', '정확히 3장을 골라 조합!'),
-                _ruleRow('3.', '첫 카드 = 시작값, 이후 연산 적용'),
-                _ruleRow('4.', '결과가 타겟 넘버와 같으면 정답!'),
-                _ruleRow('5.', '버저를 누르고 15초 내 답변'),
-                _ruleRow('\u2B55', '정답 +1점 / 오답 -1점'),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          // 혼자하기로 진입 → 랭킹 도전 + 솔로 랭킹 보기
-          if (widget.entryMode == GameEntryMode.solo) ...[
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _startSolo,
-                icon: const Icon(Icons.person),
-                label: const Text('랭킹 도전 (솔로)', style: TextStyle(fontSize: 18)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _accent,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () => _showRankingSheet(theme),
-                icon: const Icon(Icons.leaderboard),
-                label: const Text('솔로 랭킹 보기', style: TextStyle(fontSize: 16)),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                ),
-              ),
-            ),
-          ],
-          // 둘이하기로 진입 → 대전 + 친구 초대
-          if (widget.entryMode == GameEntryMode.versus)
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _findMatch,
-                    icon: const Icon(Icons.people),
-                    label: const Text('대전 (2인)', style: TextStyle(fontSize: 18)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _accent,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              PopIn(
+                child: CartoonCard(
+                  color: Colors.white,
+                  radius: 30,
+                  padding: EdgeInsets.zero,
+                  child: SizedBox(
+                    width: 104,
+                    height: 104,
+                    child: Center(
+                      child: Icon(
+                        Icons.change_history_rounded,
+                        size: 58,
+                        color: _accent,
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: () => _showFriendInviteDialog(context),
-                  icon: const Icon(Icons.person_add, size: 20),
-                  label: const Text('친구 초대'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _accent,
-                    side: BorderSide(color: _accent),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                '수식피라미드',
+                style: TextStyle(
+                  fontSize: 30,
+                  fontWeight: FontWeight.w900,
+                  color: CandyColors.ink,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '카드를 골라 목표 숫자를 맞춰라!',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: CandyColors.inkSoft,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              PopIn(
+                delay: const Duration(milliseconds: 120),
+                child: CartoonCard(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _ruleRow('1', '피라미드에서 아래줄부터 카드 선택', _accent),
+                      _ruleRow('2', '정확히 3장을 골라 조합!', _accent),
+                      _ruleRow('3', '첫 카드 = 시작값, 이후 연산 적용', _accent),
+                      _ruleRow('4', '결과가 타겟 넘버와 같으면 정답!', _accent),
+                      _ruleRow('5', '버저를 누르고 15초 내 답변', _accent),
+                      _ruleRow('★', '정답 +1점 / 오답 -1점', CandyColors.tangerine),
+                    ],
                   ),
                 ),
+              ),
+              const SizedBox(height: 24),
+              // 혼자하기로 진입 → 랭킹 도전 + 솔로 랭킹 보기
+              if (widget.entryMode == GameEntryMode.solo) ...[
+                ChunkyButton(
+                  label: '랭킹 도전 (솔로)',
+                  icon: Icons.person_rounded,
+                  color: _accent,
+                  onPressed: _startSolo,
+                ),
+                const SizedBox(height: 14),
+                ChunkyButton(
+                  label: '솔로 랭킹 보기',
+                  icon: Icons.leaderboard_rounded,
+                  color: Colors.white,
+                  textColor: CandyColors.ink,
+                  height: 48,
+                  fontSize: 16,
+                  onPressed: () => _showRankingSheet(theme),
+                ),
               ],
-            ),
-        ],
+              // 둘이하기로 진입 → 대전 + 친구 초대
+              if (widget.entryMode == GameEntryMode.versus) ...[
+                ChunkyButton(
+                  label: '대전 (2인)',
+                  icon: Icons.people_rounded,
+                  color: _accent,
+                  onPressed: _findMatch,
+                ),
+                const SizedBox(height: 14),
+                ChunkyButton(
+                  label: '친구 초대',
+                  icon: Icons.person_add_rounded,
+                  color: Colors.white,
+                  textColor: CandyColors.ink,
+                  height: 48,
+                  fontSize: 16,
+                  onPressed: () => _showFriendInviteDialog(context),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Widget _ruleRow(String num, String text) {
+  Widget _ruleRow(String num, String text, Color badge) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          SizedBox(width: 28, child: Text(num, style: const TextStyle(fontWeight: FontWeight.bold))),
-          Expanded(child: Text(text, style: const TextStyle(fontSize: 14))),
+          Container(
+            width: 26,
+            height: 26,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: badge,
+              shape: BoxShape.circle,
+              border: Border.all(color: CandyColors.ink, width: 2),
+            ),
+            child: Text(
+              num,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: CandyColors.ink,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -904,75 +1057,173 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
 
   // ==================== MATCHED ====================
   Widget _buildMatchedView(GameTheme theme) {
-    return GameSoloMatchedView(accentColor: _accent, opponentNickname: _opponentNickname, isSolo: _isSolo);
+    return GameSoloMatchedView(
+      accentColor: _accent,
+      opponentNickname: _opponentNickname,
+      isSolo: _isSolo,
+    );
   }
 
   // ==================== PLAYING / BUZZING ====================
   Widget _buildPlayingView(GameTheme theme) {
-    final iAmBuzzing = _status == PyramidGameStatus.buzzing && _buzzingPlayerIndex == _myPlayerIndex;
-    final otherBuzzing = _status == PyramidGameStatus.buzzing && _buzzingPlayerIndex != _myPlayerIndex;
+    final iAmBuzzing =
+        _status == PyramidGameStatus.buzzing &&
+        _buzzingPlayerIndex == _myPlayerIndex;
+    final otherBuzzing =
+        _status == PyramidGameStatus.buzzing &&
+        _buzzingPlayerIndex != _myPlayerIndex;
 
     return Column(
       children: [
         _buildHeader(theme),
-        // 타겟 넘버
+        // 타겟 넘버 + 타이머/버저 상태
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            decoration: BoxDecoration(
-              color: _accent,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              '\uD83C\uDFAF Target: $_targetNumber',
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
-            ),
+          padding: const EdgeInsets.only(top: 8, bottom: 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              TweenAnimationBuilder<double>(
+                key: ValueKey('target-$_currentRound-$_targetNumber'),
+                tween: Tween(begin: 0.6, end: 1.0),
+                duration: const Duration(milliseconds: 520),
+                curve: Curves.elasticOut,
+                builder: (_, s, child) =>
+                    Transform.scale(scale: s, child: child),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _accent,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: CandyColors.ink, width: 2.5),
+                    boxShadow: const [
+                      BoxShadow(color: CandyColors.ink, offset: Offset(0, 3)),
+                    ],
+                  ),
+                  child: Text(
+                    '🎯 타겟 $_targetNumber',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Flexible(
+                child: _status == PyramidGameStatus.playing
+                    ? GameTimerBadge(
+                        seconds: _idleRemaining,
+                        label: '',
+                        accentColor: _accent,
+                        compact: true,
+                        showLabel: false,
+                        warningThreshold: 10,
+                      )
+                    : _CandyPill(
+                        text: iAmBuzzing
+                            ? '답변하세요! $_buzzRemaining초'
+                            : '${_getPlayerNickname(_buzzingPlayerIndex ?? 0)} 답변 중...',
+                        color: iAmBuzzing
+                            ? CandyColors.tangerine
+                            : CandyColors.sky,
+                        icon: iAmBuzzing
+                            ? Icons.bolt_rounded
+                            : Icons.hourglass_top_rounded,
+                      ),
+              ),
+            ],
           ),
         ),
-        // 타이머
-        if (_status == PyramidGameStatus.playing)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Text('$_idleRemaining초',
-              style: TextStyle(fontSize: 16, color: _idleRemaining <= 10 ? Colors.red : Colors.grey[600])),
+        // 피라미드 보드 + 결과 토스트
+        Expanded(
+          child: Stack(
+            children: [
+              Positioned.fill(child: _buildPyramidBoard(theme)),
+              if (_lastResultMessage != null)
+                Positioned(
+                  top: 2,
+                  left: 12,
+                  right: 12,
+                  child: IgnorePointer(
+                    child: AnimatedBuilder(
+                      animation: _resultAnimController,
+                      builder: (_, _) {
+                        final t = _resultAnimController.value;
+                        final pop = Curves.elasticOut.transform(
+                          (t * 2.2).clamp(0.0, 1.0),
+                        );
+                        final opacity = t < 0.7
+                            ? 1.0
+                            : (1.0 - (t - 0.7) / 0.3).clamp(0.0, 1.0);
+                        return Opacity(
+                          opacity: opacity,
+                          child: Transform.scale(
+                            scale: 0.6 + 0.4 * pop,
+                            child: Center(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _lastResultColor ?? CandyColors.ink,
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: CandyColors.ink,
+                                    width: 2.5,
+                                  ),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: CandyColors.ink,
+                                      offset: Offset(0, 3),
+                                    ),
+                                  ],
+                                ),
+                                child: Text(
+                                  _lastResultMessage!,
+                                  maxLines: 2,
+                                  textAlign: TextAlign.center,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+            ],
           ),
-        if (_status == PyramidGameStatus.buzzing)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Text(
-              iAmBuzzing ? '답변하세요! $_buzzRemaining초' : '${_getPlayerNickname(_buzzingPlayerIndex ?? 0)}이(가) 답변 중...',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold,
-                color: iAmBuzzing ? Colors.orange : Colors.blue),
-            ),
-          ),
-        // 결과 메시지
-        if (_lastResultMessage != null)
-          AnimatedBuilder(
-            animation: _resultAnimController,
-            builder: (_, child) {
-              final opacity = 1.0 - _resultAnimController.value;
-              return Opacity(
-                opacity: opacity,
-                child: Text(_lastResultMessage!,
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: _lastResultColor)),
-              );
-            },
-          ),
-        // 피라미드 보드
-        Expanded(child: _buildPyramidBoard(theme)),
+        ),
         // 액션바
         _buildActionBar(theme, iAmBuzzing, otherBuzzing),
       ],
     );
   }
 
+  PyramidCard? _cardAt(int position) {
+    for (final c in _cards) {
+      if (c.position == position) return c;
+    }
+    return null;
+  }
+
   Widget _buildActionBar(GameTheme theme, bool iAmBuzzing, bool otherBuzzing) {
     return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: const BoxDecoration(
         color: Colors.white,
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 8, offset: const Offset(0, -2))],
+        border: Border(top: BorderSide(color: CandyColors.ink, width: 3)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -982,49 +1233,58 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 // 되돌리기 버튼
-                if (_selectedSequence.isNotEmpty)
-                  IconButton(
-                    onPressed: () {
-                      setState(() {
+                _UndoButton(
+                  enabled: _selectedSequence.isNotEmpty,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setState(() {
+                      if (_selectedSequence.isNotEmpty) {
                         _selectedSequence.removeLast();
-                      });
+                      }
+                    });
+                  },
+                ),
+                const SizedBox(width: 6),
+                // 선택한 카드 슬롯 (첫 카드 = 시작값)
+                for (int i = 0; i < 3; i++)
+                  Builder(
+                    builder: (_) {
+                      final card = i < _selectedSequence.length
+                          ? _cardAt(_selectedSequence[i])
+                          : null;
+                      return _AnswerSlot(
+                        label: card == null
+                            ? null
+                            : (i == 0 ? '${card.value}' : card.displayText),
+                        color: _accent,
+                      );
                     },
-                    icon: const Icon(Icons.undo, size: 28),
-                    color: Colors.grey[700],
                   ),
                 const SizedBox(width: 8),
-                // 선택 수
-                Text(
-                  '${_selectedSequence.length}/3장',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[700]),
-                ),
-                const SizedBox(width: 16),
-                ElevatedButton(
-                  onPressed: _selectedSequence.length == 3 ? _submitAnswer : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                Flexible(
+                  child: ChunkyButton(
+                    label: '제출',
+                    icon: Icons.check_rounded,
+                    color: CandyColors.mint,
+                    height: 48,
+                    fontSize: 17,
+                    expand: false,
+                    onPressed: _selectedSequence.length == 3
+                        ? _submitAnswer
+                        : null,
                   ),
-                  child: const Text('제출', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 ),
               ],
             ),
           ],
           if (!iAmBuzzing && !otherBuzzing) ...[
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _buzz,
-                icon: const Icon(Icons.notifications_active, size: 28),
-                label: const Text('버저!', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                ),
-              ),
+            ChunkyButton(
+              label: '버저!',
+              icon: Icons.notifications_active_rounded,
+              color: const Color(0xFFFF5A5F),
+              height: 60,
+              fontSize: 24,
+              onPressed: _buzz,
             ),
             // 20초 무활동 시 라운드 넘기기 버튼
             // 4-state UI:
@@ -1034,38 +1294,38 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
             //  - 둘 다 누름: "라운드 넘기는 중..." (비활성)
             if (_skipAvailable && !_isSolo) ...[
               const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _mySkipVoted ? null : _skipRound,
-                  icon: Icon(
-                    _mySkipVoted
-                        ? Icons.check
-                        : (_opponentSkipVoted ? Icons.notification_important : Icons.skip_next),
-                  ),
-                  label: Text(
-                    _mySkipVoted
-                        ? (_opponentSkipVoted ? '라운드 넘기는 중...' : '상대방 대기 중...')
-                        : (_opponentSkipVoted ? '상대가 넘기기 요청' : '라운드 넘기기'),
-                    style: const TextStyle(fontSize: 16),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor:
-                        (!_mySkipVoted && _opponentSkipVoted) ? Colors.orange : null,
-                    side: (!_mySkipVoted && _opponentSkipVoted)
-                        ? const BorderSide(color: Colors.orange, width: 2)
-                        : null,
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
+              ChunkyButton(
+                label: _mySkipVoted
+                    ? (_opponentSkipVoted ? '라운드 넘기는 중...' : '상대방 대기 중...')
+                    : (_opponentSkipVoted ? '상대가 넘기기 요청' : '라운드 넘기기'),
+                icon: _mySkipVoted
+                    ? Icons.check_rounded
+                    : (_opponentSkipVoted
+                          ? Icons.notification_important_rounded
+                          : Icons.skip_next_rounded),
+                color: (!_mySkipVoted && _opponentSkipVoted)
+                    ? CandyColors.tangerine
+                    : Colors.white,
+                textColor: (!_mySkipVoted && _opponentSkipVoted)
+                    ? Colors.white
+                    : CandyColors.ink,
+                height: 42,
+                fontSize: 15,
+                onPressed: _mySkipVoted ? null : _skipRound,
               ),
             ],
           ],
           if (otherBuzzing && !_isSolo)
             const Padding(
               padding: EdgeInsets.all(12),
-              child: Text('상대방이 답변 중...', style: TextStyle(fontSize: 16, color: Colors.grey)),
+              child: Text(
+                '상대방이 답변 중...',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: CandyColors.inkSoft,
+                ),
+              ),
             ),
         ],
       ),
@@ -1078,39 +1338,64 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
     return Column(
       children: [
         _buildHeader(theme),
-        const SizedBox(height: 16),
-        Text('라운드 $_currentRound/$maxRounds 종료',
-          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _accent)),
+        const SizedBox(height: 12),
+        PopIn(
+          child: _CandyPill(
+            text: '라운드 $_currentRound/$maxRounds 종료',
+            color: _accent,
+            icon: Icons.flag_rounded,
+            fontSize: 19,
+          ),
+        ),
         const SizedBox(height: 8),
-        Text('타겟: $_targetNumber',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[700])),
+        Text(
+          '타겟: $_targetNumber  ·  정답 경로: ${_validPaths.length}개',
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+            color: CandyColors.inkSoft,
+          ),
+        ),
         const SizedBox(height: 4),
-        Text('정답 경로: ${_validPaths.length}개',
-          style: TextStyle(fontSize: 14, color: Colors.grey[600])),
-        const SizedBox(height: 8),
         Expanded(child: _buildPyramidBoard(theme, showPaths: true)),
         // 정답 경로 표시
         if (_validPaths.isNotEmpty)
           Container(
-            padding: const EdgeInsets.all(12),
-            color: Colors.white,
-            constraints: const BoxConstraints(maxHeight: 100),
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: CandyColors.ink, width: 3)),
+            ),
+            constraints: const BoxConstraints(maxHeight: 118),
             child: ListView(
               shrinkWrap: true,
-              children: _validPaths.take(3).map((path) {
+              children: _validPaths.take(3).toList().asMap().entries.map((e) {
+                final first = e.key == 0;
                 return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Text(
-                    _pathToString(path),
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: _ComboChip(
+                      text: _pathToString(e.value),
+                      color: first ? CandyColors.mint : const Color(0xFFF1ECFA),
+                      textColor: CandyColors.ink,
+                    ),
                   ),
                 );
               }).toList(),
             ),
           ),
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: Text('다음 라운드 준비 중...', style: TextStyle(fontSize: 16, color: Colors.grey[600])),
+        const Padding(
+          padding: EdgeInsets.all(10),
+          child: Text(
+            '다음 라운드 준비 중...',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              color: CandyColors.inkSoft,
+            ),
+          ),
         ),
       ],
     );
@@ -1118,6 +1403,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
 
   String _pathToString(List<int> path) {
     if (path.isEmpty || _cards.isEmpty) return '';
+    if (path.any((i) => i < 0 || i >= _cards.length)) return '';
     final buf = StringBuffer();
     final first = _cards[path[0]];
     buf.write('${first.value}');
@@ -1125,11 +1411,17 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
 
     for (int i = 1; i < path.length; i++) {
       final card = _cards[path[i]];
-      final op = card.operator == '*' ? '\u00D7' : card.operator;
+      final op = card.operator == '*' ? '×' : card.operator;
       switch (card.operator) {
-        case '+': current = current + card.value; break;
-        case '-': current = current - card.value; break;
-        case '*': current = current * card.value; break;
+        case '+':
+          current = current + card.value;
+          break;
+        case '-':
+          current = current - card.value;
+          break;
+        case '*':
+          current = current * card.value;
+          break;
       }
       buf.write(' $op${card.value}');
     }
@@ -1148,71 +1440,141 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
     }
     final isWinner = _winnerId == _myId;
     final isSoloDone = _isSolo;
+    final myScore = _scores.length > _myPlayerIndex
+        ? _scores[_myPlayerIndex]
+        : 0;
+    final oppScore = _scores.length > 1
+        ? _scores[_myPlayerIndex == 0 ? 1 : 0]
+        : 0;
 
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (isSoloDone) ...[
-              const Icon(Icons.emoji_events, size: 64, color: Colors.amber),
-              const SizedBox(height: 16),
-              Text('최종 점수', style: TextStyle(fontSize: 20, color: Colors.grey[700])),
-              Text('${_scores.isNotEmpty ? _scores[0] : 0}점',
-                style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: _accent)),
-            ] else if (_wonByForfeit) ...[
-              const Icon(Icons.emoji_events, size: 64, color: Colors.amber),
-              const SizedBox(height: 16),
-              Text('승리!', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: _accent)),
-              const Text('상대방이 나갔습니다', style: TextStyle(fontSize: 16, color: Colors.grey)),
-            ] else if (_isDraw) ...[
-              const Icon(Icons.handshake, size: 64, color: Colors.blue),
-              const SizedBox(height: 16),
-              const Text('무승부', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.blue)),
-            ] else if (isWinner) ...[
-              const Icon(Icons.emoji_events, size: 64, color: Colors.amber),
-              const SizedBox(height: 16),
-              Text('승리!', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: _accent)),
-            ] else ...[
-              Icon(Icons.sentiment_dissatisfied, size: 64, color: Colors.grey[400]),
-              const SizedBox(height: 16),
-              Text('패배', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.grey[600])),
-            ],
-            const SizedBox(height: 16),
-            if (!isSoloDone && _scores.length >= 2)
-              Text('${_scores[_myPlayerIndex]} : ${_scores[_myPlayerIndex == 0 ? 1 : 0]}',
-                style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: _accent)),
-            const SizedBox(height: 32),
-            GameEndActionPanel(
-              showRematchActions: !isSoloDone && !_opponentLeft,
-              opponentLeft: !isSoloDone && _opponentLeft,
-              opponentWantsRematch: _opponentWantsRematch,
-              rematchWaiting: _rematchWaiting,
-              primaryColor: _accent,
-              primaryForegroundColor: Colors.white,
-              onRequestRematch: _requestRematch,
-              onCancelRematch: _cancelRematch,
-              onLeave: _leaveGame,
-              rematchLabel: '재대결',
-              acceptRematchLabel: '재대결 수락',
-              waitingText: '상대방 응답 대기 중...',
-              cancelLabel: '취소',
-              leaveLabel: '로비로',
-              leaveIcon: Icons.home,
+    final Widget hero;
+    if (isSoloDone) {
+      hero = const GameResultHero(
+        icon: Icons.emoji_events,
+        color: CandyColors.sunDeep,
+        title: '도전 종료!',
+        subtitle: '수고했어요, 기록이 저장돼요.',
+      );
+    } else if (_wonByForfeit) {
+      hero = const GameResultHero(
+        icon: Icons.emoji_events,
+        color: CandyColors.mintDeep,
+        title: '승리!',
+        subtitle: '상대방이 나갔습니다',
+      );
+    } else if (_isDraw) {
+      hero = const GameResultHero(
+        icon: Icons.handshake,
+        color: CandyColors.sky,
+        title: '무승부',
+      );
+    } else if (isWinner) {
+      hero = const GameResultHero(
+        icon: Icons.emoji_events,
+        color: CandyColors.mintDeep,
+        title: '승리!',
+      );
+    } else {
+      hero = const GameResultHero(
+        icon: Icons.sentiment_dissatisfied,
+        color: CandyColors.inkSoft,
+        title: '패배',
+      );
+    }
+
+    return Stack(
+      children: [
+        Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  hero,
+                  const SizedBox(height: 16),
+                  if (isSoloDone)
+                    CartoonCard(
+                      child: Column(
+                        children: [
+                          const Text(
+                            '최종 점수',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: CandyColors.inkSoft,
+                            ),
+                          ),
+                          TweenAnimationBuilder<double>(
+                            tween: Tween(
+                              begin: 0,
+                              end: (_scores.isNotEmpty ? _scores[0] : 0)
+                                  .toDouble(),
+                            ),
+                            duration: const Duration(milliseconds: 900),
+                            curve: Curves.easeOutCubic,
+                            builder: (_, v, _) => Text(
+                              '${v.round()}점',
+                              style: TextStyle(
+                                fontSize: 48,
+                                fontWeight: FontWeight.w900,
+                                color: _accent,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (_scores.length >= 2)
+                    GameResultMatchupRow(
+                      leftLabel: '나',
+                      leftValue: '$myScore점',
+                      rightLabel: _opponentNickname ?? '상대',
+                      rightValue: '$oppScore점',
+                      accentColor: _accent,
+                    ),
+                  const SizedBox(height: 24),
+                  GameEndActionPanel(
+                    showRematchActions: !isSoloDone && !_opponentLeft,
+                    opponentLeft: !isSoloDone && _opponentLeft,
+                    opponentWantsRematch: _opponentWantsRematch,
+                    rematchWaiting: _rematchWaiting,
+                    primaryColor: _accent,
+                    primaryForegroundColor: Colors.white,
+                    onRequestRematch: _requestRematch,
+                    onCancelRematch: _cancelRematch,
+                    onLeave: _leaveGame,
+                    rematchLabel: '재대결',
+                    acceptRematchLabel: '재대결 수락',
+                    waitingText: '상대방 응답 대기 중...',
+                    cancelLabel: '취소',
+                    leaveLabel: '로비로',
+                    leaveIcon: Icons.home,
+                  ),
+                ],
+              ),
             ),
-          ],
+          ),
         ),
-      ),
+      ],
     );
   }
 
   // ==================== HEADER ====================
   Widget _buildHeader(GameTheme theme) {
     final maxRounds = _isSolo ? 10 : 3;
+    final myScore = _scores.length > _myPlayerIndex
+        ? _scores[_myPlayerIndex]
+        : 0;
+    final oppIdx = _myPlayerIndex == 0 ? 1 : 0;
+    final oppScore = _scores.length > oppIdx ? _scores[oppIdx] : 0;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      color: Colors.white.withValues(alpha: 0.9),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: CandyColors.ink, width: 3)),
+      ),
       child: Row(
         children: [
           Expanded(
@@ -1226,23 +1588,46 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
             ),
           ),
           Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _accent.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 3,
                 ),
-                child: Text('R$_currentRound/$maxRounds',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: _accent)),
+                decoration: BoxDecoration(
+                  color: _accent,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: CandyColors.ink, width: 2),
+                ),
+                child: Text(
+                  'R$_currentRound/$maxRounds',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                  ),
+                ),
               ),
               const SizedBox(height: 4),
-              Text(
-                _isSolo
-                    ? '${_scores.isNotEmpty ? _scores[0] : 0}점'
-                    : '${_scores.isNotEmpty ? _scores[_myPlayerIndex] : 0} : ${_scores.length > 1 ? _scores[_myPlayerIndex == 0 ? 1 : 0] : 0}',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _accent),
-              ),
+              if (_isSolo)
+                _ScorePop(score: myScore, suffix: '점', color: _accent)
+              else
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _ScorePop(score: myScore, color: _accent),
+                    const Text(
+                      ' : ',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                        color: CandyColors.ink,
+                      ),
+                    ),
+                    _ScorePop(score: oppScore, color: CandyColors.inkSoft),
+                  ],
+                ),
             ],
           ),
           if (!_isSolo)
@@ -1252,7 +1637,7 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
                 _opponentNickname ?? '상대',
                 _opponentAvatarUrl,
                 false,
-                _myPlayerIndex == 0 ? 1 : 0,
+                oppIdx,
                 _opponentProfileSettings,
               ),
             )
@@ -1263,7 +1648,14 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
     );
   }
 
-  Widget _buildPlayerColumn(GameTheme theme, String name, String? avatarUrl, bool isMe, int playerIndex, UserProfileSettings? profileSettings) {
+  Widget _buildPlayerColumn(
+    GameTheme theme,
+    String name,
+    String? avatarUrl,
+    bool isMe,
+    int playerIndex,
+    UserProfileSettings? profileSettings,
+  ) {
     return Column(
       children: [
         GamePlayerProfile(
@@ -1288,23 +1680,26 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
         final availableHeight = constraints.maxHeight - 16;
 
         // 육각형 크기: 4열(맨 아래)이 들어가야 함
-        final hexSize = min(availableWidth / 5.0, availableHeight / 5.0);
+        final hexSize = max(
+          8.0,
+          min(availableWidth / 5.0, availableHeight / 5.0),
+        );
         // 콘텐츠 실제 크기 (4열 기준)
         final contentWidth = 3 * hexSize * 1.1 + hexSize;
         final contentHeight = 3 * hexSize * 1.05 + hexSize;
 
-        return Center(
-          child: SizedBox(
-            width: contentWidth,
-            height: contentHeight,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                for (final card in _cards)
-                  _buildPyramidCard(
-                    theme, card, hexSize, showPaths,
-                  ),
-              ],
+        return RepaintBoundary(
+          child: Center(
+            child: SizedBox(
+              width: contentWidth,
+              height: contentHeight,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  for (final card in _cards)
+                    _buildPyramidCard(theme, card, hexSize, showPaths),
+                ],
+              ),
             ),
           ),
         );
@@ -1312,9 +1707,26 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
     );
   }
 
-  Widget _buildPyramidCard(GameTheme theme, PyramidCard card, double hexSize, bool showPaths) {
+  /// 연산자별 카드 색 (면, 선택 시 진한 색)
+  static (Color, Color) _opColors(String op) {
+    switch (op) {
+      case '+':
+        return (const Color(0xFFD3F7EA), CandyColors.mint);
+      case '-':
+        return (const Color(0xFFFFDCE8), CandyColors.pink);
+      default:
+        return (const Color(0xFFD7EEFF), CandyColors.sky);
+    }
+  }
+
+  Widget _buildPyramidCard(
+    GameTheme theme,
+    PyramidCard card,
+    double hexSize,
+    bool showPaths,
+  ) {
     // 피라미드 배치: 각 행의 중앙 정렬
-    final maxCols = 4; // Row 3 has 4 cards
+    const maxCols = 4; // Row 3 has 4 cards
     final rowSize = card.row + 1;
     final offset = (maxCols - rowSize) / 2.0;
     final x = (offset + card.col) * hexSize * 1.1;
@@ -1322,93 +1734,143 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
 
     final isSelected = _selectedSequence.contains(card.position);
     final selectionOrder = _selectedSequence.indexOf(card.position);
-    final canSelect = _status == PyramidGameStatus.buzzing &&
+    final canSelect =
+        _status == PyramidGameStatus.buzzing &&
         _buzzingPlayerIndex == _myPlayerIndex &&
         _isCardSelectable(card.position);
-    final isLastSelected = _selectedSequence.isNotEmpty && _selectedSequence.last == card.position;
+    final isLastSelected =
+        _selectedSequence.isNotEmpty && _selectedSequence.last == card.position;
+    final flashing = _flashCards.contains(card.position);
 
     // 정답 경로 하이라이트 (라운드 종료 시)
-    final isInPath = showPaths && _validPaths.isNotEmpty && _validPaths.first.contains(card.position);
+    final isInPath =
+        showPaths &&
+        _validPaths.isNotEmpty &&
+        _validPaths.first.contains(card.position);
 
+    final (soft, strong) = _opColors(card.operator);
     Color bgColor;
-    Color borderColor;
-    double borderW;
-
-    if (isSelected) {
-      bgColor = _accent.withValues(alpha: 0.3);
-      borderColor = _accent;
-      borderW = 3;
+    if (flashing) {
+      bgColor = _flashCorrect ? CandyColors.mint : const Color(0xFFFF5A5F);
+    } else if (isSelected) {
+      bgColor = strong;
     } else if (isInPath) {
-      bgColor = Colors.green.withValues(alpha: 0.2);
-      borderColor = Colors.green;
-      borderW = 2.5;
-    } else if (canSelect) {
-      bgColor = Colors.white;
-      borderColor = _accent.withValues(alpha: 0.5);
-      borderW = 2;
+      bgColor = CandyColors.sun;
     } else {
-      bgColor = Colors.grey[200]!;
-      borderColor = Colors.grey[400]!;
-      borderW = 1;
+      bgColor = soft;
     }
+
+    final lifted = isSelected || isInPath;
+
+    Widget tile = TweenAnimationBuilder<Color?>(
+      tween: ColorTween(end: bgColor),
+      duration: const Duration(milliseconds: 150),
+      builder: (_, c, _) => CustomPaint(
+        painter: _HexagonPainter(
+          fillColor: c ?? bgColor,
+          borderColor: CandyColors.ink,
+          borderWidth: 2.5,
+          shadowOffset: lifted ? 5 : 3,
+        ),
+        child: Center(
+          child: Text(
+            card.displayText,
+            style: TextStyle(
+              fontSize: hexSize * 0.3,
+              fontWeight: FontWeight.w900,
+              color: CandyColors.ink,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // 선택: 위로 들리며 살짝 커짐
+    tile = AnimatedSlide(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutBack,
+      offset: lifted ? const Offset(0, -0.06) : Offset.zero,
+      child: AnimatedScale(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutBack,
+        scale: lifted ? 1.1 : 1.0,
+        child: tile,
+      ),
+    );
+
+    // 정답 = 통통 튀기 / 오답 = 흔들기 / 라운드 종료 정답 경로 = 한 번 통통
+    final bounce = flashing ? _flashCorrect : isInPath;
+    final shake = flashing && !_flashCorrect;
+    final animKey = flashing
+        ? 'f$_flashTick'
+        : (isInPath ? 'p$_currentRound' : '0');
+    tile = TweenAnimationBuilder<double>(
+      key: ValueKey('pyrflash-${card.position}-$animKey'),
+      tween: Tween(begin: (bounce || shake) ? 0.0 : 1.0, end: 1.0),
+      duration: const Duration(milliseconds: 520),
+      builder: (_, t, child) {
+        if (shake) {
+          return Transform.translate(
+            offset: Offset(sin(t * pi * 6) * 5 * (1 - t), 0),
+            child: child,
+          );
+        }
+        if (bounce) {
+          return Transform.scale(
+            scale:
+                0.8 + 0.2 * Curves.elasticOut.transform(t) + 0.1 * sin(t * pi),
+            child: child,
+          );
+        }
+        return child!;
+      },
+      child: tile,
+    );
 
     return Positioned(
       left: x,
       top: y,
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: () {
-          if (isLastSelected) {
-            _toggleCardSelection(card.position);
-          } else if (canSelect) {
+          if (isLastSelected || canSelect) {
+            HapticFeedback.selectionClick();
             _toggleCardSelection(card.position);
           }
         },
         child: SizedBox(
           width: hexSize,
           height: hexSize,
-          child: CustomPaint(
-            painter: _HexagonPainter(
-              fillColor: bgColor,
-              borderColor: borderColor,
-              borderWidth: borderW,
-              shadowColor: isSelected
-                  ? _accent.withValues(alpha: 0.3)
-                  : Colors.black.withValues(alpha: 0.1),
-            ),
-            child: Center(
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Text(
-                    card.displayText,
-                    style: TextStyle(
-                      fontSize: hexSize * 0.28,
-                      fontWeight: FontWeight.bold,
-                      color: isSelected ? _accent : Colors.black87,
+          child: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              Positioned.fill(child: tile),
+              // 선택 순서 번호
+              if (isSelected && selectionOrder >= 0)
+                Positioned(
+                  top: hexSize * 0.06,
+                  right: hexSize * 0.06,
+                  child: Container(
+                    width: 20,
+                    height: 20,
+                    decoration: BoxDecoration(
+                      color: _accent,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: CandyColors.ink, width: 2),
                     ),
-                  ),
-                  // 선택 순서 번호
-                  if (isSelected && selectionOrder >= 0)
-                    Positioned(
-                      top: hexSize * 0.12,
-                      right: hexSize * 0.12,
-                      child: Container(
-                        width: 20,
-                        height: 20,
-                        decoration: BoxDecoration(
-                          color: _accent,
-                          shape: BoxShape.circle,
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          '${selectionOrder + 1}',
-                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
-                        ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      '${selectionOrder + 1}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
                       ),
                     ),
-                ],
-              ),
-            ),
+                  ),
+                ),
+            ],
           ),
         ),
       ),
@@ -1427,8 +1889,10 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: CandyColors.cream,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        side: BorderSide(color: CandyColors.ink, width: 3),
       ),
       builder: (ctx) {
         return DraggableScrollableSheet(
@@ -1445,7 +1909,14 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
                     children: [
                       Icon(Icons.leaderboard, color: _accent),
                       const SizedBox(width: 8),
-                      Text('솔로 랭킹', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _accent)),
+                      const Text(
+                        '솔로 랭킹',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          color: CandyColors.ink,
+                        ),
+                      ),
                       const Spacer(),
                       IconButton(
                         onPressed: () => Navigator.pop(ctx),
@@ -1460,42 +1931,69 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
                     valueListenable: _rankingsListenable,
                     builder: (context, rankings, _) {
                       return rankings.isEmpty
-                      ? const Center(child: Text('아직 기록이 없습니다', style: TextStyle(color: Colors.grey)))
-                      : ListView.builder(
-                          controller: scrollController,
-                          itemCount: rankings.length,
-                          itemBuilder: (_, index) {
-                            final r = rankings[index];
-                            final nickname = r['nickname'] as String? ?? '???';
-                            final score = r['score'] as int? ?? 0;
-                            final isTop3 = index < 3;
-                            return ListTile(
-                              leading: Container(
-                                width: 36,
-                                height: 36,
-                                decoration: BoxDecoration(
-                                  color: isTop3
-                                      ? [Colors.amber, Colors.grey[400]!, Colors.brown[300]!][index]
-                                      : Colors.grey[200],
-                                  shape: BoxShape.circle,
+                          ? const Center(
+                              child: Text(
+                                '아직 기록이 없습니다',
+                                style: TextStyle(
+                                  color: CandyColors.inkSoft,
+                                  fontWeight: FontWeight.w700,
                                 ),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  '${index + 1}',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: isTop3 ? Colors.white : Colors.grey[600],
+                              ),
+                            )
+                          : ListView.builder(
+                              controller: scrollController,
+                              itemCount: rankings.length,
+                              itemBuilder: (_, index) {
+                                final r = rankings[index];
+                                final nickname =
+                                    r['nickname'] as String? ?? '???';
+                                final score = r['score'] as int? ?? 0;
+                                final isTop3 = index < 3;
+                                return ListTile(
+                                  leading: Container(
+                                    width: 36,
+                                    height: 36,
+                                    decoration: BoxDecoration(
+                                      color: isTop3
+                                          ? [
+                                              CandyColors.sun,
+                                              const Color(0xFFC9C3D9),
+                                              CandyColors.tangerine,
+                                            ][index]
+                                          : Colors.white,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: CandyColors.ink,
+                                        width: 2,
+                                      ),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      '${index + 1}',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: CandyColors.ink,
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ),
-                              title: Text(nickname, style: const TextStyle(fontWeight: FontWeight.w600)),
-                              trailing: Text(
-                                '$score점',
-                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _accent),
-                              ),
+                                  title: Text(
+                                    nickname,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      color: CandyColors.ink,
+                                    ),
+                                  ),
+                                  trailing: Text(
+                                    '$score점',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w900,
+                                      color: _accent,
+                                    ),
+                                  ),
+                                );
+                              },
                             );
-                          },
-                        );
                     },
                   ),
                 ),
@@ -1516,28 +2014,50 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
       backgroundColor: Colors.transparent,
       builder: (dialogContext) => Consumer<FriendProvider>(
         builder: (context, friendProvider, child) {
-          final onlineFriends = friendProvider.friends.where((f) => f.isOnline).toList();
+          final onlineFriends = friendProvider.friends
+              .where((f) => f.isOnline)
+              .toList();
           return Container(
-            constraints: BoxConstraints(maxHeight: MediaQuery.of(dialogContext).size.height * 0.6),
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(dialogContext).size.height * 0.6,
+            ),
             decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              color: CandyColors.cream,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border(
+                top: BorderSide(color: CandyColors.ink, width: 3),
+                left: BorderSide(color: CandyColors.ink, width: 3),
+                right: BorderSide(color: CandyColors.ink, width: 3),
+              ),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
                   margin: const EdgeInsets.only(top: 12),
-                  width: 40, height: 4,
-                  decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: CandyColors.ink.withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
                 Padding(
                   padding: const EdgeInsets.all(20),
-                  child: Row(children: [
-                    Icon(Icons.person_add, color: _accent),
-                    const SizedBox(width: 12),
-                    const Text('친구 초대', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                  ]),
+                  child: Row(
+                    children: [
+                      Icon(Icons.person_add, color: _accent),
+                      const SizedBox(width: 12),
+                      const Text(
+                        '친구 초대',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          color: CandyColors.ink,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const Divider(height: 1),
                 Flexible(
@@ -1545,11 +2065,21 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
                       ? Center(
                           child: Padding(
                             padding: const EdgeInsets.all(40),
-                            child: Column(mainAxisSize: MainAxisSize.min, children: [
-                              Icon(Icons.person_off, size: 48, color: Colors.grey.shade400),
-                              const SizedBox(height: 16),
-                              Text('온라인 친구가 없습니다', style: TextStyle(color: Colors.grey.shade600)),
-                            ]),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.person_off,
+                                  size: 48,
+                                  color: Colors.grey.shade400,
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  '온라인 친구가 없습니다',
+                                  style: TextStyle(color: Colors.grey.shade600),
+                                ),
+                              ],
+                            ),
                           ),
                         )
                       : ListView.builder(
@@ -1558,41 +2088,83 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
                           itemBuilder: (context, index) {
                             final friend = onlineFriends[index];
                             return ListTile(
-                              leading: Stack(children: [
-                                CircleAvatar(
-                                  backgroundColor: _accent.withValues(alpha: 0.2),
-                                  child: Text(
-                                    friend.nickname.isNotEmpty ? friend.nickname[0].toUpperCase() : '?',
-                                    style: TextStyle(color: _accent),
-                                  ),
-                                ),
-                                Positioned(
-                                  right: 0, bottom: 0,
-                                  child: Container(
-                                    width: 12, height: 12,
-                                    decoration: BoxDecoration(
-                                      color: Colors.green, shape: BoxShape.circle,
-                                      border: Border.all(color: Colors.white, width: 2),
+                              leading: Stack(
+                                children: [
+                                  CircleAvatar(
+                                    backgroundColor: _accent.withValues(
+                                      alpha: 0.2,
+                                    ),
+                                    child: Text(
+                                      friend.nickname.isNotEmpty
+                                          ? friend.nickname[0].toUpperCase()
+                                          : '?',
+                                      style: TextStyle(color: _accent),
                                     ),
                                   ),
+                                  Positioned(
+                                    right: 0,
+                                    bottom: 0,
+                                    child: Container(
+                                      width: 12,
+                                      height: 12,
+                                      decoration: BoxDecoration(
+                                        color: Colors.green,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: Colors.white,
+                                          width: 2,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              title: Text(
+                                friend.nickname,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
                                 ),
-                              ]),
-                              title: Text(friend.nickname, style: const TextStyle(fontWeight: FontWeight.w600)),
-                              subtitle: friend.memo != null && friend.memo!.isNotEmpty
-                                  ? Text(friend.memo!, style: TextStyle(color: Colors.grey.shade600, fontSize: 12))
+                              ),
+                              subtitle:
+                                  friend.memo != null && friend.memo!.isNotEmpty
+                                  ? Text(
+                                      friend.memo!,
+                                      style: TextStyle(
+                                        color: Colors.grey.shade600,
+                                        fontSize: 12,
+                                      ),
+                                    )
                                   : null,
                               trailing: ElevatedButton(
                                 onPressed: () {
-                                  friendProvider.inviteToGame(friend.id, AppConfig.gameTypePyramid, isHardcore: false);
+                                  friendProvider.inviteToGame(
+                                    friend.id,
+                                    AppConfig.gameTypePyramid,
+                                    isHardcore: false,
+                                  );
                                   Navigator.pop(dialogContext);
-                                  ScaffoldMessenger.of(context).clearSnackBars();
+                                  ScaffoldMessenger.of(
+                                    context,
+                                  ).clearSnackBars();
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('${friend.nickname}님에게 초대를 보냈습니다!'), backgroundColor: Colors.green),
+                                    SnackBar(
+                                      content: Text(
+                                        '${friend.nickname}님에게 초대를 보냈습니다!',
+                                      ),
+                                      backgroundColor: Colors.green,
+                                    ),
                                   );
                                 },
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: _accent, foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                  backgroundColor: _accent,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(20),
+                                    side: const BorderSide(
+                                      color: CandyColors.ink,
+                                      width: 2.5,
+                                    ),
+                                  ),
                                 ),
                                 child: const Text('초대'),
                               ),
@@ -1600,7 +2172,9 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
                           },
                         ),
                 ),
-                SizedBox(height: MediaQuery.of(dialogContext).padding.bottom + 16),
+                SizedBox(
+                  height: MediaQuery.of(dialogContext).padding.bottom + 16,
+                ),
               ],
             ),
           );
@@ -1619,7 +2193,8 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
   }
 
   void _showExitDialog(GameTheme theme) {
-    if (_status == PyramidGameStatus.idle || _status == PyramidGameStatus.finished) {
+    if (_status == PyramidGameStatus.idle ||
+        _status == PyramidGameStatus.finished) {
       Navigator.pop(context);
       return;
     }
@@ -1633,11 +2208,14 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(isSoloInGame ? '도전 종료' : '게임 나가기'),
-        content: Text(isSoloInGame
-            ? '여기까지의 기록을 저장하고 종료하시겠습니까?'
-            : '진행 중인 게임을 포기하시겠습니까?'),
+        content: Text(
+          isSoloInGame ? '여기까지의 기록을 저장하고 종료하시겠습니까?' : '진행 중인 게임을 포기하시겠습니까?',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('취소'),
+          ),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
@@ -1649,7 +2227,9 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
             },
             child: Text(
               isSoloInGame ? '종료' : '나가기',
-              style: TextStyle(color: isSoloInGame ? Colors.orange : Colors.red),
+              style: TextStyle(
+                color: isSoloInGame ? Colors.orange : Colors.red,
+              ),
             ),
           ),
         ],
@@ -1658,18 +2238,18 @@ class _PyramidScreenState extends State<PyramidScreen> with TickerProviderStateM
   }
 }
 
-/// 육각형 카드 페인터
+/// 육각형 카드 페인터 (두꺼운 잉크 아웃라인 + 단단한 그림자)
 class _HexagonPainter extends CustomPainter {
   final Color fillColor;
   final Color borderColor;
   final double borderWidth;
-  final Color shadowColor;
+  final double shadowOffset;
 
   _HexagonPainter({
     required this.fillColor,
     required this.borderColor,
     required this.borderWidth,
-    required this.shadowColor,
+    required this.shadowOffset,
   });
 
   Path _hexPath(Size size) {
@@ -1678,7 +2258,7 @@ class _HexagonPainter extends CustomPainter {
     final cx = w / 2;
     final cy = h / 2;
     // Flat-top hexagon: 6 vertices
-    final r = min(w, h) / 2 * 0.95;
+    final r = min(w, h) / 2 * 0.93;
     final path = Path();
     for (int i = 0; i < 6; i++) {
       final angle = (pi / 180) * (60 * i - 30);
@@ -1698,24 +2278,52 @@ class _HexagonPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final path = _hexPath(size);
 
-    // Shadow
-    final shadowPaint = Paint()
-      ..color = shadowColor
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
-    canvas.drawPath(path.shift(const Offset(0, 2)), shadowPaint);
+    // 단단한 그림자
+    if (shadowOffset > 0) {
+      final shadow = path.shift(Offset(0, shadowOffset));
+      canvas.drawPath(shadow, Paint()..color = borderColor);
+      canvas.drawPath(
+        shadow,
+        Paint()
+          ..color = borderColor
+          ..style = PaintingStyle.stroke
+          ..strokeJoin = StrokeJoin.round
+          ..strokeWidth = borderWidth,
+      );
+    }
 
     // Fill
-    final fillPaint = Paint()
-      ..color = fillColor
-      ..style = PaintingStyle.fill;
-    canvas.drawPath(path, fillPaint);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = fillColor
+        ..style = PaintingStyle.fill,
+    );
+
+    // 광택
+    final shine = Path()
+      ..moveTo(size.width * 0.28, size.height * 0.3)
+      ..lineTo(size.width * 0.5, size.height * 0.18)
+      ..lineTo(size.width * 0.66, size.height * 0.27);
+    canvas.drawPath(
+      shine,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.55)
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..strokeWidth = 3,
+    );
 
     // Border
-    final borderPaint = Paint()
-      ..color = borderColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = borderWidth;
-    canvas.drawPath(path, borderPaint);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = borderColor
+        ..style = PaintingStyle.stroke
+        ..strokeJoin = StrokeJoin.round
+        ..strokeWidth = borderWidth,
+    );
   }
 
   @override
@@ -1723,12 +2331,205 @@ class _HexagonPainter extends CustomPainter {
     return fillColor != oldDelegate.fillColor ||
         borderColor != oldDelegate.borderColor ||
         borderWidth != oldDelegate.borderWidth ||
-        shadowColor != oldDelegate.shadowColor;
+        shadowOffset != oldDelegate.shadowOffset;
   }
 
   @override
   bool hitTest(Offset position) {
     // Only respond to taps inside the hexagon
     return true;
+  }
+}
+
+// ───────────────────────── 캔디 카툰 보조 위젯 ─────────────────────────
+
+/// 두꺼운 아웃라인 + 단단한 그림자의 알약형 안내 라벨.
+class _CandyPill extends StatelessWidget {
+  final String text;
+  final Color color;
+  final IconData icon;
+  final double fontSize;
+  const _CandyPill({
+    required this.text,
+    required this.color,
+    required this.icon,
+    this.fontSize = 16,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 320),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: CandyColors.ink, width: 2.5),
+        boxShadow: const [
+          BoxShadow(color: CandyColors.ink, offset: Offset(0, 3)),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: fontSize + 4),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: fontSize,
+                fontWeight: FontWeight.w900,
+                color: CandyColors.ink,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 점수가 바뀔 때마다 통통 튀는 숫자.
+class _ScorePop extends StatelessWidget {
+  final int score;
+  final String suffix;
+  final Color color;
+  const _ScorePop({required this.score, required this.color, this.suffix = ''});
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      key: ValueKey(score),
+      tween: Tween(begin: 1.5, end: 1.0),
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.elasticOut,
+      builder: (_, s, child) => Transform.scale(scale: s, child: child),
+      child: Text(
+        '$score$suffix',
+        style: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w900,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+/// 정답 경로 등 짧은 라벨 칩.
+class _ComboChip extends StatelessWidget {
+  final String text;
+  final Color color;
+  final Color textColor;
+  const _ComboChip({
+    required this.text,
+    required this.color,
+    required this.textColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: CandyColors.ink, width: 2),
+        boxShadow: const [
+          BoxShadow(color: CandyColors.ink, offset: Offset(0, 2)),
+        ],
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w900,
+          color: textColor,
+        ),
+      ),
+    );
+  }
+}
+
+/// 선택한 카드 칸. 채워지면 통통 튄다.
+class _AnswerSlot extends StatelessWidget {
+  final String? label;
+  final Color color;
+  const _AnswerSlot({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final filled = label != null;
+    return TweenAnimationBuilder<double>(
+      key: ValueKey('slot-${label ?? ''}'),
+      tween: Tween(begin: filled ? 0.6 : 1.0, end: 1.0),
+      duration: const Duration(milliseconds: 380),
+      curve: Curves.elasticOut,
+      builder: (_, s, child) => Transform.scale(scale: s, child: child),
+      child: Container(
+        width: 46,
+        height: 46,
+        margin: const EdgeInsets.symmetric(horizontal: 3),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: filled ? CandyColors.sun : const Color(0xFFF1ECFA),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: CandyColors.ink, width: 2.5),
+          boxShadow: const [
+            BoxShadow(color: CandyColors.ink, offset: Offset(0, 3)),
+          ],
+        ),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            label ?? '?',
+            style: TextStyle(
+              fontSize: 19,
+              fontWeight: FontWeight.w900,
+              color: filled ? CandyColors.ink : CandyColors.inkSoft,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 되돌리기 버튼.
+class _UndoButton extends StatelessWidget {
+  final bool enabled;
+  final VoidCallback onTap;
+  const _UndoButton({required this.enabled, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: enabled ? onTap : null,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 150),
+        opacity: enabled ? 1.0 : 0.4,
+        child: Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            border: Border.all(color: CandyColors.ink, width: 2.5),
+            boxShadow: const [
+              BoxShadow(color: CandyColors.ink, offset: Offset(0, 3)),
+            ],
+          ),
+          child: const Icon(
+            Icons.undo_rounded,
+            size: 22,
+            color: CandyColors.ink,
+          ),
+        ),
+      ),
+    );
   }
 }

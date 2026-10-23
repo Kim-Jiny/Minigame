@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
@@ -9,8 +10,14 @@ import '../../services/socket_service.dart';
 import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
+import '../../theme/candy_theme.dart';
 import '../../utils/game_theme.dart';
 import '../../utils/game_registry.dart';
+import '../../widgets/cartoon/cartoon_card.dart';
+import '../../widgets/cartoon/chunky_button.dart';
+import '../../widgets/cartoon/confetti_burst.dart';
+import '../../widgets/cartoon/duo_mascot.dart';
+import '../../widgets/cartoon/pop_in.dart';
 import '../common/game_rematch_preparing_view.dart';
 import '../common/game_intro_view.dart';
 import '../common/game_scaffold.dart';
@@ -22,6 +29,8 @@ import '../common/game_result_action_buttons.dart';
 import '../common/game_result_summary.dart';
 import '../common/game_screen_transition.dart';
 import '../common/game_session_helper.dart';
+import '../common/game_timer_badge.dart';
+import '../common/match_status_views.dart';
 import 'set_card.dart';
 
 enum SetGameStatus { idle, searching, matched, playing, finished }
@@ -44,8 +53,9 @@ class SetScreen extends StatefulWidget {
 
 class _SetScreenState extends State<SetScreen> {
   final SocketService _socketService = SocketService();
-  late final SocketListenerRegistry _socketListeners =
-      SocketListenerRegistry(_socketService);
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(
+    _socketService,
+  );
   bool _hasScheduledPop = false;
   bool _isExitDialogOpen = false;
 
@@ -117,6 +127,9 @@ class _SetScreenState extends State<SetScreen> {
   Timer? _soloStopwatch; // 경과시간 표시 갱신용 틱
   final Stopwatch _soloClock = Stopwatch(); // 벽시계 기반 경과(틱 누락에도 정확)
   int _soloElapsedMs = 0; // 표시용 경과(클라 측정)
+  // 경과시간 표시용 — 틱마다 화면 전체를 setState 하지 않고 헤더만 갱신한다.
+  final ValueNotifier<int> _soloElapsedNotifier = ValueNotifier<int>(0);
+  int _confettiTick = 0; // 내가 세트를 잡을 때마다 증가 → 컨페티
   int? _soloResultMs; // 서버가 확정한 최종 시간(랭킹 기준)
   int _soloSetsFound = 0;
   List<Map<String, dynamic>> _rankings = [];
@@ -141,7 +154,8 @@ class _SetScreenState extends State<SetScreen> {
   void _initFromGameProvider() {
     try {
       final game = context.read<GameProvider>();
-      final isActiveInvitation = game.isInvitationGame &&
+      final isActiveInvitation =
+          game.isInvitationGame &&
           game.roomId != null &&
           game.opponentNickname != null &&
           (game.status == GameStatus.matched ||
@@ -174,6 +188,7 @@ class _SetScreenState extends State<SetScreen> {
     _soloStopwatch?.cancel();
     _socketListeners.offAll();
     _rankingsListenable.dispose();
+    _soloElapsedNotifier.dispose();
     super.dispose();
   }
 
@@ -255,12 +270,15 @@ class _SetScreenState extends State<SetScreen> {
       final players = (data['players'] as List)
           .map((p) => Map<String, dynamic>.from(p as Map))
           .toList();
-      final opponent = players
-          .cast<Map<String, dynamic>?>()
-          .firstWhere((p) => p!['id'] != _myId, orElse: () => null);
+      final opponent = players.cast<Map<String, dynamic>?>().firstWhere(
+        (p) => p!['id'] != _myId,
+        orElse: () => null,
+      );
       if (opponent == null) return;
-      final me =
-          players.firstWhere((p) => p['id'] == _myId, orElse: () => <String, dynamic>{});
+      final me = players.firstWhere(
+        (p) => p['id'] == _myId,
+        orElse: () => <String, dynamic>{},
+      );
       _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
 
       setState(() {
@@ -274,11 +292,14 @@ class _SetScreenState extends State<SetScreen> {
         _opponentUserId = opponent['userId'];
         _isInvitationGame = data['isInvitation'] == true;
         if (opponent['profileSettings'] != null) {
-          _opponentProfileSettings =
-              UserProfileSettings.fromJson(opponent['profileSettings']);
+          _opponentProfileSettings = UserProfileSettings.fromJson(
+            opponent['profileSettings'],
+          );
         }
         if (me['profileSettings'] != null) {
-          _myProfileSettings = UserProfileSettings.fromJson(me['profileSettings']);
+          _myProfileSettings = UserProfileSettings.fromJson(
+            me['profileSettings'],
+          );
         }
       });
     });
@@ -314,9 +335,9 @@ class _SetScreenState extends State<SetScreen> {
       if (mounted) {
         final by = (data['nickname'] as String?) ?? '상대';
         ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$by님이 종료 요청을 거절했어요')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$by님이 종료 요청을 거절했어요')));
       }
     });
 
@@ -337,6 +358,7 @@ class _SetScreenState extends State<SetScreen> {
         _scores = [0, 0];
         _deckRemaining = 0; // 재경기 시 이전 게임의 남은 카드 수 잔상 방지
         _scoreToWin = 6;
+        _confettiTick = 0;
         _selected.clear();
         _claimLocked = false;
         _lastClaimFailed = false;
@@ -389,11 +411,24 @@ class _SetScreenState extends State<SetScreen> {
       _claimWatchdog?.cancel();
       final newBoard = List<int>.from(data['board'] ?? _board);
       final claimed = List<int>.from(data['claimedCards'] ?? const []);
+      final prevMy = _scores.length > _myPlayerIndex
+          ? _scores[_myPlayerIndex]
+          : 0;
+      var iClaimed = false;
       setState(() {
         // 직전 성공 강조가 아직 남아 있으면 그 보드를 먼저 확정하고 새 강조로 교체.
         if (_pendingBoard != null) _board = _pendingBoard!;
         _scores = List<int>.from(data['scores'] ?? _scores);
-        _deckRemaining = (data['deckRemaining'] as num?)?.toInt() ?? _deckRemaining;
+        // 내 점수가 올랐으면 내가 잡은 세트 → 컨페티.
+        final nowMy = _scores.length > _myPlayerIndex
+            ? _scores[_myPlayerIndex]
+            : 0;
+        if (nowMy > prevMy) {
+          iClaimed = true;
+          _confettiTick++;
+        }
+        _deckRemaining =
+            (data['deckRemaining'] as num?)?.toInt() ?? _deckRemaining;
         _selected.clear();
         _claimLocked = false;
         _lastClaimFailed = false;
@@ -408,6 +443,7 @@ class _SetScreenState extends State<SetScreen> {
           _pendingBoard = null;
         }
       });
+      if (iClaimed) HapticFeedback.mediumImpact();
       _highlightTimer?.cancel();
       if (_pendingBoard != null) {
         _highlightTimer = Timer(const Duration(milliseconds: 1000), () {
@@ -441,6 +477,7 @@ class _SetScreenState extends State<SetScreen> {
         });
         return;
       }
+      HapticFeedback.heavyImpact();
       setState(() {
         _lastClaimFailed = reason == 'not_a_set';
         _claimLocked = true;
@@ -475,7 +512,8 @@ class _SetScreenState extends State<SetScreen> {
         _pendingBoard = null;
         _board = List<int>.from(data['board'] ?? _board);
         _scores = List<int>.from(data['scores'] ?? _scores);
-        _deckRemaining = (data['deckRemaining'] as num?)?.toInt() ?? _deckRemaining;
+        _deckRemaining =
+            (data['deckRemaining'] as num?)?.toInt() ?? _deckRemaining;
         _selected.clear();
         _claimLocked = false;
         _lastClaimFailed = false;
@@ -498,13 +536,15 @@ class _SetScreenState extends State<SetScreen> {
       _highlightTimer?.cancel();
       setState(() {
         _roomId = data['roomId'] as String?;
-        _myPlayerIndex = (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
+        _myPlayerIndex =
+            (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
         _isInfinite = infinite;
         _highlightCards = [];
         _pendingBoard = null;
         _board = List<int>.from(data['board'] ?? _board);
         _scores = List<int>.from(data['scores'] ?? _scores);
-        _deckRemaining = (data['deckRemaining'] as num?)?.toInt() ?? _deckRemaining;
+        _deckRemaining =
+            (data['deckRemaining'] as num?)?.toInt() ?? _deckRemaining;
         _scoreToWin = (data['scoreToWin'] as num?)?.toInt() ?? _scoreToWin;
         _selected.clear();
         _claimLocked = false;
@@ -518,7 +558,10 @@ class _SetScreenState extends State<SetScreen> {
       } else {
         _startCountdown((remainingMs / 1000).ceil());
       }
-      GameReconnectHelper.completeReconnect(context: context, onRecovered: () {});
+      GameReconnectHelper.completeReconnect(
+        context: context,
+        onRecovered: () {},
+      );
     });
 
     _socketListeners.on('reconnect_failed', (_) {
@@ -594,8 +637,9 @@ class _SetScreenState extends State<SetScreen> {
     _socketListeners.on('set_rankings', (data) {
       final list = data['rankings'] as List<dynamic>? ?? [];
       setState(() {
-        _rankings =
-            list.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+        _rankings = list
+            .map((r) => Map<String, dynamic>.from(r as Map))
+            .toList();
       });
       _rankingsListenable.value = _rankings; // 열려 있는 랭킹 시트 갱신
     });
@@ -630,9 +674,9 @@ class _SetScreenState extends State<SetScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(widget.isRanked
-                ? '상대가 나가서 게임이 종료되었습니다. 승리!'
-                : '상대방이 나갔습니다.'),
+            content: Text(
+              widget.isRanked ? '상대가 나가서 게임이 종료되었습니다. 승리!' : '상대방이 나갔습니다.',
+            ),
             backgroundColor: Colors.orange,
           ),
         );
@@ -678,6 +722,7 @@ class _SetScreenState extends State<SetScreen> {
       _isSolo = true;
       _soloResultMs = null;
       _soloElapsedMs = 0;
+      _soloElapsedNotifier.value = 0;
       _status = SetGameStatus.matched;
     });
   }
@@ -689,6 +734,7 @@ class _SetScreenState extends State<SetScreen> {
   void _startSoloStopwatch() {
     _soloStopwatch?.cancel();
     _soloElapsedMs = 0;
+    _soloElapsedNotifier.value = 0;
     _soloClock
       ..reset()
       ..start();
@@ -696,7 +742,8 @@ class _SetScreenState extends State<SetScreen> {
     // 틱이 밀리거나 누락돼도 시간이 짧게 표시되지 않는다.
     _soloStopwatch = Timer.periodic(const Duration(milliseconds: 100), (_) {
       if (!mounted) return;
-      setState(() => _soloElapsedMs = _soloClock.elapsedMilliseconds);
+      _soloElapsedMs = _soloClock.elapsedMilliseconds;
+      _soloElapsedNotifier.value = _soloElapsedMs;
     });
   }
 
@@ -760,7 +807,10 @@ class _SetScreenState extends State<SetScreen> {
             onPressed: () {
               Navigator.of(ctx).pop();
               _endDialogOpen = false;
-              _socketService.emit('set_end_vote', {'roomId': _roomId, 'agree': false});
+              _socketService.emit('set_end_vote', {
+                'roomId': _roomId,
+                'agree': false,
+              });
             },
             child: const Text('거절'),
           ),
@@ -768,7 +818,10 @@ class _SetScreenState extends State<SetScreen> {
             onPressed: () {
               Navigator.of(ctx).pop();
               _endDialogOpen = false;
-              _socketService.emit('set_end_vote', {'roomId': _roomId, 'agree': true});
+              _socketService.emit('set_end_vote', {
+                'roomId': _roomId,
+                'agree': true,
+              });
             },
             child: const Text('동의'),
           ),
@@ -789,6 +842,7 @@ class _SetScreenState extends State<SetScreen> {
     // 세트 성공 강조(노란 테두리)가 유지되는 동안에는 입력을 막는다.
     // 이미 제거된 카드 탭 → 서버 not_on_board 거절 같은 혼란 방지.
     if (_pendingBoard != null) return;
+    HapticFeedback.selectionClick();
     setState(() {
       _lastClaimFailed = false;
       if (_selected.contains(cardId)) {
@@ -844,6 +898,9 @@ class _SetScreenState extends State<SetScreen> {
     _waitingReconnectTimer?.cancel();
     _penaltyTimer?.cancel();
     _highlightTimer?.cancel();
+    _claimWatchdog?.cancel();
+    _countdownTimer?.cancel();
+    _stopSoloStopwatch();
     setState(() {
       _status = SetGameStatus.idle;
       _roomId = null;
@@ -901,6 +958,14 @@ class _SetScreenState extends State<SetScreen> {
                   transitionKey: _status.name,
                   child: _buildBody(theme),
                 ),
+                if (_confettiTick > 0)
+                  Positioned.fill(
+                    child: ConfettiBurst(
+                      key: ValueKey('confetti-$_confettiTick'),
+                      count: 22,
+                      duration: const Duration(milliseconds: 1300),
+                    ),
+                  ),
                 ...GameReconnectHelper.buildStandardOverlays(
                   isReconnecting: _isReconnecting,
                   isWaitingForReconnect: _isWaitingForReconnect,
@@ -917,8 +982,7 @@ class _SetScreenState extends State<SetScreen> {
 
   // 무한모드 대결 플레이 중에만 우측 상단에 '게임 종료 요청' 버튼/대기 표시.
   List<Widget>? _endRequestActions() {
-    final canShow =
-        _status == SetGameStatus.playing && _isInfinite && !_isSolo;
+    final canShow = _status == SetGameStatus.playing && _isInfinite && !_isSolo;
     if (!canShow) return null;
     if (_endRequestPending) {
       return [
@@ -928,7 +992,10 @@ class _SetScreenState extends State<SetScreen> {
             child: Text(
               '동의 대기 $_endAgreed/$_endTotal',
               style: const TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white),
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
             ),
           ),
         ),
@@ -938,8 +1005,10 @@ class _SetScreenState extends State<SetScreen> {
       TextButton.icon(
         onPressed: _requestEnd,
         icon: const Icon(Icons.flag_rounded, size: 18, color: Colors.white),
-        label: const Text('종료 요청',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+        label: const Text(
+          '종료 요청',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
       ),
     ];
   }
@@ -966,23 +1035,17 @@ class _SetScreenState extends State<SetScreen> {
           '4속성이 모두 같거나 모두 다른 카드 3장!',
           '덱 81장을 모두 비우는 데 걸린 시간으로 랭킹 도전',
         ],
-        extra: SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: () {
-              _fetchRankings();
-              _showRankingSheet(theme);
-            },
-            icon: const Icon(Icons.leaderboard_rounded),
-            label: const Text('솔로 랭킹 보기'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: theme.primary,
-              side: BorderSide(color: theme.primary.withValues(alpha: 0.5)),
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16)),
-            ),
-          ),
+        extra: ChunkyButton(
+          label: '솔로 랭킹 보기',
+          icon: Icons.leaderboard_rounded,
+          color: Colors.white,
+          textColor: CandyColors.ink,
+          height: 46,
+          fontSize: 16,
+          onPressed: () {
+            _fetchRankings();
+            _showRankingSheet(theme);
+          },
         ),
         findMatchLabel: '랭킹 도전 시작',
         onFindMatch: _startSolo,
@@ -994,66 +1057,50 @@ class _SetScreenState extends State<SetScreen> {
       icon: Icons.style_rounded,
       title: 'Set',
       descriptions: _isInfinite
-          ? const [
-              '4속성이 모두 같거나 모두 다른 카드 3장!',
-              '타이머 없이 덱을 끝까지 · 더 많이 모은 쪽 승리',
-            ]
-          : const [
-              '4속성이 모두 같거나 모두 다른 카드 3장!',
-              '먼저 6세트 승리 · 틀리면 -1점 (120초)',
-            ],
+          ? const ['4속성이 모두 같거나 모두 다른 카드 3장!', '타이머 없이 덱을 끝까지 · 더 많이 모은 쪽 승리']
+          : const ['4속성이 모두 같거나 모두 다른 카드 3장!', '먼저 6세트 승리 · 틀리면 -1점 (120초)'],
       extra: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           _SetPlayerCountSelector(
             value: _maxPlayers,
             accent: theme.primary,
-            onChanged: (n) => setState(() => _maxPlayers = n),
+            onChanged: (n) {
+              HapticFeedback.selectionClick();
+              setState(() => _maxPlayers = n);
+            },
           ),
           const SizedBox(height: 12),
           _SetInfiniteToggle(
             value: _isInfinite,
             accent: theme.primary,
-            onChanged: (v) => setState(() => _isInfinite = v),
+            onChanged: (v) {
+              HapticFeedback.selectionClick();
+              setState(() => _isInfinite = v);
+            },
           ),
         ],
       ),
       // 3·4인은 친구 초대 미지원(랜덤 매칭 전용) — 2인일 때만 초대 버튼 노출.
       onFindMatch: _findMatch,
-      onInviteFriend:
-          _maxPlayers == 2 ? () => _showFriendInviteDialog(context) : null,
+      onInviteFriend: _maxPlayers == 2
+          ? () => _showFriendInviteDialog(context)
+          : null,
     );
   }
 
   Widget _buildSearchingView(GameTheme theme) {
-    final accent = theme.primary;
-    return Container(
-      decoration: BoxDecoration(gradient: theme.backgroundGradient),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(color: accent),
-            const SizedBox(height: 24),
-            Text('상대를 찾는 중...',
-                style: TextStyle(
-                    fontSize: 20, fontWeight: FontWeight.bold, color: accent)),
-            const SizedBox(height: 48),
-            OutlinedButton(
-              onPressed: _cancelMatch,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.grey,
-                side: BorderSide(color: Colors.grey.shade400),
-              ),
-              child: const Text('취소'),
-            ),
-          ],
-        ),
-      ),
+    return GameSearchingView(
+      theme: theme,
+      isHardcore: false,
+      onCancel: _cancelMatch,
     );
   }
 
   Widget _buildMatchedView(GameTheme theme) {
+    if (!_isSolo && !_isMulti) {
+      return GameMatchedView(theme: theme, opponentNickname: _opponentNickname);
+    }
     final accent = theme.primary;
     return Container(
       decoration: BoxDecoration(gradient: theme.backgroundGradient),
@@ -1061,24 +1108,30 @@ class _SetScreenState extends State<SetScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.1), shape: BoxShape.circle),
-              child: Icon(Icons.sports_esports, size: 64, color: accent),
+            PopIn(
+              child: DuoMascot(
+                size: 110,
+                color: accent,
+                mood: MascotMood.cheer,
+              ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
             Text(
-                _isSolo
-                    ? '랭킹 도전 준비!'
-                    : _isMulti
-                        ? '${_players.length}명 매칭 완료!'
-                        : '$_opponentNickname님과 매칭!',
-                style: TextStyle(
-                    fontSize: 24, fontWeight: FontWeight.bold, color: accent)),
+              _isSolo ? '랭킹 도전 준비!' : '${_players.length}명 매칭 완료!',
+              style: TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.w900,
+                color: accent,
+              ),
+            ),
             const SizedBox(height: 8),
-            Text('게임이 곧 시작됩니다...',
-                style: TextStyle(color: Colors.grey.shade600)),
+            const Text(
+              '게임이 곧 시작됩니다...',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: CandyColors.inkSoft,
+              ),
+            ),
           ],
         ),
       ),
@@ -1114,8 +1167,11 @@ class _SetScreenState extends State<SetScreen> {
       );
     }
 
-    final myScore = _scores.length > _myPlayerIndex ? _scores[_myPlayerIndex] : 0;
-    final opScore = _scores.length > (1 - _myPlayerIndex) ? _scores[1 - _myPlayerIndex] : 0;
+    final myScore = _scores.length > _myPlayerIndex
+        ? _scores[_myPlayerIndex]
+        : 0;
+    final oppIdx = _myPlayerIndex == 0 ? 1 : 0;
+    final opScore = _scores.length > oppIdx ? _scores[oppIdx] : 0;
 
     return Container(
       decoration: BoxDecoration(gradient: theme.backgroundGradient),
@@ -1126,6 +1182,12 @@ class _SetScreenState extends State<SetScreen> {
             accentColor: accent,
             centerLabel: _isInfinite ? '$_deckRemaining' : '$_remainingSeconds',
             centerSubtitle: _isInfinite ? '남은 카드' : '남은 시간',
+            centerWidget: _CenterCount(
+              value: _isInfinite ? _deckRemaining : _remainingSeconds,
+              label: _isInfinite ? '남은 카드' : '남은 시간',
+              color: accent,
+              warn: !_isInfinite && _remainingSeconds <= 10,
+            ),
             myName: _myNickname ?? '나',
             opponentName: _opponentNickname ?? '상대',
             myAvatarUrl: _myAvatarUrl,
@@ -1135,27 +1197,26 @@ class _SetScreenState extends State<SetScreen> {
             myProfileSettings: _myProfileSettings,
             opponentProfileSettings: _opponentProfileSettings,
             myExtraWidget: GameHeaderScorePill(
-                score: myScore, color: accent, margin: const EdgeInsets.only(top: 4)),
+              score: myScore,
+              color: accent,
+              margin: const EdgeInsets.only(top: 4),
+            ),
             opponentExtraWidget: GameHeaderScorePill(
-                score: opScore,
-                color: Colors.grey.shade500,
-                margin: const EdgeInsets.only(top: 4)),
+              score: opScore,
+              color: CandyColors.inkSoft,
+              margin: const EdgeInsets.only(top: 4),
+            ),
           ),
           // 진행 안내
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  '세트 3장 선택 · 남은 카드 $_deckRemaining장',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade500,
-                  ),
-                ),
-              ],
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 2),
+            child: Text(
+              '세트 3장 선택 · 남은 카드 $_deckRemaining장',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: CandyColors.inkSoft,
+              ),
             ),
           ),
           Expanded(child: _buildBoard(accent)),
@@ -1168,80 +1229,76 @@ class _SetScreenState extends State<SetScreen> {
   Widget _buildMultiHeader(Color accent) {
     return SafeArea(
       bottom: false,
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(12, 10, 12, 2),
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withValues(alpha: 0.04),
-                blurRadius: 12,
-                offset: const Offset(0, 4)),
-          ],
-        ),
-        child: Column(
-          children: [
-            Text(
-              _isInfinite ? '남은 카드 $_deckRemaining장' : '$_remainingSeconds초',
-              style: TextStyle(
-                  fontSize: 18, fontWeight: FontWeight.w800, color: accent),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: List.generate(_players.length, (i) {
-                final p = _players[i];
-                final isMe = i == _myPlayerIndex;
-                final left = _leftIndices.contains(i);
-                final score = i < _scores.length ? _scores[i] : 0;
-                final name = (p['nickname'] as String?) ?? '?';
-                return Expanded(
-                  child: Opacity(
-                    opacity: left ? 0.4 : 1,
-                    child: Column(
-                      children: [
-                        Text(
-                          isMe ? '나' : name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight:
-                                isMe ? FontWeight.w800 : FontWeight.w600,
-                            color: isMe ? accent : Colors.grey.shade600,
-                            decoration:
-                                left ? TextDecoration.lineThrough : null,
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Container(
-                          width: 34,
-                          height: 34,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: isMe
-                                ? accent
-                                : accent.withValues(alpha: 0.10),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Text(
-                            '$score',
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 2),
+        child: CartoonCard(
+          radius: 22,
+          shadow: 4,
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+          child: Column(
+            children: [
+              if (_isInfinite)
+                Text(
+                  '남은 카드 $_deckRemaining장',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: accent,
+                  ),
+                )
+              else
+                GameTimerBadge(
+                  seconds: _remainingSeconds,
+                  label: '남은 시간',
+                  accentColor: accent,
+                  compact: true,
+                  showLabel: false,
+                  warningThreshold: 10,
+                ),
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: List.generate(_players.length, (i) {
+                  final p = _players[i];
+                  final isMe = i == _myPlayerIndex;
+                  final left = _leftIndices.contains(i);
+                  final score = i < _scores.length ? _scores[i] : 0;
+                  final name = (p['nickname'] as String?) ?? '?';
+                  return Expanded(
+                    child: Opacity(
+                      opacity: left ? 0.4 : 1,
+                      child: Column(
+                        children: [
+                          Text(
+                            isMe ? '나' : name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w800,
-                              color: isMe ? Colors.white : accent,
+                              fontSize: 12,
+                              fontWeight: isMe
+                                  ? FontWeight.w900
+                                  : FontWeight.w700,
+                              color: CandyColors.ink,
+                              decoration: left
+                                  ? TextDecoration.lineThrough
+                                  : null,
                             ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 3),
+                          _ScoreBadge(
+                            score: score,
+                            color: isMe ? accent : Colors.white,
+                            textColor: isMe ? Colors.white : CandyColors.ink,
+                            size: 34,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                );
-              }),
-            ),
-          ],
+                  );
+                }),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1256,20 +1313,22 @@ class _SetScreenState extends State<SetScreen> {
     // 활성 플레이어만 점수로 정렬·등수를 매기고, 이탈자는 맨 아래에 둔다.
     final active = [
       for (var i = 0; i < _players.length; i++)
-        if (!isLeft(i)) i
+        if (!isLeft(i)) i,
     ]..sort((a, b) => scoreOf(b).compareTo(scoreOf(a)));
     final leftList = [
       for (var i = 0; i < _players.length; i++)
-        if (isLeft(i)) i
+        if (isLeft(i)) i,
     ];
     final order = [...active, ...leftList];
     // 등수: 나보다 점수 높은 '활성' 인원 수 +1 → 동점은 같은 등수(공동 N등).
-    int rankOf(int i) => 1 + active.where((j) => scoreOf(j) > scoreOf(i)).length;
+    int rankOf(int i) =>
+        1 + active.where((j) => scoreOf(j) > scoreOf(i)).length;
 
     final myScore = scoreOf(_myPlayerIndex);
     final iAmActive = !isLeft(_myPlayerIndex);
-    final myRank =
-        iAmActive ? rankOf(_myPlayerIndex) : order.indexOf(_myPlayerIndex) + 1;
+    final myRank = iAmActive
+        ? rankOf(_myPlayerIndex)
+        : order.indexOf(_myPlayerIndex) + 1;
     final topScore = active.isNotEmpty ? scoreOf(active.first) : 0;
     final topCount = active.where((i) => scoreOf(i) == topScore).length;
     final iAmTop = iAmActive && myScore == topScore;
@@ -1288,18 +1347,18 @@ class _SetScreenState extends State<SetScreen> {
                 icon: isSoleWinner
                     ? Icons.emoji_events_rounded
                     : isTopDraw
-                        ? Icons.handshake_rounded
-                        : Icons.flag_rounded,
+                    ? Icons.handshake_rounded
+                    : Icons.flag_rounded,
                 color: isSoleWinner
                     ? accent
                     : isTopDraw
-                        ? const Color(0xFFEA8A00)
-                        : Colors.grey,
+                    ? CandyColors.tangerine
+                    : CandyColors.inkSoft,
                 title: isSoleWinner
                     ? '승리!'
                     : isTopDraw
-                        ? '무승부!'
-                        : '$myRank등',
+                    ? '무승부!'
+                    : '$myRank등',
                 subtitle: isTopDraw
                     ? '${_players.length}명 중 공동 1등 · $myScore세트'
                     : '${_players.length}명 중 $myRank등 · $myScore세트',
@@ -1313,88 +1372,103 @@ class _SetScreenState extends State<SetScreen> {
                 final score = scoreOf(i);
                 final r = left ? -1 : rankOf(i); // 이탈자는 등수 없음
                 final medal = ['🥇', '🥈', '🥉'];
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: isMe ? accent.withValues(alpha: 0.10) : Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: isMe
-                          ? accent.withValues(alpha: 0.4)
-                          : const Color(0xFFEDEDF2),
+                return PopIn(
+                  delay: Duration(milliseconds: 80 * pos),
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
                     ),
-                  ),
-                  child: Row(
-                    children: [
-                      SizedBox(
-                        width: 30,
-                        child: Text(
-                          left ? '–' : (r <= 3 ? medal[r - 1] : '$r'),
-                          style: const TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          isMe ? '나' : ((p['nickname'] as String?) ?? '?'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight:
-                                isMe ? FontWeight.w800 : FontWeight.w600,
-                            color: isMe ? accent : const Color(0xFF1F2430),
-                            decoration:
-                                left ? TextDecoration.lineThrough : null,
+                    decoration: BoxDecoration(
+                      color: isMe
+                          ? Color.lerp(accent, Colors.white, 0.75)
+                          : Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: CandyColors.ink, width: 2.5),
+                      boxShadow: const [
+                        BoxShadow(color: CandyColors.ink, offset: Offset(0, 3)),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 32,
+                          child: Text(
+                            left
+                                ? '–'
+                                : (r >= 1 && r <= 3 ? medal[r - 1] : '$r'),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              color: CandyColors.ink,
+                            ),
                           ),
                         ),
-                      ),
-                      if (left)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: Text('이탈',
-                              style: TextStyle(
-                                  fontSize: 11, color: Colors.grey.shade400)),
-                        ),
-                      Text('$score세트',
-                          style: TextStyle(
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            isMe ? '나' : ((p['nickname'] as String?) ?? '?'),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
                               fontSize: 15,
-                              fontWeight: FontWeight.w800,
-                              color: accent)),
-                    ],
+                              fontWeight: isMe
+                                  ? FontWeight.w900
+                                  : FontWeight.w700,
+                              color: CandyColors.ink,
+                              decoration: left
+                                  ? TextDecoration.lineThrough
+                                  : null,
+                            ),
+                          ),
+                        ),
+                        if (left)
+                          const Padding(
+                            padding: EdgeInsets.only(right: 8),
+                            child: Text(
+                              '이탈',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: CandyColors.inkSoft,
+                              ),
+                            ),
+                          ),
+                        Text(
+                          '$score세트',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                            color: isMe ? CandyColors.ink : accent,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 );
               }),
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    _leaveGame();
-                    _findMatch();
-                  },
-                  icon: const Icon(Icons.refresh_rounded),
-                  label: const Text('다시 매칭'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: accent,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16)),
-                  ),
-                ),
+              const SizedBox(height: 14),
+              ChunkyButton(
+                label: '다시 매칭',
+                icon: Icons.refresh_rounded,
+                color: accent,
+                onPressed: () {
+                  _leaveGame();
+                  _findMatch();
+                },
               ),
-              const SizedBox(height: 10),
-              TextButton(
+              const SizedBox(height: 12),
+              ChunkyButton(
+                label: '로비로',
+                color: Colors.white,
+                textColor: CandyColors.ink,
+                height: 46,
+                fontSize: 16,
                 onPressed: () {
                   _leaveGame();
                   Navigator.pop(context);
                 },
-                child:
-                    Text('로비로', style: TextStyle(color: Colors.grey.shade600)),
               ),
             ],
           ),
@@ -1404,51 +1478,73 @@ class _SetScreenState extends State<SetScreen> {
   }
 
   Widget _buildSoloHeader(Color accent) {
-    Widget stat(IconData icon, String label, String value, Color color) {
+    Widget stat(IconData icon, String label, Widget value, Color color) {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, color: color, size: 20),
           const SizedBox(height: 4),
-          Text(value,
-              style: TextStyle(
-                  fontSize: 20, fontWeight: FontWeight.w800, color: color)),
+          value,
           const SizedBox(height: 2),
-          Text(label,
-              style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade500)),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: CandyColors.inkSoft,
+            ),
+          ),
         ],
       );
     }
 
+    final found = _scores.isNotEmpty ? _scores[0] : 0;
     return SafeArea(
       bottom: false,
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(14, 10, 14, 2),
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            stat(Icons.timer_rounded, '경과 시간',
-                _formatTime(_soloElapsedMs), accent),
-            stat(Icons.check_circle_rounded, '찾은 세트',
-                '${_scores.isNotEmpty ? _scores[0] : 0}', Colors.grey.shade700),
-            stat(Icons.style_rounded, '남은 카드', '$_deckRemaining',
-                Colors.grey.shade700),
-          ],
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 2),
+        child: CartoonCard(
+          radius: 22,
+          shadow: 4,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              // 경과시간은 이 위젯만 갱신(화면 전체 setState 없음).
+              stat(
+                Icons.timer_rounded,
+                '경과 시간',
+                ValueListenableBuilder<int>(
+                  valueListenable: _soloElapsedNotifier,
+                  builder: (_, ms, _) => Text(
+                    _formatTime(ms),
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      color: accent,
+                    ),
+                  ),
+                ),
+                accent,
+              ),
+              stat(
+                Icons.check_circle_rounded,
+                '찾은 세트',
+                _PopNumber(value: found, color: CandyColors.ink, fontSize: 20),
+                CandyColors.mintDeep,
+              ),
+              stat(
+                Icons.style_rounded,
+                '남은 카드',
+                _PopNumber(
+                  value: _deckRemaining,
+                  color: CandyColors.ink,
+                  fontSize: 20,
+                ),
+                CandyColors.skyDeep,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1456,10 +1552,10 @@ class _SetScreenState extends State<SetScreen> {
 
   Widget _buildBoard(Color accent) {
     const cols = 3;
-    const spacing = 10.0;
+    const spacing = 12.0;
     // 안드로이드 시스템 네비게이션 바와 겹치지 않도록 하단 인셋만큼 비운다.
     final bottomInset = MediaQuery.of(context).padding.bottom;
-    final padding = EdgeInsets.fromLTRB(14, 6, 14, 14 + bottomInset);
+    final padding = EdgeInsets.fromLTRB(16, 10, 16, 16 + bottomInset);
     return LayoutBuilder(
       builder: (context, constraints) {
         final count = _board.length;
@@ -1485,6 +1581,7 @@ class _SetScreenState extends State<SetScreen> {
             final id = _board[index];
             final selected = _selected.contains(id);
             return SetCard(
+              key: ValueKey('set-card-$id'),
               cardId: id,
               selected: selected,
               failed: selected && _lastClaimFailed,
@@ -1536,7 +1633,7 @@ class _SetScreenState extends State<SetScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 GameResultHero(
-                  icon: Icons.timer_rounded,
+                  icon: Icons.emoji_events_rounded,
                   color: accent,
                   title: _formatTime(ms),
                   subtitle: '덱을 모두 비웠어요 · $_soloSetsFound세트',
@@ -1548,52 +1645,40 @@ class _SetScreenState extends State<SetScreen> {
                   color: accent,
                 ),
                 const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _status = SetGameStatus.idle;
-                        _roomId = null;
-                        _soloResultMs = null;
-                      });
-                      _startSolo();
-                    },
-                    icon: const Icon(Icons.refresh_rounded),
-                    label: const Text('다시 도전'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: accent,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16)),
-                    ),
-                  ),
+                ChunkyButton(
+                  label: '다시 도전',
+                  icon: Icons.refresh_rounded,
+                  color: accent,
+                  onPressed: () {
+                    setState(() {
+                      _status = SetGameStatus.idle;
+                      _roomId = null;
+                      _soloResultMs = null;
+                    });
+                    _startSolo();
+                  },
                 ),
                 const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      _fetchRankings();
-                      _showRankingSheet(theme);
-                    },
-                    icon: const Icon(Icons.leaderboard_rounded),
-                    label: const Text('솔로 랭킹 보기'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: accent,
-                      side: BorderSide(color: accent.withValues(alpha: 0.5)),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16)),
-                    ),
-                  ),
+                ChunkyButton(
+                  label: '솔로 랭킹 보기',
+                  icon: Icons.leaderboard_rounded,
+                  color: Colors.white,
+                  textColor: CandyColors.ink,
+                  height: 46,
+                  fontSize: 16,
+                  onPressed: () {
+                    _fetchRankings();
+                    _showRankingSheet(theme);
+                  },
                 ),
                 const SizedBox(height: 12),
-                TextButton(
+                ChunkyButton(
+                  label: '로비로',
+                  color: Colors.white,
+                  textColor: CandyColors.inkSoft,
+                  height: 42,
+                  fontSize: 15,
                   onPressed: () => Navigator.pop(context),
-                  child: Text('로비로',
-                      style: TextStyle(color: Colors.grey.shade600)),
                 ),
               ],
             ),
@@ -1616,7 +1701,7 @@ class _SetScreenState extends State<SetScreen> {
       resultIcon = Icons.emoji_events;
     } else if (_isDraw) {
       resultText = '무승부!';
-      resultColor = Colors.orange;
+      resultColor = CandyColors.tangerine;
       resultIcon = Icons.handshake;
     } else if (isWinner) {
       resultText = '승리!';
@@ -1624,12 +1709,15 @@ class _SetScreenState extends State<SetScreen> {
       resultIcon = Icons.emoji_events;
     } else {
       resultText = '아쉬워요...';
-      resultColor = Colors.grey;
+      resultColor = CandyColors.inkSoft;
       resultIcon = Icons.sentiment_dissatisfied;
     }
 
-    final myScore = _scores.length > _myPlayerIndex ? _scores[_myPlayerIndex] : 0;
-    final opScore = _scores.length > (1 - _myPlayerIndex) ? _scores[1 - _myPlayerIndex] : 0;
+    final myScore = _scores.length > _myPlayerIndex
+        ? _scores[_myPlayerIndex]
+        : 0;
+    final oppIdx = _myPlayerIndex == 0 ? 1 : 0;
+    final opScore = _scores.length > oppIdx ? _scores[oppIdx] : 0;
 
     return Container(
       decoration: BoxDecoration(gradient: theme.backgroundGradient),
@@ -1660,18 +1748,21 @@ class _SetScreenState extends State<SetScreen> {
                 GameResultStatusPill(
                   icon: Icons.hourglass_top_rounded,
                   text: '$_opponentNickname님이 재경기 대기 중',
-                  color: const Color(0xFF15803D),
+                  color: CandyColors.mintDeep,
                 ),
               GameResultActionButtons(
                 accentColor: accent,
                 opponentLeft: _opponentLeft,
                 rematchWaiting: _rematchWaiting,
                 isInvitationGame: _isInvitationGame,
-                canSendFriendRequest: !_isInvitationGame &&
+                canSendFriendRequest:
+                    !_isInvitationGame &&
                     !_opponentLeft &&
                     _opponentUserId != null &&
                     !context.read<FriendProvider>().isFriend(_opponentUserId!),
-                onRematchPressed: _rematchWaiting ? _cancelRematch : _requestRematch,
+                onRematchPressed: _rematchWaiting
+                    ? _cancelRematch
+                    : _requestRematch,
                 onSearchAgainPressed: () {
                   _leaveGame();
                   _findMatch();
@@ -1688,8 +1779,7 @@ class _SetScreenState extends State<SetScreen> {
                             .sendFriendRequestByUserId(_opponentUserId!);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content:
-                                Text('$_opponentNickname님에게 친구 요청을 보냈습니다'),
+                            content: Text('$_opponentNickname님에게 친구 요청을 보냈습니다'),
                             duration: const Duration(seconds: 2),
                           ),
                         );
@@ -1708,9 +1798,10 @@ class _SetScreenState extends State<SetScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: CandyColors.cream,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        side: BorderSide(color: CandyColors.ink, width: 3),
       ),
       builder: (ctx) {
         return DraggableScrollableSheet(
@@ -1727,11 +1818,14 @@ class _SetScreenState extends State<SetScreen> {
                     children: [
                       Icon(Icons.leaderboard_rounded, color: theme.primary),
                       const SizedBox(width: 8),
-                      Text('Set 솔로 랭킹',
-                          style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
-                              color: theme.primary)),
+                      const Text(
+                        'Set 솔로 랭킹',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          color: CandyColors.ink,
+                        ),
+                      ),
                       const Spacer(),
                       IconButton(
                         onPressed: () => Navigator.pop(ctx),
@@ -1746,60 +1840,82 @@ class _SetScreenState extends State<SetScreen> {
                     valueListenable: _rankingsListenable,
                     builder: (context, rankings, _) {
                       return rankings.isEmpty
-                      ? Center(
-                          child: Text('아직 기록이 없어요. 첫 기록을 세워보세요!',
-                              style: TextStyle(color: Colors.grey.shade500)),
-                        )
-                      : ListView.builder(
-                          controller: scrollController,
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          itemCount: rankings.length,
-                          itemBuilder: (_, index) {
-                            final r = rankings[index];
-                            final nickname = r['nickname'] as String? ?? '???';
-                            final timeMs =
-                                (r['time_ms'] as num?)?.toInt() ?? 0;
-                            final setsFound =
-                                (r['sets_found'] as num?)?.toInt() ?? 0;
-                            final isTop3 = index < 3;
-                            final badgeColor = isTop3
-                                ? [
-                                    const Color(0xFFFFC107),
-                                    const Color(0xFFB0BEC5),
-                                    const Color(0xFFBCAAA4),
-                                  ][index]
-                                : Colors.grey.shade200;
-                            return ListTile(
-                              leading: Container(
-                                width: 36,
-                                height: 36,
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                    color: badgeColor, shape: BoxShape.circle),
-                                child: Text('${index + 1}',
-                                    style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: isTop3
-                                            ? Colors.white
-                                            : Colors.grey.shade600)),
-                              ),
-                              title: Text(nickname,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w600)),
-                              subtitle: Text('$setsFound세트',
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade500)),
-                              trailing: Text(
-                                _formatTime(timeMs),
+                          ? Center(
+                              child: const Text(
+                                '아직 기록이 없어요. 첫 기록을 세워보세요!',
                                 style: TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w800,
-                                    color: theme.primary),
+                                  color: CandyColors.inkSoft,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
+                            )
+                          : ListView.builder(
+                              controller: scrollController,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              itemCount: rankings.length,
+                              itemBuilder: (_, index) {
+                                final r = rankings[index];
+                                final nickname =
+                                    r['nickname'] as String? ?? '???';
+                                final timeMs =
+                                    (r['time_ms'] as num?)?.toInt() ?? 0;
+                                final setsFound =
+                                    (r['sets_found'] as num?)?.toInt() ?? 0;
+                                final isTop3 = index < 3;
+                                final badgeColor = isTop3
+                                    ? [
+                                        CandyColors.sun,
+                                        const Color(0xFFC9C3D9),
+                                        CandyColors.tangerine,
+                                      ][index]
+                                    : Colors.white;
+                                return ListTile(
+                                  leading: Container(
+                                    width: 36,
+                                    height: 36,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      color: badgeColor,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: CandyColors.ink,
+                                        width: 2,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      '${index + 1}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        color: CandyColors.ink,
+                                      ),
+                                    ),
+                                  ),
+                                  title: Text(
+                                    nickname,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      color: CandyColors.ink,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    '$setsFound세트',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: CandyColors.inkSoft,
+                                    ),
+                                  ),
+                                  trailing: Text(
+                                    _formatTime(timeMs),
+                                    style: TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w900,
+                                      color: theme.primary,
+                                    ),
+                                  ),
+                                );
+                              },
                             );
-                          },
-                        );
                     },
                   ),
                 ),
@@ -1822,14 +1938,21 @@ class _SetScreenState extends State<SetScreen> {
       backgroundColor: Colors.transparent,
       builder: (dialogContext) => Consumer<FriendProvider>(
         builder: (context, friendProvider, child) {
-          final onlineFriends =
-              friendProvider.friends.where((f) => f.isOnline).toList();
+          final onlineFriends = friendProvider.friends
+              .where((f) => f.isOnline)
+              .toList();
           return Container(
             constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(dialogContext).size.height * 0.6),
+              maxHeight: MediaQuery.of(dialogContext).size.height * 0.6,
+            ),
             decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              color: CandyColors.cream,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border(
+                top: BorderSide(color: CandyColors.ink, width: 3),
+                left: BorderSide(color: CandyColors.ink, width: 3),
+                right: BorderSide(color: CandyColors.ink, width: 3),
+              ),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1839,8 +1962,9 @@ class _SetScreenState extends State<SetScreen> {
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2)),
+                    color: CandyColors.ink.withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
                 Padding(
                   padding: const EdgeInsets.all(20),
@@ -1848,9 +1972,14 @@ class _SetScreenState extends State<SetScreen> {
                     children: [
                       Icon(Icons.person_add, color: theme.primary),
                       const SizedBox(width: 12),
-                      const Text('친구 초대',
-                          style: TextStyle(
-                              fontSize: 20, fontWeight: FontWeight.bold)),
+                      const Text(
+                        '친구 초대',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          color: CandyColors.ink,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1863,11 +1992,16 @@ class _SetScreenState extends State<SetScreen> {
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.person_off,
-                                    size: 48, color: Colors.grey.shade400),
+                                Icon(
+                                  Icons.person_off,
+                                  size: 48,
+                                  color: Colors.grey.shade400,
+                                ),
                                 const SizedBox(height: 16),
-                                Text('온라인 친구가 없습니다',
-                                    style: TextStyle(color: Colors.grey.shade600)),
+                                Text(
+                                  '온라인 친구가 없습니다',
+                                  style: TextStyle(color: Colors.grey.shade600),
+                                ),
                               ],
                             ),
                           ),
@@ -1879,7 +2013,9 @@ class _SetScreenState extends State<SetScreen> {
                             final friend = onlineFriends[index];
                             return ListTile(
                               leading: CircleAvatar(
-                                backgroundColor: theme.primary.withValues(alpha: 0.2),
+                                backgroundColor: theme.primary.withValues(
+                                  alpha: 0.2,
+                                ),
                                 child: Text(
                                   friend.nickname.isNotEmpty
                                       ? friend.nickname[0].toUpperCase()
@@ -1887,9 +2023,12 @@ class _SetScreenState extends State<SetScreen> {
                                   style: TextStyle(color: theme.primary),
                                 ),
                               ),
-                              title: Text(friend.nickname,
-                                  style:
-                                      const TextStyle(fontWeight: FontWeight.w600)),
+                              title: Text(
+                                friend.nickname,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                               trailing: ElevatedButton(
                                 onPressed: () {
                                   friendProvider.inviteToGame(
@@ -1898,11 +2037,14 @@ class _SetScreenState extends State<SetScreen> {
                                     isHardcore: false,
                                   );
                                   Navigator.pop(dialogContext);
-                                  ScaffoldMessenger.of(context).clearSnackBars();
+                                  ScaffoldMessenger.of(
+                                    context,
+                                  ).clearSnackBars();
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
                                       content: Text(
-                                          '${friend.nickname}님에게 초대를 보냈습니다!'),
+                                        '${friend.nickname}님에게 초대를 보냈습니다!',
+                                      ),
                                       backgroundColor: Colors.green,
                                     ),
                                   );
@@ -1910,6 +2052,13 @@ class _SetScreenState extends State<SetScreen> {
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: theme.primary,
                                   foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(20),
+                                    side: const BorderSide(
+                                      color: CandyColors.ink,
+                                      width: 2.5,
+                                    ),
+                                  ),
                                 ),
                                 child: const Text('초대'),
                               ),
@@ -1931,7 +2080,8 @@ class _SetScreenState extends State<SetScreen> {
       Navigator.pop(context);
       return;
     }
-    final isRankedWaiting = widget.isRanked &&
+    final isRankedWaiting =
+        widget.isRanked &&
         (_status == SetGameStatus.idle ||
             _status == SetGameStatus.searching ||
             _status == SetGameStatus.matched);
@@ -1972,9 +2122,12 @@ class _SetPlayerCountSelector extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade300),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: CandyColors.ink, width: 2.5),
+        boxShadow: const [
+          BoxShadow(color: CandyColors.ink, offset: Offset(0, 3)),
+        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1983,17 +2136,22 @@ class _SetPlayerCountSelector extends StatelessWidget {
           return GestureDetector(
             onTap: () => onChanged(n),
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutBack,
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
               decoration: BoxDecoration(
                 color: selected ? accent : Colors.transparent,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(15),
+                border: Border.all(
+                  color: selected ? CandyColors.ink : Colors.transparent,
+                  width: 2,
+                ),
               ),
               child: Text(
                 '$n인',
                 style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: selected ? Colors.white : Colors.grey.shade600,
+                  fontWeight: FontWeight.w900,
+                  color: selected ? Colors.white : CandyColors.inkSoft,
                 ),
               ),
             ),
@@ -2022,37 +2180,45 @@ class _SetInfiniteToggle extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           decoration: BoxDecoration(
-            color: value ? accent.withValues(alpha: 0.12) : Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: value ? accent.withValues(alpha: 0.5) : Colors.grey.shade300,
-            ),
+            color: value ? Color.lerp(accent, Colors.white, 0.8) : Colors.white,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: CandyColors.ink, width: 2.5),
+            boxShadow: const [
+              BoxShadow(color: CandyColors.ink, offset: Offset(0, 3)),
+            ],
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 Icons.all_inclusive_rounded,
-                color: value ? accent : Colors.grey,
+                color: value ? accent : CandyColors.inkSoft,
                 size: 20,
               ),
               const SizedBox(width: 8),
               Text(
                 '무한모드',
                 style: TextStyle(
-                  color: value ? accent : Colors.grey.shade700,
-                  fontWeight: FontWeight.bold,
+                  color: value ? CandyColors.ink : CandyColors.inkSoft,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
               const SizedBox(width: 8),
               Switch(
                 value: value,
                 onChanged: onChanged,
-                activeThumbColor: accent,
-                activeTrackColor: accent.withValues(alpha: 0.4),
+                activeThumbColor: Colors.white,
+                activeTrackColor: accent,
+                inactiveThumbColor: Colors.white,
+                inactiveTrackColor: CandyColors.inkSoft.withValues(alpha: 0.5),
+                trackOutlineColor: const WidgetStatePropertyAll(
+                  CandyColors.ink,
+                ),
+                trackOutlineWidth: const WidgetStatePropertyAll(2),
               ),
             ],
           ),
@@ -2065,11 +2231,144 @@ class _SetInfiniteToggle extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 color: accent,
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ),
       ],
+    );
+  }
+}
+
+/// 헤더 중앙 카운터(남은 시간 / 남은 카드). 10초 이하에서는 매초 통통 뛴다.
+class _CenterCount extends StatelessWidget {
+  final int value;
+  final String label;
+  final Color color;
+  final bool warn;
+  const _CenterCount({
+    required this.value,
+    required this.label,
+    required this.color,
+    required this.warn,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = warn ? const Color(0xFFE5484D) : color;
+    Widget pill = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+      decoration: BoxDecoration(
+        color: warn ? const Color(0xFFFFE9EA) : Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: CandyColors.ink, width: 2.5),
+        boxShadow: const [
+          BoxShadow(color: CandyColors.ink, offset: Offset(0, 3)),
+        ],
+      ),
+      child: Text(
+        '$value',
+        style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: fg),
+      ),
+    );
+    if (warn) {
+      pill = TweenAnimationBuilder<double>(
+        key: ValueKey(value),
+        tween: Tween(begin: 1.2, end: 1.0),
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.elasticOut,
+        builder: (_, s, child) => Transform.scale(scale: s, child: child),
+        child: pill,
+      );
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        pill,
+        const SizedBox(height: 6),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+            color: CandyColors.inkSoft,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 점수 원형 배지. 점수가 바뀌면 통통 튄다.
+class _ScoreBadge extends StatelessWidget {
+  final int score;
+  final Color color;
+  final Color textColor;
+  final double size;
+  const _ScoreBadge({
+    required this.score,
+    required this.color,
+    required this.textColor,
+    required this.size,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      key: ValueKey(score),
+      tween: Tween(begin: 1.5, end: 1.0),
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.elasticOut,
+      builder: (_, s, child) => Transform.scale(scale: s, child: child),
+      child: Container(
+        width: size,
+        height: size,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          border: Border.all(color: CandyColors.ink, width: 2),
+        ),
+        child: Text(
+          '$score',
+          style: TextStyle(
+            fontSize: size * 0.45,
+            fontWeight: FontWeight.w900,
+            color: textColor,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 값이 바뀔 때마다 통통 튀는 숫자 텍스트.
+class _PopNumber extends StatelessWidget {
+  final int value;
+  final Color color;
+  final double fontSize;
+  const _PopNumber({
+    required this.value,
+    required this.color,
+    required this.fontSize,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      key: ValueKey(value),
+      tween: Tween(begin: 1.35, end: 1.0),
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.elasticOut,
+      builder: (_, s, child) => Transform.scale(scale: s, child: child),
+      child: Text(
+        '$value',
+        style: TextStyle(
+          fontSize: fontSize,
+          fontWeight: FontWeight.w900,
+          color: color,
+        ),
+      ),
     );
   }
 }

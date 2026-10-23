@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../config/app_config.dart';
 import '../../providers/auth_provider.dart';
@@ -10,14 +11,21 @@ import '../../providers/shop_provider.dart';
 import '../../services/socket_service.dart';
 import '../../services/socket_listener_registry.dart';
 import '../../models/shop_item.dart';
+import '../../theme/candy_theme.dart';
 import '../../utils/game_theme.dart';
 import '../../utils/game_registry.dart';
+import '../../widgets/cartoon/cartoon_card.dart';
+import '../../widgets/cartoon/chunky_button.dart';
+import '../../widgets/cartoon/confetti_burst.dart';
+import '../../widgets/cartoon/pop_in.dart';
 import '../../widgets/game_player_profile.dart';
 import '../common/game_rematch_preparing_view.dart';
 import '../common/game_end_action_panel.dart';
 import '../common/game_scaffold.dart';
 import '../common/match_status_views.dart';
 import '../common/game_reconnect_helper.dart';
+import '../common/game_result_summary.dart';
+import '../common/game_timer_badge.dart';
 
 enum HexagonGameStatus {
   idle,
@@ -45,18 +53,24 @@ class FoundCombo {
   final String letters;
   final int playerIndex;
 
-  FoundCombo({required this.cells, required this.letters, required this.playerIndex});
+  FoundCombo({
+    required this.cells,
+    required this.letters,
+    required this.playerIndex,
+  });
 }
 
 class HexagonCellPainter extends CustomPainter {
   final Color fillColor;
   final Color borderColor;
   final double borderWidth;
+  final double shadowOffset;
 
   HexagonCellPainter({
     required this.fillColor,
     required this.borderColor,
     required this.borderWidth,
+    this.shadowOffset = 0,
   });
 
   @override
@@ -70,12 +84,27 @@ class HexagonCellPainter extends CustomPainter {
       ..lineTo(0, size.height * 0.25)
       ..close();
 
+    if (shadowOffset > 0) {
+      // 만화풍 단단한 그림자
+      final shadowPath = path.shift(Offset(0, shadowOffset));
+      canvas.drawPath(shadowPath, Paint()..color = borderColor);
+      canvas.drawPath(
+        shadowPath,
+        Paint()
+          ..color = borderColor
+          ..style = PaintingStyle.stroke
+          ..strokeJoin = StrokeJoin.round
+          ..strokeWidth = borderWidth,
+      );
+    }
+
     final fillPaint = Paint()
       ..color = fillColor
       ..style = PaintingStyle.fill;
     final strokePaint = Paint()
       ..color = borderColor
       ..style = PaintingStyle.stroke
+      ..strokeJoin = StrokeJoin.round
       ..strokeWidth = borderWidth;
 
     canvas.drawPath(path, fillPaint);
@@ -86,7 +115,8 @@ class HexagonCellPainter extends CustomPainter {
   bool shouldRepaint(covariant HexagonCellPainter oldDelegate) {
     return oldDelegate.fillColor != fillColor ||
         oldDelegate.borderColor != borderColor ||
-        oldDelegate.borderWidth != borderWidth;
+        oldDelegate.borderWidth != borderWidth ||
+        oldDelegate.shadowOffset != shadowOffset;
   }
 }
 
@@ -100,9 +130,12 @@ class HexagonScreen extends StatefulWidget {
   State<HexagonScreen> createState() => _HexagonScreenState();
 }
 
-class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateMixin {
+class _HexagonScreenState extends State<HexagonScreen>
+    with TickerProviderStateMixin {
   final SocketService _socketService = SocketService();
-  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(
+    _socketService,
+  );
 
   // 게임 상태
   HexagonGameStatus _status = HexagonGameStatus.idle;
@@ -176,6 +209,13 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
   String? _lastResultMessage;
   Color? _lastResultColor;
 
+  // 정답/오답 셀 반짝임 + 컨페티
+  List<int> _flashCells = [];
+  bool _flashCorrect = true;
+  int _flashTick = 0;
+  int _confettiTick = 0;
+  Timer? _flashTimer;
+
   @override
   void initState() {
     super.initState();
@@ -211,6 +251,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     _idleTimer?.cancel();
     _buzzTimer?.cancel();
     _reconnectTimer?.cancel();
+    _flashTimer?.cancel();
     _resultAnimController.dispose();
     super.dispose();
   }
@@ -218,10 +259,12 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
   void _initFromGameProvider() {
     try {
       final game = context.read<GameProvider>();
-      final isActiveInvitation = game.isInvitationGame &&
+      final isActiveInvitation =
+          game.isInvitationGame &&
           game.roomId != null &&
           game.opponentNickname != null &&
-          (game.status == GameStatus.matched || game.status == GameStatus.playing);
+          (game.status == GameStatus.matched ||
+              game.status == GameStatus.playing);
       if (isActiveInvitation) {
         setState(() {
           _roomId = game.roomId;
@@ -241,7 +284,8 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
   void _setupSocketListeners() {
     // 소켓 재연결 감지: 게임 중이었으면 재연결 대기
     _socketListeners.on('connect', (_) {
-      final isInGame = _status != HexagonGameStatus.idle &&
+      final isInGame =
+          _status != HexagonGameStatus.idle &&
           _status != HexagonGameStatus.finished &&
           _status != HexagonGameStatus.searching;
       if (isInGame && _roomId != null) {
@@ -272,7 +316,10 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
           });
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('연결이 끊겨 게임이 종료되었습니다'), backgroundColor: Colors.orange),
+              const SnackBar(
+                content: Text('연결이 끊겨 게임이 종료되었습니다'),
+                backgroundColor: Colors.orange,
+              ),
             );
           }
         }
@@ -293,27 +340,40 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
       final scoreData = data['scores'] as List<dynamic>? ?? [0, 0];
       final roundState = data['roundState'] as String? ?? 'playing';
 
-      _board = boardData.asMap().entries.map((e) => HexCell(
-        index: e.key,
-        number: (e.value['number'] as num).toInt(),
-        letter: e.value['letter'] as String,
-      )).toList();
+      _board = boardData
+          .asMap()
+          .entries
+          .map(
+            (e) => HexCell(
+              index: e.key,
+              number: (e.value['number'] as num).toInt(),
+              letter: e.value['letter'] as String,
+            ),
+          )
+          .toList();
       _letters = lettersData.map((l) => l as String).toList();
       _targetNumber = (data['targetNumber'] as num?)?.toInt() ?? 0;
       _currentRound = (data['round'] as num?)?.toInt() ?? 0;
       _scores = scoreData.map((s) => (s as num).toInt()).toList();
       _totalCombinations = (data['totalCombinations'] as num?)?.toInt() ?? 0;
-      _remainingCombinations = (data['remainingCombinations'] as num?)?.toInt() ?? 0;
+      _remainingCombinations =
+          (data['remainingCombinations'] as num?)?.toInt() ?? 0;
       _isSolo = data['isSolo'] as bool? ?? false;
       _myPlayerIndex = (data['playerIndex'] as num?)?.toInt() ?? 0;
       _roomId = data['roomId'] as String?;
       _selectedCells = [];
 
-      _foundCombinations = foundData.map((fc) => FoundCombo(
-        cells: (fc['cells'] as List<dynamic>).map((c) => (c as num).toInt()).toList(),
-        letters: fc['letters'] as String,
-        playerIndex: (fc['playerIndex'] as num).toInt(),
-      )).toList();
+      _foundCombinations = foundData
+          .map(
+            (fc) => FoundCombo(
+              cells: (fc['cells'] as List<dynamic>)
+                  .map((c) => (c as num).toInt())
+                  .toList(),
+              letters: fc['letters'] as String,
+              playerIndex: (fc['playerIndex'] as num).toInt(),
+            ),
+          )
+          .toList();
 
       _buzzingPlayerIndex = data['buzzingPlayer'] != null
           ? (data['buzzingPlayer'] as num).toInt()
@@ -371,7 +431,9 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
         _opponentAvatarUrl = players[opponentIdx]['avatarUrl'] as String?;
         final profileSettings = players[opponentIdx]['profileSettings'];
         if (profileSettings != null) {
-          _opponentProfileSettings = UserProfileSettings.fromJson(profileSettings);
+          _opponentProfileSettings = UserProfileSettings.fromJson(
+            profileSettings,
+          );
         }
       }
       setState(() => _status = HexagonGameStatus.matched);
@@ -405,11 +467,17 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
 
     _socketListeners.on('hexagon_round_start', (data) {
       final boardData = data['board'] as List<dynamic>;
-      _board = boardData.asMap().entries.map((e) => HexCell(
-        index: e.key,
-        number: (e.value['number'] as num).toInt(),
-        letter: e.value['letter'] as String,
-      )).toList();
+      _board = boardData
+          .asMap()
+          .entries
+          .map(
+            (e) => HexCell(
+              index: e.key,
+              number: (e.value['number'] as num).toInt(),
+              letter: e.value['letter'] as String,
+            ),
+          )
+          .toList();
       _targetNumber = (data['targetNumber'] as num).toInt();
       _currentRound = (data['round'] as num).toInt();
       _totalCombinations = (data['totalCombinations'] as num).toInt();
@@ -420,6 +488,9 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
       _skipAvailable = false;
       _mySkipVoted = false;
       _opponentSkipVoted = false;
+      _flashCells = [];
+      _confettiTick = 0;
+      _lastResultMessage = null;
 
       final scoreData = data['scores'] as List<dynamic>?;
       if (scoreData != null) {
@@ -477,16 +548,46 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
       // 찾은 조합 업데이트
       final foundData = data['foundCombinations'] as List<dynamic>?;
       if (foundData != null) {
-        _foundCombinations = foundData.map((fc) => FoundCombo(
-          cells: (fc['cells'] as List<dynamic>).map((c) => (c as num).toInt()).toList(),
-          letters: fc['letters'] as String,
-          playerIndex: (fc['playerIndex'] as num).toInt(),
-        )).toList();
+        _foundCombinations = foundData
+            .map(
+              (fc) => FoundCombo(
+                cells: (fc['cells'] as List<dynamic>)
+                    .map((c) => (c as num).toInt())
+                    .toList(),
+                letters: fc['letters'] as String,
+                playerIndex: (fc['playerIndex'] as num).toInt(),
+              ),
+            )
+            .toList();
       }
 
+      final prevSelected = List<int>.from(_selectedCells);
       _buzzTimer?.cancel();
       _buzzingPlayerIndex = null;
       _selectedCells = [];
+
+      // 정답/오답 셀 반짝임
+      List<int> flash = const [];
+      if (correct) {
+        final claimed = _foundCombinations
+            .where((fc) => fc.letters == letters)
+            .toList();
+        flash = claimed.isNotEmpty ? claimed.last.cells : const [];
+      } else if (playerIdx == _myPlayerIndex) {
+        flash = prevSelected;
+      }
+      _triggerFlash(
+        flash,
+        correct,
+        celebrate: correct && playerIdx == _myPlayerIndex,
+      );
+      if (playerIdx == _myPlayerIndex) {
+        if (correct) {
+          HapticFeedback.mediumImpact();
+        } else {
+          HapticFeedback.heavyImpact();
+        }
+      }
 
       // 결과 메시지
       if (correct) {
@@ -494,18 +595,18 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
             ? '정답! $letters (+1)'
             : '$nickname: $letters (+1)';
         _lastResultColor = playerIdx == _myPlayerIndex
-            ? Colors.green
-            : Colors.orange;
+            ? CandyColors.mintDeep
+            : CandyColors.tangerine;
       } else if (alreadyFound) {
         _lastResultMessage = playerIdx == _myPlayerIndex
             ? '이미 찾은 조합! (-1)'
             : '$nickname: 이미 찾은 조합 (-1)';
-        _lastResultColor = Colors.red;
+        _lastResultColor = const Color(0xFFFF5A5F);
       } else {
         _lastResultMessage = playerIdx == _myPlayerIndex
             ? '오답! (-1)'
             : '$nickname: 오답 (-1)';
-        _lastResultColor = Colors.red;
+        _lastResultColor = const Color(0xFFFF5A5F);
       }
       _resultAnimController.forward(from: 0);
 
@@ -521,7 +622,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
       _selectedCells = [];
 
       _lastResultMessage = '시간 초과! (-1)';
-      _lastResultColor = Colors.red;
+      _lastResultColor = const Color(0xFFFF5A5F);
       _resultAnimController.forward(from: 0);
 
       setState(() => _status = HexagonGameStatus.playing);
@@ -539,21 +640,33 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
 
       final foundData = data['foundCombinations'] as List<dynamic>?;
       if (foundData != null) {
-        _foundCombinations = foundData.map((fc) => FoundCombo(
-          cells: (fc['cells'] as List<dynamic>).map((c) => (c as num).toInt()).toList(),
-          letters: fc['letters'] as String,
-          playerIndex: (fc['playerIndex'] as num).toInt(),
-        )).toList();
+        _foundCombinations = foundData
+            .map(
+              (fc) => FoundCombo(
+                cells: (fc['cells'] as List<dynamic>)
+                    .map((c) => (c as num).toInt())
+                    .toList(),
+                letters: fc['letters'] as String,
+                playerIndex: (fc['playerIndex'] as num).toInt(),
+              ),
+            )
+            .toList();
       }
 
       // 보드 데이터 복원 (라운드 종료 시 숫자 보여주기)
       final boardData = data['board'] as List<dynamic>?;
       if (boardData != null) {
-        _board = boardData.asMap().entries.map((e) => HexCell(
-          index: e.key,
-          number: (e.value['number'] as num).toInt(),
-          letter: e.value['letter'] as String,
-        )).toList();
+        _board = boardData
+            .asMap()
+            .entries
+            .map(
+              (e) => HexCell(
+                index: e.key,
+                number: (e.value['number'] as num).toInt(),
+                letter: e.value['letter'] as String,
+              ),
+            )
+            .toList();
       }
 
       setState(() => _status = HexagonGameStatus.roundEnd);
@@ -608,7 +721,10 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('상대방이 나갔습니다'), backgroundColor: Colors.orange),
+          const SnackBar(
+            content: Text('상대방이 나갔습니다'),
+            backgroundColor: Colors.orange,
+          ),
         );
       }
     });
@@ -628,7 +744,9 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     _socketListeners.on('hexagon_rankings', (data) {
       final rankingsData = data['rankings'] as List<dynamic>? ?? [];
       setState(() {
-        _rankings = rankingsData.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+        _rankings = rankingsData
+            .map((r) => Map<String, dynamic>.from(r as Map))
+            .toList();
       });
       _rankingsListenable.value = _rankings; // 열려 있는 랭킹 시트 갱신
     });
@@ -641,12 +759,28 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     });
   }
 
+  void _triggerFlash(List<int> cells, bool correct, {bool celebrate = false}) {
+    _flashTimer?.cancel();
+    if (celebrate) _confettiTick++;
+    if (cells.isEmpty) return;
+    _flashCells = List<int>.from(cells);
+    _flashCorrect = correct;
+    _flashTick++;
+    _flashTimer = Timer(const Duration(milliseconds: 750), () {
+      if (!mounted) return;
+      setState(() => _flashCells = []);
+    });
+  }
+
   // 타이머들
   void _startMemorizeTimer() {
     _memorizeTimer?.cancel();
     _memorizeRemaining = 30;
     _memorizeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) { timer.cancel(); return; }
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       if (_memorizeRemaining > 0) {
         setState(() => _memorizeRemaining--);
       } else {
@@ -659,7 +793,10 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     _idleTimer?.cancel();
     _idleRemaining = 60;
     _idleTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) { timer.cancel(); return; }
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       if (_idleRemaining > 0) {
         setState(() => _idleRemaining--);
       } else {
@@ -672,7 +809,10 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     _buzzTimer?.cancel();
     _buzzRemaining = 10;
     _buzzTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) { timer.cancel(); return; }
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       if (_buzzRemaining > 0) {
         setState(() => _buzzRemaining--);
       } else {
@@ -683,9 +823,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
 
   // 액션들
   void _findMatch() {
-    _socketService.emit('find_match', {
-      'gameType': AppConfig.gameTypeHexagon,
-    });
+    _socketService.emit('find_match', {'gameType': AppConfig.gameTypeHexagon});
     setState(() => _status = HexagonGameStatus.searching);
   }
 
@@ -704,6 +842,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
 
   void _buzz() {
     if (_status != HexagonGameStatus.playing || _roomId == null) return;
+    HapticFeedback.heavyImpact();
     _socketService.emit('game_action', {
       'roomId': _roomId,
       'action': {'type': 'buzz'},
@@ -717,10 +856,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
 
     _socketService.emit('game_action', {
       'roomId': _roomId,
-      'action': {
-        'type': 'answer',
-        'cellIndices': _selectedCells,
-      },
+      'action': {'type': 'answer', 'cellIndices': _selectedCells},
     });
   }
 
@@ -771,6 +907,9 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
   }
 
   void _handleRoomInvalid() {
+    _memorizeTimer?.cancel();
+    _idleTimer?.cancel();
+    _buzzTimer?.cancel();
     setState(() {
       _status = HexagonGameStatus.idle;
       _roomId = null;
@@ -786,7 +925,9 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
             : GameTheme.defaultTheme;
 
         return PopScope(
-          canPop: _status == HexagonGameStatus.idle || _status == HexagonGameStatus.finished,
+          canPop:
+              _status == HexagonGameStatus.idle ||
+              _status == HexagonGameStatus.finished,
           onPopInvokedWithResult: (didPop, _) {
             if (!didPop) {
               _showExitDialog(theme);
@@ -807,16 +948,42 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
                     _buildBody(theme),
                     if (_isReconnecting)
                       Container(
-                        color: Colors.black54,
-                        child: const Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              CircularProgressIndicator(color: Colors.white),
-                              SizedBox(height: 16),
-                              Text('재연결 중...', style: TextStyle(color: Colors.white, fontSize: 18)),
-                            ],
+                        color: CandyColors.ink.withValues(alpha: 0.6),
+                        child: Center(
+                          child: PopIn(
+                            child: CartoonCard(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 28,
+                                vertical: 22,
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CircularProgressIndicator(
+                                    color: theme.primary,
+                                  ),
+                                  const SizedBox(height: 16),
+                                  const Text(
+                                    '재연결 중...',
+                                    style: TextStyle(
+                                      color: CandyColors.ink,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
+                        ),
+                      ),
+                    // 정답 컨페티 (화면 전환에도 유지)
+                    if (_confettiTick > 0)
+                      Positioned.fill(
+                        child: ConfettiBurst(
+                          key: ValueKey('confetti-$_confettiTick'),
+                          count: 30,
+                          duration: const Duration(milliseconds: 1600),
                         ),
                       ),
                   ],
@@ -851,112 +1018,151 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
 
   // ==================== IDLE ====================
   Widget _buildIdleView(GameTheme theme) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        children: [
-          Icon(Icons.hexagon_outlined, size: 80, color: theme.primary),
-          const SizedBox(height: 16),
-          Text('헥사곤', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: theme.primary)),
-          const SizedBox(height: 12),
-          Text(
-            '숫자를 외우고, 합이 맞는 3칸을 찾아라!',
-            style: TextStyle(fontSize: 16, color: Colors.grey[700]),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.8),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _ruleRow('1.', '19칸 보드의 숫자를 30초간 암기'),
-                _ruleRow('2.', '뒤집힌 후 타겟 넘버가 제시'),
-                _ruleRow('3.', '일직선 3칸의 합 = 타겟을 찾으세요'),
-                _ruleRow('4.', '버저를 누르고 10초 내 답변'),
-                _ruleRow('⭕', '정답 +1점 / 오답 -1점'),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          // 혼자하기로 진입 → 랭킹 도전 + 솔로 랭킹 보기
-          if (widget.entryMode == GameEntryMode.solo) ...[
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _startSolo,
-                icon: const Icon(Icons.person),
-                label: const Text('랭킹 도전 (솔로)', style: TextStyle(fontSize: 18)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: theme.primary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () => _showRankingSheet(theme),
-                icon: const Icon(Icons.leaderboard),
-                label: const Text('솔로 랭킹 보기', style: TextStyle(fontSize: 16)),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                ),
-              ),
-            ),
-          ],
-          // 둘이하기로 진입 → 대전 + 친구 초대
-          if (widget.entryMode == GameEntryMode.versus)
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _findMatch,
-                    icon: const Icon(Icons.people),
-                    label: const Text('대전 (2인)', style: TextStyle(fontSize: 18)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: theme.primary,
-                      foregroundColor: theme.textOnPrimary,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              PopIn(
+                child: CartoonCard(
+                  color: Colors.white,
+                  radius: 30,
+                  padding: EdgeInsets.zero,
+                  child: SizedBox(
+                    width: 104,
+                    height: 104,
+                    child: Center(
+                      child: Icon(
+                        Icons.hexagon_rounded,
+                        size: 58,
+                        color: theme.primary,
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: () => _showFriendInviteDialog(context),
-                  icon: const Icon(Icons.person_add, size: 20),
-                  label: const Text('친구 초대'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: theme.primary,
-                    side: BorderSide(color: theme.primary),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                '헥사곤',
+                style: TextStyle(
+                  fontSize: 30,
+                  fontWeight: FontWeight.w900,
+                  color: CandyColors.ink,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '숫자를 외우고, 합이 맞는 3칸을 찾아라!',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: CandyColors.inkSoft,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              PopIn(
+                delay: const Duration(milliseconds: 120),
+                child: CartoonCard(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _ruleRow('1', '19칸 보드의 숫자를 30초간 암기', theme.primary),
+                      _ruleRow('2', '뒤집힌 후 타겟 넘버가 제시', theme.primary),
+                      _ruleRow('3', '일직선 3칸의 합 = 타겟을 찾으세요', theme.primary),
+                      _ruleRow('4', '버저를 누르고 10초 내 답변', theme.primary),
+                      _ruleRow('★', '정답 +1점 / 오답 -1점', CandyColors.tangerine),
+                    ],
                   ),
                 ),
+              ),
+              const SizedBox(height: 24),
+              // 혼자하기로 진입 → 랭킹 도전 + 솔로 랭킹 보기
+              if (widget.entryMode == GameEntryMode.solo) ...[
+                ChunkyButton(
+                  label: '랭킹 도전 (솔로)',
+                  icon: Icons.person_rounded,
+                  color: theme.primary,
+                  textColor: theme.textOnPrimary,
+                  onPressed: _startSolo,
+                ),
+                const SizedBox(height: 14),
+                ChunkyButton(
+                  label: '솔로 랭킹 보기',
+                  icon: Icons.leaderboard_rounded,
+                  color: Colors.white,
+                  textColor: CandyColors.ink,
+                  height: 48,
+                  fontSize: 16,
+                  onPressed: () => _showRankingSheet(theme),
+                ),
               ],
-            ),
-        ],
+              // 둘이하기로 진입 → 대전 + 친구 초대
+              if (widget.entryMode == GameEntryMode.versus) ...[
+                ChunkyButton(
+                  label: '대전 (2인)',
+                  icon: Icons.people_rounded,
+                  color: theme.primary,
+                  textColor: theme.textOnPrimary,
+                  onPressed: _findMatch,
+                ),
+                const SizedBox(height: 14),
+                ChunkyButton(
+                  label: '친구 초대',
+                  icon: Icons.person_add_rounded,
+                  color: Colors.white,
+                  textColor: CandyColors.ink,
+                  height: 48,
+                  fontSize: 16,
+                  onPressed: () => _showFriendInviteDialog(context),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Widget _ruleRow(String num, String text) {
+  Widget _ruleRow(String num, String text, Color badge) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          SizedBox(width: 28, child: Text(num, style: const TextStyle(fontWeight: FontWeight.bold))),
-          Expanded(child: Text(text, style: const TextStyle(fontSize: 14))),
+          Container(
+            width: 26,
+            height: 26,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: badge,
+              shape: BoxShape.circle,
+              border: Border.all(color: CandyColors.ink, width: 2),
+            ),
+            child: Text(
+              num,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: CandyColors.ink,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -964,12 +1170,19 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
 
   // ==================== SEARCHING ====================
   Widget _buildSearchingView(GameTheme theme) {
-    return GameSoloSearchingView(accentColor: theme.primary, onCancel: _cancelMatch);
+    return GameSoloSearchingView(
+      accentColor: theme.primary,
+      onCancel: _cancelMatch,
+    );
   }
 
   // ==================== MATCHED ====================
   Widget _buildMatchedView(GameTheme theme) {
-    return GameSoloMatchedView(accentColor: theme.primary, opponentNickname: _opponentNickname, isSolo: _isSolo);
+    return GameSoloMatchedView(
+      accentColor: theme.primary,
+      opponentNickname: _opponentNickname,
+      isSolo: _isSolo,
+    );
   }
 
   // ==================== MEMORIZING ====================
@@ -977,14 +1190,27 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     return Column(
       children: [
         _buildHeader(theme),
-        // 타이머
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(
+          padding: const EdgeInsets.only(top: 10, bottom: 4),
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 10,
+            runSpacing: 6,
             children: [
-              Text('숫자를 외우세요!', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: theme.primary)),
-              const SizedBox(height: 4),
-              Text('$_memorizeRemaining초', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: _memorizeRemaining <= 5 ? Colors.red : theme.primary)),
+              _CandyPill(
+                text: '숫자를 외우세요!',
+                color: theme.primary,
+                icon: Icons.visibility_rounded,
+              ),
+              GameTimerBadge(
+                seconds: _memorizeRemaining,
+                label: '남은 시간',
+                accentColor: theme.primary,
+                compact: true,
+                showLabel: false,
+                warningThreshold: 5,
+              ),
             ],
           ),
         ),
@@ -996,63 +1222,156 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
 
   // ==================== PLAYING / BUZZING ====================
   Widget _buildPlayingView(GameTheme theme) {
-    final iAmBuzzing = _status == HexagonGameStatus.buzzing && _buzzingPlayerIndex == _myPlayerIndex;
-    final otherBuzzing = _status == HexagonGameStatus.buzzing && _buzzingPlayerIndex != _myPlayerIndex;
+    final iAmBuzzing =
+        _status == HexagonGameStatus.buzzing &&
+        _buzzingPlayerIndex == _myPlayerIndex;
+    final otherBuzzing =
+        _status == HexagonGameStatus.buzzing &&
+        _buzzingPlayerIndex != _myPlayerIndex;
 
     return Column(
       children: [
         _buildHeader(theme),
-        // 타겟 넘버 + 남은 조합
+        // 타겟 넘버 + 타이머/버저 상태
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.only(top: 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: theme.primary,
-                  borderRadius: BorderRadius.circular(20),
+              TweenAnimationBuilder<double>(
+                key: ValueKey('target-$_currentRound-$_targetNumber'),
+                tween: Tween(begin: 0.6, end: 1.0),
+                duration: const Duration(milliseconds: 520),
+                curve: Curves.elasticOut,
+                builder: (_, s, child) =>
+                    Transform.scale(scale: s, child: child),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.primary,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: CandyColors.ink, width: 2.5),
+                    boxShadow: const [
+                      BoxShadow(color: CandyColors.ink, offset: Offset(0, 3)),
+                    ],
+                  ),
+                  child: Text(
+                    '타겟 $_targetNumber',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      color: theme.textOnPrimary,
+                    ),
+                  ),
                 ),
-                child: Text('타겟: $_targetNumber', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: theme.textOnPrimary)),
               ),
-              const SizedBox(width: 12),
-              Text('남은 조합: $_remainingCombinations/$_totalCombinations',
-                style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+              const SizedBox(width: 10),
+              Flexible(
+                child: _status == HexagonGameStatus.playing
+                    ? GameTimerBadge(
+                        seconds: _idleRemaining,
+                        label: '',
+                        accentColor: theme.primary,
+                        compact: true,
+                        showLabel: false,
+                        warningThreshold: 10,
+                      )
+                    : _CandyPill(
+                        text: iAmBuzzing
+                            ? '답변하세요! $_buzzRemaining초'
+                            : '${_getPlayerNickname(_buzzingPlayerIndex ?? 0)} 답변 중...',
+                        color: iAmBuzzing
+                            ? CandyColors.tangerine
+                            : CandyColors.sky,
+                        icon: iAmBuzzing
+                            ? Icons.bolt_rounded
+                            : Icons.hourglass_top_rounded,
+                      ),
+              ),
             ],
           ),
         ),
-        // 타이머
-        if (_status == HexagonGameStatus.playing)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Text('$_idleRemaining초',
-              style: TextStyle(fontSize: 16, color: _idleRemaining <= 10 ? Colors.red : Colors.grey[600])),
-          ),
-        if (_status == HexagonGameStatus.buzzing)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Text(
-              iAmBuzzing ? '답변하세요! $_buzzRemaining초' : '${_getPlayerNickname(_buzzingPlayerIndex ?? 0)}이(가) 답변 중...',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold,
-                color: iAmBuzzing ? Colors.orange : Colors.blue),
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+            '남은 조합 $_remainingCombinations/$_totalCombinations',
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: CandyColors.inkSoft,
             ),
           ),
-        // 결과 메시지
-        if (_lastResultMessage != null)
-          AnimatedBuilder(
-            animation: _resultAnimController,
-            builder: (_, child) {
-              final opacity = 1.0 - _resultAnimController.value;
-              return Opacity(
-                opacity: opacity,
-                child: Text(_lastResultMessage!,
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: _lastResultColor)),
-              );
-            },
+        ),
+        // 보드 (알파벳) + 결과 토스트 + 컨페티
+        Expanded(
+          child: Stack(
+            children: [
+              Positioned.fill(child: _buildHexBoard(theme, showNumbers: false)),
+              if (_lastResultMessage != null)
+                Positioned(
+                  top: 2,
+                  left: 12,
+                  right: 12,
+                  child: IgnorePointer(
+                    child: AnimatedBuilder(
+                      animation: _resultAnimController,
+                      builder: (_, _) {
+                        final t = _resultAnimController.value;
+                        final pop = Curves.elasticOut.transform(
+                          (t * 2.2).clamp(0.0, 1.0),
+                        );
+                        final opacity = t < 0.7
+                            ? 1.0
+                            : (1.0 - (t - 0.7) / 0.3).clamp(0.0, 1.0);
+                        return Opacity(
+                          opacity: opacity,
+                          child: Transform.scale(
+                            scale: 0.6 + 0.4 * pop,
+                            child: Center(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _lastResultColor ?? CandyColors.ink,
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: CandyColors.ink,
+                                    width: 2.5,
+                                  ),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: CandyColors.ink,
+                                      offset: Offset(0, 3),
+                                    ),
+                                  ],
+                                ),
+                                child: Text(
+                                  _lastResultMessage!,
+                                  maxLines: 2,
+                                  textAlign: TextAlign.center,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+            ],
           ),
-        // 보드 (알파벳)
-        Expanded(child: _buildHexBoard(theme, showNumbers: false)),
+        ),
         // 하단 액션
         _buildActionBar(theme, iAmBuzzing, otherBuzzing),
       ],
@@ -1061,10 +1380,10 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
 
   Widget _buildActionBar(GameTheme theme, bool iAmBuzzing, bool otherBuzzing) {
     return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: const BoxDecoration(
         color: Colors.white,
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 8, offset: const Offset(0, -2))],
+        border: Border(top: BorderSide(color: CandyColors.ink, width: 3)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1075,50 +1394,39 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 for (int i = 0; i < 3; i++)
-                  Container(
-                    width: 48,
+                  _AnswerSlot(
+                    letter:
+                        (i < _selectedCells.length &&
+                            _selectedCells[i] < _letters.length)
+                        ? _letters[_selectedCells[i]]
+                        : null,
+                    color: theme.primary,
+                  ),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: ChunkyButton(
+                    label: '제출',
+                    icon: Icons.check_rounded,
+                    color: CandyColors.mint,
                     height: 48,
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    decoration: BoxDecoration(
-                      color: i < _selectedCells.length
-                          ? theme.primary.withValues(alpha: 0.2)
-                          : Colors.grey[200],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: theme.primary, width: 2),
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      i < _selectedCells.length ? _letters[_selectedCells[i]] : '?',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: theme.primary),
-                    ),
+                    fontSize: 17,
+                    expand: false,
+                    onPressed: _selectedCells.length == 3
+                        ? _submitAnswer
+                        : null,
                   ),
-                const SizedBox(width: 16),
-                ElevatedButton(
-                  onPressed: _selectedCells.length == 3 ? _submitAnswer : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  ),
-                  child: const Text('제출', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 ),
               ],
             ),
           ],
           if (!iAmBuzzing && !otherBuzzing) ...[
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _buzz,
-                icon: const Icon(Icons.notifications_active, size: 28),
-                label: const Text('버저!', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                ),
-              ),
+            ChunkyButton(
+              label: '버저!',
+              icon: Icons.notifications_active_rounded,
+              color: const Color(0xFFFF5A5F),
+              height: 60,
+              fontSize: 24,
+              onPressed: _buzz,
             ),
             // 20초 무활동 시 라운드 넘기기 버튼
             // 4-state UI:
@@ -1128,38 +1436,38 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
             //  - 둘 다 누름: "라운드 넘기는 중..." (비활성)
             if (_skipAvailable && !_isSolo) ...[
               const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _mySkipVoted ? null : _skipRound,
-                  icon: Icon(
-                    _mySkipVoted
-                        ? Icons.check
-                        : (_opponentSkipVoted ? Icons.notification_important : Icons.skip_next),
-                  ),
-                  label: Text(
-                    _mySkipVoted
-                        ? (_opponentSkipVoted ? '라운드 넘기는 중...' : '상대방 대기 중...')
-                        : (_opponentSkipVoted ? '상대가 넘기기 요청' : '라운드 넘기기'),
-                    style: const TextStyle(fontSize: 16),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor:
-                        (!_mySkipVoted && _opponentSkipVoted) ? Colors.orange : null,
-                    side: (!_mySkipVoted && _opponentSkipVoted)
-                        ? const BorderSide(color: Colors.orange, width: 2)
-                        : null,
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
+              ChunkyButton(
+                label: _mySkipVoted
+                    ? (_opponentSkipVoted ? '라운드 넘기는 중...' : '상대방 대기 중...')
+                    : (_opponentSkipVoted ? '상대가 넘기기 요청' : '라운드 넘기기'),
+                icon: _mySkipVoted
+                    ? Icons.check_rounded
+                    : (_opponentSkipVoted
+                          ? Icons.notification_important_rounded
+                          : Icons.skip_next_rounded),
+                color: (!_mySkipVoted && _opponentSkipVoted)
+                    ? CandyColors.tangerine
+                    : Colors.white,
+                textColor: (!_mySkipVoted && _opponentSkipVoted)
+                    ? Colors.white
+                    : CandyColors.ink,
+                height: 42,
+                fontSize: 15,
+                onPressed: _mySkipVoted ? null : _skipRound,
               ),
             ],
           ],
           if (otherBuzzing)
             const Padding(
               padding: EdgeInsets.all(12),
-              child: Text('상대방이 답변 중...', style: TextStyle(fontSize: 16, color: Colors.grey)),
+              child: Text(
+                '상대방이 답변 중...',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: CandyColors.inkSoft,
+                ),
+              ),
             ),
         ],
       ),
@@ -1171,39 +1479,79 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     return Column(
       children: [
         _buildHeader(theme),
-        const SizedBox(height: 16),
-        Text('라운드 $_currentRound 종료', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: theme.primary)),
-        const SizedBox(height: 8),
-        Text('찾은 조합: ${_foundCombinations.length}/$_totalCombinations',
-          style: TextStyle(fontSize: 16, color: Colors.grey[700])),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
+        PopIn(
+          child: _CandyPill(
+            text: '라운드 $_currentRound 종료',
+            color: theme.primary,
+            icon: Icons.flag_rounded,
+            fontSize: 19,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '찾은 조합: ${_foundCombinations.length}/$_totalCombinations',
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+            color: CandyColors.inkSoft,
+          ),
+        ),
+        const SizedBox(height: 4),
         // 보드 (숫자 다시 보이기)
         Expanded(child: _buildHexBoard(theme, showNumbers: true)),
         // 찾은 조합 리스트
         if (_foundCombinations.isNotEmpty)
           Container(
-            padding: const EdgeInsets.all(12),
-            color: Colors.white,
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: CandyColors.ink, width: 3)),
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('찾은 조합:', style: TextStyle(fontWeight: FontWeight.bold)),
-                Wrap(
-                  spacing: 8,
-                  children: _foundCombinations.map((fc) {
-                    final isMe = fc.playerIndex == _myPlayerIndex;
-                    return Chip(
-                      label: Text(fc.letters, style: TextStyle(color: isMe ? Colors.white : Colors.black)),
-                      backgroundColor: isMe ? theme.primary : Colors.grey[300],
-                    );
-                  }).toList(),
+                const Text(
+                  '찾은 조합',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    color: CandyColors.ink,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 84),
+                  child: SingleChildScrollView(
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: _foundCombinations.map((fc) {
+                        final isMe = fc.playerIndex == _myPlayerIndex;
+                        return _ComboChip(
+                          text: fc.letters,
+                          color: isMe ? theme.primary : const Color(0xFFE9E4F5),
+                          textColor: isMe
+                              ? theme.textOnPrimary
+                              : CandyColors.ink,
+                        );
+                      }).toList(),
+                    ),
+                  ),
                 ),
               ],
             ),
           ),
         Padding(
-          padding: const EdgeInsets.all(12),
-          child: Text('다음 라운드 준비 중...', style: TextStyle(fontSize: 16, color: Colors.grey[600])),
+          padding: const EdgeInsets.all(10),
+          child: const Text(
+            '다음 라운드 준비 중...',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              color: CandyColors.inkSoft,
+            ),
+          ),
         ),
       ],
     );
@@ -1220,118 +1568,222 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     }
     final isWinner = _winnerId == _myId;
     final isSoloDone = _isSolo;
+    final myScore = _scores.length > _myPlayerIndex
+        ? _scores[_myPlayerIndex]
+        : 0;
+    final oppScore = _scores.length > 1
+        ? _scores[_myPlayerIndex == 0 ? 1 : 0]
+        : 0;
 
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (isSoloDone) ...[
-              const Icon(Icons.emoji_events, size: 64, color: Colors.amber),
-              const SizedBox(height: 16),
-              Text('최종 점수', style: TextStyle(fontSize: 20, color: Colors.grey[700])),
-              Text('${_scores.isNotEmpty ? _scores[0] : 0}점',
-                style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: theme.primary)),
-            ] else if (_wonByForfeit) ...[
-              Icon(Icons.emoji_events, size: 64, color: Colors.amber),
-              const SizedBox(height: 16),
-              Text('승리!', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: theme.primary)),
-              const Text('상대방이 나갔습니다', style: TextStyle(fontSize: 16, color: Colors.grey)),
-            ] else if (_isDraw) ...[
-              const Icon(Icons.handshake, size: 64, color: Colors.blue),
-              const SizedBox(height: 16),
-              Text('무승부', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.blue)),
-            ] else if (isWinner) ...[
-              const Icon(Icons.emoji_events, size: 64, color: Colors.amber),
-              const SizedBox(height: 16),
-              Text('승리!', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: theme.primary)),
-            ] else ...[
-              Icon(Icons.sentiment_dissatisfied, size: 64, color: Colors.grey[400]),
-              const SizedBox(height: 16),
-              Text('패배', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.grey[600])),
-            ],
-            const SizedBox(height: 16),
-            if (!isSoloDone && _scores.length >= 2)
-              Text('${_scores[_myPlayerIndex]} : ${_scores[_myPlayerIndex == 0 ? 1 : 0]}',
-                style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: theme.primary)),
-            const SizedBox(height: 32),
-            // 찾은 조합 표시
-            if (_foundCombinations.isNotEmpty)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                margin: const EdgeInsets.only(bottom: 24),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.8),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  children: [
-                    const Text('찾은 조합', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    const SizedBox(height: 8),
-                    // 내 조합
-                    if (_foundCombinations.where((fc) => fc.playerIndex == _myPlayerIndex).isNotEmpty) ...[
-                      Text(_myNickname ?? '나', style: TextStyle(fontWeight: FontWeight.bold, color: theme.primary)),
-                      Wrap(
-                        spacing: 6,
-                        children: _foundCombinations
-                            .where((fc) => fc.playerIndex == _myPlayerIndex)
-                            .map((fc) => Chip(
-                              label: Text(fc.letters, style: const TextStyle(color: Colors.white)),
-                              backgroundColor: theme.primary,
-                              visualDensity: VisualDensity.compact,
-                            ))
-                            .toList(),
+    final Widget hero;
+    if (isSoloDone) {
+      hero = GameResultHero(
+        icon: Icons.emoji_events,
+        color: CandyColors.sunDeep,
+        title: '도전 종료!',
+        subtitle: '수고했어요, 기록이 저장돼요.',
+      );
+    } else if (_wonByForfeit) {
+      hero = const GameResultHero(
+        icon: Icons.emoji_events,
+        color: CandyColors.mintDeep,
+        title: '승리!',
+        subtitle: '상대방이 나갔습니다',
+      );
+    } else if (_isDraw) {
+      hero = const GameResultHero(
+        icon: Icons.handshake,
+        color: CandyColors.sky,
+        title: '무승부',
+      );
+    } else if (isWinner) {
+      hero = const GameResultHero(
+        icon: Icons.emoji_events,
+        color: CandyColors.mintDeep,
+        title: '승리!',
+      );
+    } else {
+      hero = const GameResultHero(
+        icon: Icons.sentiment_dissatisfied,
+        color: CandyColors.inkSoft,
+        title: '패배',
+      );
+    }
+
+    final myCombos = _foundCombinations
+        .where((fc) => fc.playerIndex == _myPlayerIndex)
+        .toList();
+    final oppCombos = _foundCombinations
+        .where((fc) => fc.playerIndex != _myPlayerIndex)
+        .toList();
+
+    return Stack(
+      children: [
+        Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  hero,
+                  const SizedBox(height: 16),
+                  if (isSoloDone)
+                    CartoonCard(
+                      child: Column(
+                        children: [
+                          const Text(
+                            '최종 점수',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: CandyColors.inkSoft,
+                            ),
+                          ),
+                          TweenAnimationBuilder<double>(
+                            tween: Tween(
+                              begin: 0,
+                              end: (_scores.isNotEmpty ? _scores[0] : 0)
+                                  .toDouble(),
+                            ),
+                            duration: const Duration(milliseconds: 900),
+                            curve: Curves.easeOutCubic,
+                            builder: (_, v, _) => Text(
+                              '${v.round()}점',
+                              style: TextStyle(
+                                fontSize: 48,
+                                fontWeight: FontWeight.w900,
+                                color: theme.primary,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                    // 상대 조합 (2인 모드)
-                    if (!_isSolo && _foundCombinations.where((fc) => fc.playerIndex != _myPlayerIndex).isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Text(_opponentNickname ?? '상대', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-                      Wrap(
-                        spacing: 6,
-                        children: _foundCombinations
-                            .where((fc) => fc.playerIndex != _myPlayerIndex)
-                            .map((fc) => Chip(
-                              label: Text(fc.letters),
-                              backgroundColor: Colors.grey[300],
-                              visualDensity: VisualDensity.compact,
-                            ))
-                            .toList(),
+                    )
+                  else if (_scores.length >= 2)
+                    GameResultMatchupRow(
+                      leftLabel: '나',
+                      leftValue: '$myScore점',
+                      rightLabel: _opponentNickname ?? '상대',
+                      rightValue: '$oppScore점',
+                      accentColor: theme.primary,
+                    ),
+                  const SizedBox(height: 20),
+                  // 찾은 조합 표시
+                  if (_foundCombinations.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 20),
+                      child: CartoonCard(
+                        padding: const EdgeInsets.all(14),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: Column(
+                            children: [
+                              const Text(
+                                '찾은 조합',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 16,
+                                  color: CandyColors.ink,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              // 내 조합
+                              if (myCombos.isNotEmpty) ...[
+                                Text(
+                                  _myNickname ?? '나',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    color: theme.primary,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Wrap(
+                                  alignment: WrapAlignment.center,
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  children: myCombos
+                                      .map(
+                                        (fc) => _ComboChip(
+                                          text: fc.letters,
+                                          color: theme.primary,
+                                          textColor: theme.textOnPrimary,
+                                        ),
+                                      )
+                                      .toList(),
+                                ),
+                              ],
+                              // 상대 조합 (2인 모드)
+                              if (!_isSolo && oppCombos.isNotEmpty) ...[
+                                const SizedBox(height: 10),
+                                Text(
+                                  _opponentNickname ?? '상대',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    color: CandyColors.inkSoft,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Wrap(
+                                  alignment: WrapAlignment.center,
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  children: oppCombos
+                                      .map(
+                                        (fc) => _ComboChip(
+                                          text: fc.letters,
+                                          color: const Color(0xFFE9E4F5),
+                                          textColor: CandyColors.ink,
+                                        ),
+                                      )
+                                      .toList(),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
                       ),
-                    ],
-                  ],
-                ),
+                    ),
+                  GameEndActionPanel(
+                    showRematchActions: !_isSolo && !_opponentLeft,
+                    opponentLeft: !_isSolo && _opponentLeft,
+                    opponentWantsRematch: _opponentWantsRematch,
+                    rematchWaiting: _rematchWaiting,
+                    primaryColor: theme.primary,
+                    primaryForegroundColor: theme.textOnPrimary,
+                    onRequestRematch: _requestRematch,
+                    onCancelRematch: _cancelRematch,
+                    onLeave: _leaveGame,
+                    rematchLabel: '재대결',
+                    acceptRematchLabel: '재대결 수락',
+                    waitingText: '상대방 응답 대기 중...',
+                    cancelLabel: '취소',
+                    leaveLabel: '로비로',
+                    leaveIcon: Icons.home,
+                  ),
+                ],
               ),
-            GameEndActionPanel(
-              showRematchActions: !_isSolo && !_opponentLeft,
-              opponentLeft: !_isSolo && _opponentLeft,
-              opponentWantsRematch: _opponentWantsRematch,
-              rematchWaiting: _rematchWaiting,
-              primaryColor: theme.primary,
-              primaryForegroundColor: theme.textOnPrimary,
-              onRequestRematch: _requestRematch,
-              onCancelRematch: _cancelRematch,
-              onLeave: _leaveGame,
-              rematchLabel: '재대결',
-              acceptRematchLabel: '재대결 수락',
-              waitingText: '상대방 응답 대기 중...',
-              cancelLabel: '취소',
-              leaveLabel: '로비로',
-              leaveIcon: Icons.home,
             ),
-          ],
+          ),
         ),
-      ),
+      ],
     );
   }
 
   // ==================== HEADER ====================
   Widget _buildHeader(GameTheme theme) {
+    final myScore = _scores.isNotEmpty && _myPlayerIndex < _scores.length
+        ? _scores[_myPlayerIndex]
+        : 0;
+    final oppIdx = _myPlayerIndex == 0 ? 1 : 0;
+    final oppScore = _scores.length > oppIdx ? _scores[oppIdx] : 0;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      color: Colors.white.withValues(alpha: 0.9),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: CandyColors.ink, width: 3)),
+      ),
       child: Row(
         children: [
           // 나
@@ -1347,20 +1799,46 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
           ),
           // 중앙 정보
           Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: theme.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 3,
                 ),
-                child: Text('R$_currentRound', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: theme.primary)),
+                decoration: BoxDecoration(
+                  color: theme.primary,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: CandyColors.ink, width: 2),
+                ),
+                child: Text(
+                  'R$_currentRound',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    color: theme.textOnPrimary,
+                  ),
+                ),
               ),
               const SizedBox(height: 4),
-              Text(
-                _isSolo ? '${_scores.isNotEmpty ? _scores[0] : 0}점' : '${_scores.isNotEmpty ? _scores[_myPlayerIndex] : 0} : ${_scores.length > 1 ? _scores[_myPlayerIndex == 0 ? 1 : 0] : 0}',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: theme.primary),
-              ),
+              if (_isSolo)
+                _ScorePop(score: myScore, suffix: '점', color: theme.primary)
+              else
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _ScorePop(score: myScore, color: theme.primary),
+                    const Text(
+                      ' : ',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                        color: CandyColors.ink,
+                      ),
+                    ),
+                    _ScorePop(score: oppScore, color: CandyColors.inkSoft),
+                  ],
+                ),
             ],
           ),
           // 상대
@@ -1371,7 +1849,7 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
                 _opponentNickname ?? '상대',
                 _opponentAvatarUrl,
                 false,
-                _myPlayerIndex == 0 ? 1 : 0,
+                oppIdx,
                 _opponentProfileSettings,
               ),
             )
@@ -1382,8 +1860,17 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     );
   }
 
-  Widget _buildPlayerColumn(GameTheme theme, String name, String? avatarUrl, bool isMe, int playerIndex, UserProfileSettings? profileSettings) {
-    final myFoundCombos = _foundCombinations.where((fc) => fc.playerIndex == playerIndex).toList();
+  Widget _buildPlayerColumn(
+    GameTheme theme,
+    String name,
+    String? avatarUrl,
+    bool isMe,
+    int playerIndex,
+    UserProfileSettings? profileSettings,
+  ) {
+    final myFoundCombos = _foundCombinations
+        .where((fc) => fc.playerIndex == playerIndex)
+        .toList();
 
     return Column(
       children: [
@@ -1398,11 +1885,20 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
         // 찾은 조합 표시
         if (myFoundCombos.isNotEmpty)
           Wrap(
-            spacing: 2,
-            children: myFoundCombos.map((fc) =>
-              Text(fc.letters, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold,
-                color: isMe ? theme.primary : Colors.grey[600])),
-            ).toList(),
+            alignment: WrapAlignment.center,
+            spacing: 4,
+            children: myFoundCombos
+                .map(
+                  (fc) => Text(
+                    fc.letters,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      color: isMe ? CandyColors.ink : CandyColors.inkSoft,
+                    ),
+                  ),
+                )
+                .toList(),
           ),
       ],
     );
@@ -1415,7 +1911,10 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
         final availableWidth = constraints.maxWidth - 24;
         final availableHeight = constraints.maxHeight - 16;
         // 셀 크기 계산: 5열이 들어가야 함
-        final cellSize = min(availableWidth / 6.2, availableHeight / 6.2);
+        final cellSize = max(
+          8.0,
+          min(availableWidth / 6.2, availableHeight / 6.2),
+        );
         final hexWidth = cellSize * 0.95;
         final hexHeight = cellSize * 1.1;
 
@@ -1423,26 +1922,28 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
         const rowSizes = [3, 4, 5, 4, 3];
         const rowStarts = [0, 3, 7, 12, 16];
 
-        return Center(
-          child: SizedBox(
-            width: hexWidth * 5 + 24,
-            height: hexHeight * 4.35 + 24,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                for (int row = 0; row < 5; row++)
-                  for (int col = 0; col < rowSizes[row]; col++)
-                    _buildHexCell(
-                      theme,
-                      rowStarts[row] + col,
-                      row,
-                      col,
-                      rowSizes[row],
-                      hexWidth,
-                      hexHeight,
-                      showNumbers,
-                    ),
-              ],
+        return RepaintBoundary(
+          child: Center(
+            child: SizedBox(
+              width: hexWidth * 5 + 24,
+              height: hexHeight * 4.35 + 24,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  for (int row = 0; row < 5; row++)
+                    for (int col = 0; col < rowSizes[row]; col++)
+                      _buildHexCell(
+                        theme,
+                        rowStarts[row] + col,
+                        row,
+                        col,
+                        rowSizes[row],
+                        hexWidth,
+                        hexHeight,
+                        showNumbers,
+                      ),
+                ],
+              ),
             ),
           ),
         );
@@ -1450,29 +1951,44 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     );
   }
 
-  Widget _buildHexCell(GameTheme theme, int index, int row, int col, int rowSize, double hexWidth, double hexHeight, bool showNumbers) {
+  Widget _buildHexCell(
+    GameTheme theme,
+    int index,
+    int row,
+    int col,
+    int rowSize,
+    double hexWidth,
+    double hexHeight,
+    bool showNumbers,
+  ) {
     // 위치 계산
-    final maxCols = 5;
+    const maxCols = 5;
     final offset = (maxCols - rowSize) / 2.0;
     final x = (offset + col) * hexWidth * 0.98 + 12;
     final y = row * hexHeight * 0.78 + 12;
 
-    final isSelected = _selectedCells.contains(index);
+    final selIdx = _selectedCells.indexOf(index);
+    final isSelected = selIdx >= 0;
     final foundByMe = _foundCombinations.any(
       (fc) => fc.cells.contains(index) && fc.playerIndex == _myPlayerIndex,
     );
     final foundByOpponent = _foundCombinations.any(
       (fc) => fc.cells.contains(index) && fc.playerIndex != _myPlayerIndex,
     );
-    final canTap = _status == HexagonGameStatus.buzzing && _buzzingPlayerIndex == _myPlayerIndex;
+    final canTap =
+        _status == HexagonGameStatus.buzzing &&
+        _buzzingPlayerIndex == _myPlayerIndex;
+    final flashing = _flashCells.contains(index);
 
     Color bgColor;
-    if (isSelected) {
-      bgColor = theme.primary.withValues(alpha: 0.4);
+    if (flashing) {
+      bgColor = _flashCorrect ? CandyColors.mint : const Color(0xFFFF5A5F);
+    } else if (isSelected) {
+      bgColor = CandyColors.sun;
     } else if (foundByMe) {
-      bgColor = theme.primary.withValues(alpha: 0.15);
+      bgColor = Color.lerp(theme.primary, Colors.white, 0.45)!;
     } else if (foundByOpponent) {
-      bgColor = Colors.grey.withValues(alpha: 0.15);
+      bgColor = const Color(0xFFE2D9F7);
     } else {
       bgColor = Colors.white;
     }
@@ -1487,31 +2003,110 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
       displayText = '';
     }
 
+    final w = hexWidth * 0.9;
+    final h = hexHeight * 0.9;
+
+    Widget tile = TweenAnimationBuilder<Color?>(
+      tween: ColorTween(end: bgColor),
+      duration: const Duration(milliseconds: 150),
+      builder: (_, c, _) => CustomPaint(
+        painter: HexagonCellPainter(
+          fillColor: c ?? bgColor,
+          borderColor: CandyColors.ink,
+          borderWidth: 2.5,
+          shadowOffset: isSelected ? 5 : 3,
+        ),
+        child: Center(
+          child: Text(
+            displayText,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: showNumbers ? hexWidth * 0.23 : hexWidth * 0.3,
+              fontWeight: FontWeight.w900,
+              color: CandyColors.ink,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // 선택: 위로 들리며 살짝 커짐
+    tile = AnimatedSlide(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutBack,
+      offset: isSelected ? const Offset(0, -0.06) : Offset.zero,
+      child: AnimatedScale(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutBack,
+        scale: isSelected ? 1.12 : 1.0,
+        child: tile,
+      ),
+    );
+
+    // 정답 = 통통 튀기 / 오답 = 흔들기
+    tile = TweenAnimationBuilder<double>(
+      key: ValueKey('hexflash-$index-${flashing ? _flashTick : 0}'),
+      tween: Tween(begin: flashing ? 0.0 : 1.0, end: 1.0),
+      duration: const Duration(milliseconds: 520),
+      builder: (_, t, child) {
+        if (!flashing) return child!;
+        if (_flashCorrect) {
+          return Transform.scale(
+            scale:
+                0.8 + 0.2 * Curves.elasticOut.transform(t) + 0.12 * sin(t * pi),
+            child: child,
+          );
+        }
+        return Transform.translate(
+          offset: Offset(sin(t * pi * 6) * 5 * (1 - t), 0),
+          child: child,
+        );
+      },
+      child: tile,
+    );
+
     return Positioned(
       left: x,
       top: y,
       child: GestureDetector(
-        onTap: canTap ? () => _toggleCellSelection(index) : null,
+        behavior: HitTestBehavior.opaque,
+        onTap: canTap
+            ? () {
+                HapticFeedback.selectionClick();
+                _toggleCellSelection(index);
+              }
+            : null,
         child: SizedBox(
-          width: hexWidth * 0.9,
-          height: hexHeight * 0.9,
-          child: CustomPaint(
-            painter: HexagonCellPainter(
-              fillColor: bgColor,
-              borderColor: isSelected ? theme.primary : Colors.grey[500]!,
-              borderWidth: isSelected ? 3 : 1.6,
-            ),
-            child: Center(
-              child: Text(
-                displayText,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: showNumbers ? hexWidth * 0.23 : hexWidth * 0.3,
-                  fontWeight: FontWeight.bold,
-                  color: showNumbers ? Colors.black87 : theme.primary,
+          width: w,
+          height: h,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned.fill(child: tile),
+              if (isSelected)
+                Positioned(
+                  right: -2,
+                  top: -2,
+                  child: Container(
+                    width: 18,
+                    height: 18,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: theme.primary,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: CandyColors.ink, width: 2),
+                    ),
+                    child: Text(
+                      '${selIdx + 1}',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        color: theme.textOnPrimary,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            ),
+            ],
           ),
         ),
       ),
@@ -1530,8 +2125,10 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: CandyColors.cream,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        side: BorderSide(color: CandyColors.ink, width: 3),
       ),
       builder: (ctx) {
         return DraggableScrollableSheet(
@@ -1548,7 +2145,14 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
                     children: [
                       Icon(Icons.leaderboard, color: theme.primary),
                       const SizedBox(width: 8),
-                      Text('솔로 랭킹', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: theme.primary)),
+                      const Text(
+                        '솔로 랭킹',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          color: CandyColors.ink,
+                        ),
+                      ),
                       const Spacer(),
                       IconButton(
                         onPressed: () => Navigator.pop(ctx),
@@ -1563,42 +2167,69 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
                     valueListenable: _rankingsListenable,
                     builder: (context, rankings, _) {
                       return rankings.isEmpty
-                      ? const Center(child: Text('아직 기록이 없습니다', style: TextStyle(color: Colors.grey)))
-                      : ListView.builder(
-                          controller: scrollController,
-                          itemCount: rankings.length,
-                          itemBuilder: (_, index) {
-                            final r = rankings[index];
-                            final nickname = r['nickname'] as String? ?? '???';
-                            final score = r['score'] as int? ?? 0;
-                            final isTop3 = index < 3;
-                            return ListTile(
-                              leading: Container(
-                                width: 36,
-                                height: 36,
-                                decoration: BoxDecoration(
-                                  color: isTop3
-                                      ? [Colors.amber, Colors.grey[400]!, Colors.brown[300]!][index]
-                                      : Colors.grey[200],
-                                  shape: BoxShape.circle,
+                          ? const Center(
+                              child: Text(
+                                '아직 기록이 없습니다',
+                                style: TextStyle(
+                                  color: CandyColors.inkSoft,
+                                  fontWeight: FontWeight.w700,
                                 ),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  '${index + 1}',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: isTop3 ? Colors.white : Colors.grey[600],
+                              ),
+                            )
+                          : ListView.builder(
+                              controller: scrollController,
+                              itemCount: rankings.length,
+                              itemBuilder: (_, index) {
+                                final r = rankings[index];
+                                final nickname =
+                                    r['nickname'] as String? ?? '???';
+                                final score = r['score'] as int? ?? 0;
+                                final isTop3 = index < 3;
+                                return ListTile(
+                                  leading: Container(
+                                    width: 36,
+                                    height: 36,
+                                    decoration: BoxDecoration(
+                                      color: isTop3
+                                          ? [
+                                              CandyColors.sun,
+                                              const Color(0xFFC9C3D9),
+                                              CandyColors.tangerine,
+                                            ][index]
+                                          : Colors.white,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: CandyColors.ink,
+                                        width: 2,
+                                      ),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      '${index + 1}',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: CandyColors.ink,
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ),
-                              title: Text(nickname, style: const TextStyle(fontWeight: FontWeight.w600)),
-                              trailing: Text(
-                                '$score점',
-                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: theme.primary),
-                              ),
+                                  title: Text(
+                                    nickname,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      color: CandyColors.ink,
+                                    ),
+                                  ),
+                                  trailing: Text(
+                                    '$score점',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w900,
+                                      color: theme.primary,
+                                    ),
+                                  ),
+                                );
+                              },
                             );
-                          },
-                        );
                     },
                   ),
                 ),
@@ -1621,28 +2252,50 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
       backgroundColor: Colors.transparent,
       builder: (dialogContext) => Consumer<FriendProvider>(
         builder: (context, friendProvider, child) {
-          final onlineFriends = friendProvider.friends.where((f) => f.isOnline).toList();
+          final onlineFriends = friendProvider.friends
+              .where((f) => f.isOnline)
+              .toList();
           return Container(
-            constraints: BoxConstraints(maxHeight: MediaQuery.of(dialogContext).size.height * 0.6),
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(dialogContext).size.height * 0.6,
+            ),
             decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              color: CandyColors.cream,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border(
+                top: BorderSide(color: CandyColors.ink, width: 3),
+                left: BorderSide(color: CandyColors.ink, width: 3),
+                right: BorderSide(color: CandyColors.ink, width: 3),
+              ),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
                   margin: const EdgeInsets.only(top: 12),
-                  width: 40, height: 4,
-                  decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: CandyColors.ink.withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
                 Padding(
                   padding: const EdgeInsets.all(20),
-                  child: Row(children: [
-                    Icon(Icons.person_add, color: theme.primary),
-                    const SizedBox(width: 12),
-                    const Text('친구 초대', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                  ]),
+                  child: Row(
+                    children: [
+                      Icon(Icons.person_add, color: theme.primary),
+                      const SizedBox(width: 12),
+                      const Text(
+                        '친구 초대',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          color: CandyColors.ink,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const Divider(height: 1),
                 Flexible(
@@ -1650,11 +2303,21 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
                       ? Center(
                           child: Padding(
                             padding: const EdgeInsets.all(40),
-                            child: Column(mainAxisSize: MainAxisSize.min, children: [
-                              Icon(Icons.person_off, size: 48, color: Colors.grey.shade400),
-                              const SizedBox(height: 16),
-                              Text('온라인 친구가 없습니다', style: TextStyle(color: Colors.grey.shade600)),
-                            ]),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.person_off,
+                                  size: 48,
+                                  color: Colors.grey.shade400,
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  '온라인 친구가 없습니다',
+                                  style: TextStyle(color: Colors.grey.shade600),
+                                ),
+                              ],
+                            ),
                           ),
                         )
                       : ListView.builder(
@@ -1663,41 +2326,83 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
                           itemBuilder: (context, index) {
                             final friend = onlineFriends[index];
                             return ListTile(
-                              leading: Stack(children: [
-                                CircleAvatar(
-                                  backgroundColor: theme.primary.withValues(alpha: 0.2),
-                                  child: Text(
-                                    friend.nickname.isNotEmpty ? friend.nickname[0].toUpperCase() : '?',
-                                    style: TextStyle(color: theme.primary),
-                                  ),
-                                ),
-                                Positioned(
-                                  right: 0, bottom: 0,
-                                  child: Container(
-                                    width: 12, height: 12,
-                                    decoration: BoxDecoration(
-                                      color: Colors.green, shape: BoxShape.circle,
-                                      border: Border.all(color: Colors.white, width: 2),
+                              leading: Stack(
+                                children: [
+                                  CircleAvatar(
+                                    backgroundColor: theme.primary.withValues(
+                                      alpha: 0.2,
+                                    ),
+                                    child: Text(
+                                      friend.nickname.isNotEmpty
+                                          ? friend.nickname[0].toUpperCase()
+                                          : '?',
+                                      style: TextStyle(color: theme.primary),
                                     ),
                                   ),
+                                  Positioned(
+                                    right: 0,
+                                    bottom: 0,
+                                    child: Container(
+                                      width: 12,
+                                      height: 12,
+                                      decoration: BoxDecoration(
+                                        color: Colors.green,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: Colors.white,
+                                          width: 2,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              title: Text(
+                                friend.nickname,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
                                 ),
-                              ]),
-                              title: Text(friend.nickname, style: const TextStyle(fontWeight: FontWeight.w600)),
-                              subtitle: friend.memo != null && friend.memo!.isNotEmpty
-                                  ? Text(friend.memo!, style: TextStyle(color: Colors.grey.shade600, fontSize: 12))
+                              ),
+                              subtitle:
+                                  friend.memo != null && friend.memo!.isNotEmpty
+                                  ? Text(
+                                      friend.memo!,
+                                      style: TextStyle(
+                                        color: Colors.grey.shade600,
+                                        fontSize: 12,
+                                      ),
+                                    )
                                   : null,
                               trailing: ElevatedButton(
                                 onPressed: () {
-                                  friendProvider.inviteToGame(friend.id, AppConfig.gameTypeHexagon, isHardcore: false);
+                                  friendProvider.inviteToGame(
+                                    friend.id,
+                                    AppConfig.gameTypeHexagon,
+                                    isHardcore: false,
+                                  );
                                   Navigator.pop(dialogContext);
-                                  ScaffoldMessenger.of(context).clearSnackBars();
+                                  ScaffoldMessenger.of(
+                                    context,
+                                  ).clearSnackBars();
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('${friend.nickname}님에게 초대를 보냈습니다!'), backgroundColor: Colors.green),
+                                    SnackBar(
+                                      content: Text(
+                                        '${friend.nickname}님에게 초대를 보냈습니다!',
+                                      ),
+                                      backgroundColor: Colors.green,
+                                    ),
                                   );
                                 },
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: theme.primary, foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                  backgroundColor: theme.primary,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(20),
+                                    side: const BorderSide(
+                                      color: CandyColors.ink,
+                                      width: 2.5,
+                                    ),
+                                  ),
                                 ),
                                 child: const Text('초대'),
                               ),
@@ -1705,7 +2410,9 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
                           },
                         ),
                 ),
-                SizedBox(height: MediaQuery.of(dialogContext).padding.bottom + 16),
+                SizedBox(
+                  height: MediaQuery.of(dialogContext).padding.bottom + 16,
+                ),
               ],
             ),
           );
@@ -1725,7 +2432,8 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
   }
 
   void _showExitDialog(GameTheme theme) {
-    if (_status == HexagonGameStatus.idle || _status == HexagonGameStatus.finished) {
+    if (_status == HexagonGameStatus.idle ||
+        _status == HexagonGameStatus.finished) {
       Navigator.pop(context);
       return;
     }
@@ -1739,11 +2447,14 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(isSoloInGame ? '도전 종료' : '게임 나가기'),
-        content: Text(isSoloInGame
-            ? '여기까지의 기록을 저장하고 종료하시겠습니까?'
-            : '진행 중인 게임을 포기하시겠습니까?'),
+        content: Text(
+          isSoloInGame ? '여기까지의 기록을 저장하고 종료하시겠습니까?' : '진행 중인 게임을 포기하시겠습니까?',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('취소'),
+          ),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
@@ -1755,10 +2466,166 @@ class _HexagonScreenState extends State<HexagonScreen> with TickerProviderStateM
             },
             child: Text(
               isSoloInGame ? '종료' : '나가기',
-              style: TextStyle(color: isSoloInGame ? Colors.orange : Colors.red),
+              style: TextStyle(
+                color: isSoloInGame ? Colors.orange : Colors.red,
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ───────────────────────── 캔디 카툰 보조 위젯 ─────────────────────────
+
+/// 두꺼운 아웃라인 + 단단한 그림자의 알약형 안내 라벨.
+class _CandyPill extends StatelessWidget {
+  final String text;
+  final Color color;
+  final IconData icon;
+  final double fontSize;
+  const _CandyPill({
+    required this.text,
+    required this.color,
+    required this.icon,
+    this.fontSize = 16,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 320),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: CandyColors.ink, width: 2.5),
+        boxShadow: const [
+          BoxShadow(color: CandyColors.ink, offset: Offset(0, 3)),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: fontSize + 4),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: fontSize,
+                fontWeight: FontWeight.w900,
+                color: CandyColors.ink,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 점수가 바뀔 때마다 통통 튀는 숫자.
+class _ScorePop extends StatelessWidget {
+  final int score;
+  final String suffix;
+  final Color color;
+  const _ScorePop({required this.score, required this.color, this.suffix = ''});
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      key: ValueKey(score),
+      tween: Tween(begin: 1.5, end: 1.0),
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.elasticOut,
+      builder: (_, s, child) => Transform.scale(scale: s, child: child),
+      child: Text(
+        '$score$suffix',
+        style: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w900,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+/// 찾은 조합 칩.
+class _ComboChip extends StatelessWidget {
+  final String text;
+  final Color color;
+  final Color textColor;
+  const _ComboChip({
+    required this.text,
+    required this.color,
+    required this.textColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: CandyColors.ink, width: 2),
+        boxShadow: const [
+          BoxShadow(color: CandyColors.ink, offset: Offset(0, 2)),
+        ],
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w900,
+          color: textColor,
+        ),
+      ),
+    );
+  }
+}
+
+/// 정답 입력 칸. 글자가 채워지면 통통 튄다.
+class _AnswerSlot extends StatelessWidget {
+  final String? letter;
+  final Color color;
+  const _AnswerSlot({required this.letter, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final filled = letter != null;
+    return TweenAnimationBuilder<double>(
+      key: ValueKey('slot-${letter ?? ''}'),
+      tween: Tween(begin: filled ? 0.6 : 1.0, end: 1.0),
+      duration: const Duration(milliseconds: 380),
+      curve: Curves.elasticOut,
+      builder: (_, s, child) => Transform.scale(scale: s, child: child),
+      child: Container(
+        width: 46,
+        height: 46,
+        margin: const EdgeInsets.symmetric(horizontal: 3),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: filled ? CandyColors.sun : const Color(0xFFF1ECFA),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: CandyColors.ink, width: 2.5),
+          boxShadow: const [
+            BoxShadow(color: CandyColors.ink, offset: Offset(0, 3)),
+          ],
+        ),
+        child: Text(
+          letter ?? '?',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
+            color: filled ? CandyColors.ink : CandyColors.inkSoft,
+          ),
+        ),
       ),
     );
   }

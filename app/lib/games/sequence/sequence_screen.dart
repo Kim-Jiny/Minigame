@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
@@ -9,10 +11,13 @@ import '../../services/socket_service.dart';
 import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
+import '../../theme/candy_theme.dart';
 import '../../utils/game_theme.dart';
+import '../../widgets/cartoon/pop_in.dart';
 import '../common/game_rematch_preparing_view.dart';
 import '../common/game_hardcore_toggle.dart';
 import '../common/game_intro_view.dart';
+import '../common/match_status_views.dart';
 import '../common/game_duel_header.dart';
 import '../common/game_event_helper.dart';
 import '../common/game_scaffold.dart';
@@ -48,9 +53,11 @@ class SequenceScreen extends StatefulWidget {
 class _SequenceScreenState extends State<SequenceScreen>
     with SingleTickerProviderStateMixin {
   final SocketService _socketService = SocketService();
-  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
-  bool _hasScheduledPop = false;  // 중복 pop 방지
-  bool _isExitDialogOpen = false;  // 나가기 다이얼로그 열림 상태
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(
+    _socketService,
+  );
+  bool _hasScheduledPop = false; // 중복 pop 방지
+  bool _isExitDialogOpen = false; // 나가기 다이얼로그 열림 상태
 
   SequenceGameStatus _status = SequenceGameStatus.idle;
 
@@ -90,7 +97,8 @@ class _SequenceScreenState extends State<SequenceScreen>
   bool _isResyncingPhase = false;
   Timer? _reconnectTimer;
   Timer? _waitingReconnectTimer;
-  int _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+  int _reconnectSecondsRemaining =
+      GameReconnectHelper.reconnectGraceDuration.inSeconds;
 
   // 타이머
   int _timeLimit = 0; // ms
@@ -129,11 +137,15 @@ class _SequenceScreenState extends State<SequenceScreen>
   void _initFromGameProvider() {
     try {
       final game = context.read<GameProvider>();
-      debugPrint('🎮 SequenceScreen _initFromGameProvider: isInvitation=${game.isInvitationGame}, roomId=${game.roomId}, opponentNickname=${game.opponentNickname}, status=${game.status}');
-      final isActiveInvitation = game.isInvitationGame &&
+      debugPrint(
+        '🎮 SequenceScreen _initFromGameProvider: isInvitation=${game.isInvitationGame}, roomId=${game.roomId}, opponentNickname=${game.opponentNickname}, status=${game.status}',
+      );
+      final isActiveInvitation =
+          game.isInvitationGame &&
           game.roomId != null &&
           game.opponentNickname != null &&
-          (game.status == GameStatus.matched || game.status == GameStatus.playing);
+          (game.status == GameStatus.matched ||
+              game.status == GameStatus.playing);
       if (isActiveInvitation) {
         debugPrint('🎮 SequenceScreen: 초대 게임 초기화 from GameProvider');
         setState(() {
@@ -174,7 +186,10 @@ class _SequenceScreenState extends State<SequenceScreen>
     final countdownMs = overrideTimeLimitMs ?? _timeLimit;
     _remainingSeconds = (countdownMs / 1000).ceil();
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) { timer.cancel(); return; }
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       if (_remainingSeconds > 0) {
         setState(() => _remainingSeconds--);
       } else {
@@ -217,7 +232,8 @@ class _SequenceScreenState extends State<SequenceScreen>
         onEnterWaiting: () => setState(() {
           _isReconnecting = true;
           _isWaitingForReconnect = false;
-          _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+          _reconnectSecondsRemaining =
+              GameReconnectHelper.reconnectGraceDuration.inSeconds;
         }),
         onTick: (seconds) {
           if (!mounted) return;
@@ -246,9 +262,15 @@ class _SequenceScreenState extends State<SequenceScreen>
 
     _socketListeners.on('match_found', (data) {
       final players = data['players'] as List;
-      final opponent = players.cast<Map<String, dynamic>?>().firstWhere((p) => p!['id'] != _myId, orElse: () => null);
+      final opponent = players.cast<Map<String, dynamic>?>().firstWhere(
+        (p) => p!['id'] != _myId,
+        orElse: () => null,
+      );
       if (opponent == null) return;
-      final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
+      final me = players.firstWhere(
+        (p) => p['id'] == _myId,
+        orElse: () => null,
+      );
       _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
 
       setState(() {
@@ -260,10 +282,14 @@ class _SequenceScreenState extends State<SequenceScreen>
         _isInvitationGame = data['isInvitation'] == true;
         // 프로필 설정 파싱
         if (opponent['profileSettings'] != null) {
-          _opponentProfileSettings = UserProfileSettings.fromJson(opponent['profileSettings']);
+          _opponentProfileSettings = UserProfileSettings.fromJson(
+            opponent['profileSettings'],
+          );
         }
         if (me != null && me['profileSettings'] != null) {
-          _myProfileSettings = UserProfileSettings.fromJson(me['profileSettings']);
+          _myProfileSettings = UserProfileSettings.fromJson(
+            me['profileSettings'],
+          );
         }
       });
     });
@@ -376,11 +402,16 @@ class _SequenceScreenState extends State<SequenceScreen>
       _cancelSequencePlayback();
       final sequence = List<int>.from(data['sequence'] ?? _sequence);
       final playerInputs = List<List<int>>.from(
-        (data['playerInputs'] as List<dynamic>? ?? const [])
-            .map((item) => List<int>.from(item as List<dynamic>)),
+        (data['playerInputs'] as List<dynamic>? ?? const []).map(
+          (item) => List<int>.from(item as List<dynamic>),
+        ),
       );
-      final playerFailed = List<bool>.from(data['playerFailed'] ?? [_myFailed, _opponentFailed]);
-      final playerMaxLevels = List<int>.from(data['playerMaxLevels'] ?? [_myMaxLevel, _opponentMaxLevel]);
+      final playerFailed = List<bool>.from(
+        data['playerFailed'] ?? [_myFailed, _opponentFailed],
+      );
+      final playerMaxLevels = List<int>.from(
+        data['playerMaxLevels'] ?? [_myMaxLevel, _opponentMaxLevel],
+      );
       final phase = data['phase'] as String? ?? 'playing';
 
       final myInputs = playerInputs.length > _myPlayerIndex
@@ -393,7 +424,10 @@ class _SequenceScreenState extends State<SequenceScreen>
       final opponentFailed = playerFailed.length > opponentIndex
           ? playerFailed[opponentIndex]
           : _opponentFailed;
-      final remainingTimeMs = (data['remainingTimeMs'] as num?)?.toInt() ?? (data['timeLimit'] as num?)?.toInt() ?? _timeLimit;
+      final remainingTimeMs =
+          (data['remainingTimeMs'] as num?)?.toInt() ??
+          (data['timeLimit'] as num?)?.toInt() ??
+          _timeLimit;
 
       setState(() {
         _sequence = sequence;
@@ -411,7 +445,9 @@ class _SequenceScreenState extends State<SequenceScreen>
             : _opponentMaxLevel;
         _status = phase == 'waiting'
             ? SequenceGameStatus.waiting
-            : (myFailed ? SequenceGameStatus.waiting : SequenceGameStatus.playing);
+            : (myFailed
+                  ? SequenceGameStatus.waiting
+                  : SequenceGameStatus.playing);
         _isWaitingForReconnect = false;
         _isReconnecting = false;
         _isResyncingPhase = false;
@@ -428,10 +464,14 @@ class _SequenceScreenState extends State<SequenceScreen>
       _reconnectTimer?.cancel();
       _cancelSequencePlayback();
       _myId = _socketService.socket?.id;
-      final remainingTimeMs = (data['remainingTimeMs'] as num?)?.toInt() ?? (data['timeLimit'] as num?)?.toInt() ?? _timeLimit;
+      final remainingTimeMs =
+          (data['remainingTimeMs'] as num?)?.toInt() ??
+          (data['timeLimit'] as num?)?.toInt() ??
+          _timeLimit;
       setState(() {
         _roomId = data['roomId'] as String?;
-        _myPlayerIndex = (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
+        _myPlayerIndex =
+            (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
         _gridSize = (data['gridSize'] as num?)?.toInt() ?? _gridSize;
         _sequence = List<int>.from(data['sequence'] ?? _sequence);
         _currentLevel = (data['level'] as num?)?.toInt() ?? _currentLevel;
@@ -443,12 +483,16 @@ class _SequenceScreenState extends State<SequenceScreen>
         _myFailed = data['myFailed'] == true;
         _opponentFailed = data['opponentFailed'] == true;
         _myMaxLevel = (data['myMaxLevel'] as num?)?.toInt() ?? _myMaxLevel;
-        _opponentMaxLevel = (data['opponentMaxLevel'] as num?)?.toInt() ?? _opponentMaxLevel;
+        _opponentMaxLevel =
+            (data['opponentMaxLevel'] as num?)?.toInt() ?? _opponentMaxLevel;
         final phase = data['phase'] as String? ?? 'playing';
         _status = switch (phase) {
           'showing' => SequenceGameStatus.showing,
           'waiting' => SequenceGameStatus.waiting,
-          _ => (_myFailed ? SequenceGameStatus.waiting : SequenceGameStatus.playing),
+          _ =>
+            (_myFailed
+                ? SequenceGameStatus.waiting
+                : SequenceGameStatus.playing),
         };
         _isReconnecting = false;
         _isWaitingForReconnect = false;
@@ -489,7 +533,8 @@ class _SequenceScreenState extends State<SequenceScreen>
       _stopCountdown();
       _feedbackTimer?.cancel();
       setState(() {
-        _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+        _reconnectSecondsRemaining =
+            GameReconnectHelper.reconnectGraceDuration.inSeconds;
         _isWaitingForReconnect = true;
         _isReconnecting = false;
       });
@@ -559,9 +604,9 @@ class _SequenceScreenState extends State<SequenceScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(widget.isRanked
-              ? '상대가 나가서 게임이 종료되었습니다. 승리!'
-              : '상대방이 나갔습니다.'),
+            content: Text(
+              widget.isRanked ? '상대가 나가서 게임이 종료되었습니다. 승리!' : '상대방이 나갔습니다.',
+            ),
             backgroundColor: Colors.orange,
           ),
         );
@@ -597,7 +642,6 @@ class _SequenceScreenState extends State<SequenceScreen>
       },
     );
   }
-
 
   void _showSequence() {
     final playbackToken = ++_sequencePlaybackToken;
@@ -674,8 +718,14 @@ class _SequenceScreenState extends State<SequenceScreen>
     }
 
     final inputIndex = _myInputs.length;
+    if (inputIndex >= _sequence.length) return;
     final expectedPosition = _sequence[inputIndex];
     final isCorrect = position == expectedPosition;
+    if (isCorrect) {
+      HapticFeedback.selectionClick();
+    } else {
+      HapticFeedback.mediumImpact();
+    }
 
     setState(() {
       _myInputs.add(position);
@@ -738,6 +788,8 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   void _reset() {
+    _cancelSequencePlayback();
+    _countdownTimer?.cancel();
     _showTimer?.cancel();
     _feedbackTimer?.cancel();
     _waitingReconnectTimer?.cancel();
@@ -765,7 +817,8 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   GameTheme get _theme => GameTheme.fromProfileSettings(
-      context.read<ShopProvider>().profileSettings);
+    context.read<ShopProvider>().profileSettings,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -785,7 +838,9 @@ class _SequenceScreenState extends State<SequenceScreen>
         body: Stack(
           children: [
             GameScreenTransition(
-              transitionKey: '${_status.name}-$_currentLevel-${_myInputs.length}-$_myFailed-$_opponentFailed-$_isResyncingPhase',
+              // 칸을 누를 때마다 화면이 갈아끼워지지 않도록 단계/라운드 단위로만 전환한다.
+              transitionKey:
+                  '${_status.name}-$_currentLevel-${_status == SequenceGameStatus.waiting ? _myFailed : false}-$_isResyncingPhase',
               child: _buildBody(),
             ),
             if (_isReconnecting)
@@ -833,9 +888,12 @@ class _SequenceScreenState extends State<SequenceScreen>
 
   Widget _buildBody() {
     return switch (_status) {
-      SequenceGameStatus.idle => widget.isRanked ? _buildRankedWaitingView() : _buildIdleView(),
-      SequenceGameStatus.searching => widget.isRanked ? _buildRankedWaitingView() : _buildSearchingView(),
-      SequenceGameStatus.matched => widget.isRanked ? _buildRankedWaitingView() : _buildMatchedView(),
+      SequenceGameStatus.idle =>
+        widget.isRanked ? _buildRankedWaitingView() : _buildIdleView(),
+      SequenceGameStatus.searching =>
+        widget.isRanked ? _buildRankedWaitingView() : _buildSearchingView(),
+      SequenceGameStatus.matched =>
+        widget.isRanked ? _buildRankedWaitingView() : _buildMatchedView(),
       SequenceGameStatus.showing => _buildShowingView(),
       SequenceGameStatus.playing => _buildPlayingView(),
       SequenceGameStatus.waiting => _buildWaitingView(),
@@ -855,15 +913,22 @@ class _SequenceScreenState extends State<SequenceScreen>
       backgroundColor: Colors.transparent,
       builder: (dialogContext) => Consumer<FriendProvider>(
         builder: (context, friendProvider, child) {
-          final onlineFriends = friendProvider.friends.where((f) => f.isOnline).toList();
+          final onlineFriends = friendProvider.friends
+              .where((f) => f.isOnline)
+              .toList();
 
           return Container(
             constraints: BoxConstraints(
               maxHeight: MediaQuery.of(dialogContext).size.height * 0.6,
             ),
             decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              color: CandyColors.cream,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border(
+                top: BorderSide(color: CandyColors.ink, width: 3),
+                left: BorderSide(color: CandyColors.ink, width: 3),
+                right: BorderSide(color: CandyColors.ink, width: 3),
+              ),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -874,7 +939,7 @@ class _SequenceScreenState extends State<SequenceScreen>
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
+                    color: CandyColors.ink.withValues(alpha: 0.25),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -883,16 +948,26 @@ class _SequenceScreenState extends State<SequenceScreen>
                   padding: const EdgeInsets.all(20),
                   child: Row(
                     children: [
-                      Icon(Icons.person_add, color: _isHardcore ? Colors.red : theme.primary),
+                      Icon(
+                        Icons.person_add,
+                        color: _isHardcore ? Colors.red : theme.primary,
+                      ),
                       const SizedBox(width: 12),
                       const Text(
                         '친구 초대',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          color: CandyColors.ink,
+                        ),
                       ),
                       const Spacer(),
                       if (_isHardcore)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.red.shade50,
                             borderRadius: BorderRadius.circular(12),
@@ -900,9 +975,20 @@ class _SequenceScreenState extends State<SequenceScreen>
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.local_fire_department, size: 16, color: Colors.red.shade400),
+                              Icon(
+                                Icons.local_fire_department,
+                                size: 16,
+                                color: Colors.red.shade400,
+                              ),
                               const SizedBox(width: 4),
-                              Text('하드코어', style: TextStyle(fontSize: 12, color: Colors.red.shade400, fontWeight: FontWeight.bold)),
+                              Text(
+                                '하드코어',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.red.shade400,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -919,11 +1005,18 @@ class _SequenceScreenState extends State<SequenceScreen>
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.person_off, size: 48, color: Colors.grey.shade400),
+                                Icon(
+                                  Icons.person_off,
+                                  size: 48,
+                                  color: Colors.grey.shade400,
+                                ),
                                 const SizedBox(height: 16),
                                 Text(
                                   '온라인 친구가 없습니다',
-                                  style: TextStyle(color: Colors.grey.shade600),
+                                  style: const TextStyle(
+                                    color: CandyColors.inkSoft,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ],
                             ),
@@ -938,10 +1031,20 @@ class _SequenceScreenState extends State<SequenceScreen>
                               leading: Stack(
                                 children: [
                                   CircleAvatar(
-                                    backgroundColor: (_isHardcore ? Colors.red : theme.primary).withValues(alpha: 0.2),
+                                    backgroundColor:
+                                        (_isHardcore
+                                                ? Colors.red
+                                                : theme.primary)
+                                            .withValues(alpha: 0.2),
                                     child: Text(
-                                      friend.nickname.isNotEmpty ? friend.nickname[0].toUpperCase() : '?',
-                                      style: TextStyle(color: _isHardcore ? Colors.red : theme.primary),
+                                      friend.nickname.isNotEmpty
+                                          ? friend.nickname[0].toUpperCase()
+                                          : '?',
+                                      style: TextStyle(
+                                        color: _isHardcore
+                                            ? Colors.red
+                                            : theme.primary,
+                                      ),
                                     ),
                                   ),
                                   Positioned(
@@ -953,15 +1056,30 @@ class _SequenceScreenState extends State<SequenceScreen>
                                       decoration: BoxDecoration(
                                         color: Colors.green,
                                         shape: BoxShape.circle,
-                                        border: Border.all(color: Colors.white, width: 2),
+                                        border: Border.all(
+                                          color: Colors.white,
+                                          width: 2,
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ],
                               ),
-                              title: Text(friend.nickname, style: const TextStyle(fontWeight: FontWeight.w600)),
-                              subtitle: friend.memo != null && friend.memo!.isNotEmpty
-                                  ? Text(friend.memo!, style: TextStyle(color: Colors.grey.shade600, fontSize: 12))
+                              title: Text(
+                                friend.nickname,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              subtitle:
+                                  friend.memo != null && friend.memo!.isNotEmpty
+                                  ? Text(
+                                      friend.memo!,
+                                      style: TextStyle(
+                                        color: Colors.grey.shade600,
+                                        fontSize: 12,
+                                      ),
+                                    )
                                   : null,
                               trailing: ElevatedButton(
                                 onPressed: () {
@@ -972,19 +1090,29 @@ class _SequenceScreenState extends State<SequenceScreen>
                                   );
                                   Navigator.pop(dialogContext);
                                   // 기존 SnackBar 제거 후 새 알림 표시 (중복 방지)
-                                  ScaffoldMessenger.of(context).clearSnackBars();
+                                  ScaffoldMessenger.of(
+                                    context,
+                                  ).clearSnackBars();
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                      content: Text('${friend.nickname}님에게 초대를 보냈습니다!'),
+                                      content: Text(
+                                        '${friend.nickname}님에게 초대를 보냈습니다!',
+                                      ),
                                       backgroundColor: Colors.green,
                                     ),
                                   );
                                 },
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: _isHardcore ? Colors.red : theme.primary,
+                                  backgroundColor: _isHardcore
+                                      ? Colors.red
+                                      : theme.primary,
                                   foregroundColor: Colors.white,
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(20),
+                                    side: const BorderSide(
+                                      color: CandyColors.ink,
+                                      width: 2.5,
+                                    ),
                                   ),
                                 ),
                                 child: const Text('초대'),
@@ -993,7 +1121,9 @@ class _SequenceScreenState extends State<SequenceScreen>
                           },
                         ),
                 ),
-                SizedBox(height: MediaQuery.of(dialogContext).padding.bottom + 16),
+                SizedBox(
+                  height: MediaQuery.of(dialogContext).padding.bottom + 16,
+                ),
               ],
             ),
           );
@@ -1022,82 +1152,15 @@ class _SequenceScreenState extends State<SequenceScreen>
   }
 
   Widget _buildSearchingView() {
-    final theme = _theme;
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(
-              color: theme.primary,
-            ),
-            const SizedBox(height: 24),
-            Text(
-              '상대를 찾는 중...',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 48),
-            OutlinedButton(
-              onPressed: _cancelMatch,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.grey,
-                side: BorderSide(color: Colors.grey.shade400),
-              ),
-              child: const Text('취소'),
-            ),
-          ],
-        ),
-      ),
+    return GameSearchingView(
+      theme: _theme,
+      isHardcore: _isHardcore,
+      onCancel: _cancelMatch,
     );
   }
 
   Widget _buildMatchedView() {
-    final theme = _theme;
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: theme.background1,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.sports_esports,
-                size: 64,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '$_opponentNickname님과 매칭!',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '게임이 곧 시작됩니다...',
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
-          ],
-        ),
-      ),
-    );
+    return GameMatchedView(theme: _theme, opponentNickname: _opponentNickname);
   }
 
   Widget _buildShowingView() {
@@ -1108,52 +1171,32 @@ class _SequenceScreenState extends State<SequenceScreen>
         _buildHeader(),
         Expanded(
           child: Container(
-            decoration: BoxDecoration(
-              gradient: theme.backgroundGradient,
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // 타이머 미리보기 (카운트다운 전)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.grey.shade300),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.timer,
-                        size: 20,
-                        color: Colors.grey.shade600,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '$totalSeconds초',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey.shade700,
-                        ),
-                      ),
-                    ],
-                  ),
+            decoration: BoxDecoration(gradient: theme.backgroundGradient),
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // 타이머 미리보기 (카운트다운 전)
+                    GameTimerBadge(
+                      seconds: totalSeconds,
+                      label: '입력 시간',
+                      accentColor: CandyColors.inkSoft,
+                      compact: true,
+                      warningThreshold: -1,
+                    ),
+                    const SizedBox(height: 14),
+                    _PromptPill(
+                      text: '순서를 기억하세요!',
+                      color: theme.primary,
+                      icon: Icons.visibility_rounded,
+                    ),
+                    const SizedBox(height: 20),
+                    _buildGrid(enabled: false),
+                  ],
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  '순서를 기억하세요!',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: theme.primary,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                _buildGrid(enabled: false),
-              ],
+              ),
             ),
           ),
         ),
@@ -1168,31 +1211,38 @@ class _SequenceScreenState extends State<SequenceScreen>
         _buildHeader(),
         Expanded(
           child: Container(
-            decoration: BoxDecoration(
-              gradient: theme.backgroundGradient,
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // 타이머 표시
-                GameTimerBadge(
-                  seconds: _remainingSeconds,
-                  label: '입력 남은 시간',
-                  accentColor: _theme.primary,
-                  compact: true,
+            decoration: BoxDecoration(gradient: theme.backgroundGradient),
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // 타이머 표시
+                    GameTimerBadge(
+                      seconds: _remainingSeconds,
+                      label: '입력 남은 시간',
+                      accentColor: theme.primary,
+                      compact: true,
+                    ),
+                    const SizedBox(height: 14),
+                    _PromptPill(
+                      text:
+                          '순서대로 터치! (${_myInputs.length}/${_sequence.length})',
+                      color: theme.primary,
+                      icon: Icons.touch_app_rounded,
+                    ),
+                    const SizedBox(height: 10),
+                    _ProgressDots(
+                      total: _sequence.length,
+                      done: _myInputs.length,
+                      color: theme.primary,
+                    ),
+                    const SizedBox(height: 18),
+                    _buildGrid(enabled: true),
+                  ],
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  '순서대로 터치! (${_myInputs.length}/${_sequence.length})',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: theme.primary,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                _buildGrid(enabled: true),
-              ],
+              ),
             ),
           ),
         ),
@@ -1202,6 +1252,7 @@ class _SequenceScreenState extends State<SequenceScreen>
 
   Widget _buildWaitingView() {
     final message = _myFailed ? '틀렸습니다! 상대를 기다리는 중...' : '완료! 상대를 기다리는 중...';
+    final tone = _myFailed ? const Color(0xFFE5484D) : CandyColors.mintDeep;
     return Column(
       children: [
         _buildHeader(),
@@ -1211,24 +1262,27 @@ class _SequenceScreenState extends State<SequenceScreen>
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [
-                  (_myFailed ? Colors.red : Colors.green).withValues(alpha: 0.1),
-                  Colors.white,
-                ],
+                colors: [tone.withValues(alpha: 0.14), CandyColors.cream],
               ),
             ),
             child: Center(
-              child: GameStagePanel(
-                icon: _myFailed ? Icons.close_rounded : Icons.check_circle_rounded,
-                title: _myFailed ? '입력 종료' : '입력 완료',
-                subtitle: message,
-                accentColor: _myFailed ? Colors.red : Colors.green,
-                content: SizedBox(
-                  width: 30,
-                  height: 30,
-                  child: CircularProgressIndicator(
-                    color: _theme.primary,
-                    strokeWidth: 3,
+              child: SingleChildScrollView(
+                child: PopIn(
+                  child: GameStagePanel(
+                    icon: _myFailed
+                        ? Icons.close_rounded
+                        : Icons.check_circle_rounded,
+                    title: _myFailed ? '입력 종료' : '입력 완료',
+                    subtitle: message,
+                    accentColor: tone,
+                    content: SizedBox(
+                      width: 30,
+                      height: 30,
+                      child: CircularProgressIndicator(
+                        color: _theme.primary,
+                        strokeWidth: 3,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -1241,10 +1295,15 @@ class _SequenceScreenState extends State<SequenceScreen>
 
   Widget _buildHeader() {
     return GameDuelHeader(
-      backgroundColors: const [Color(0xFFF3E5F5), Color(0xFFFCE4EC)],
+      backgroundColors: [
+        CandyColors.grape.withValues(alpha: 0.18),
+        CandyColors.pink.withValues(alpha: 0.18),
+      ],
       accentColor: _theme.primary,
       centerLabel: 'Lv.$_currentLevel',
-      centerSubtitle: _isHardcore ? '하드코어' : (_gridSize == 16 ? '4x4 패턴' : '3x3 패턴'),
+      centerSubtitle: _isHardcore
+          ? '하드코어'
+          : (_gridSize == 16 ? '4x4 패턴' : '3x3 패턴'),
       myName: _myNickname ?? '나',
       opponentName: _opponentNickname ?? '상대',
       myAvatarUrl: _myAvatarUrl,
@@ -1262,7 +1321,7 @@ class _SequenceScreenState extends State<SequenceScreen>
     if (!failed) return const SizedBox.shrink();
     return const GameHeaderStatusPill(
       text: 'OUT',
-      color: Colors.red,
+      color: Color(0xFFE5484D),
       margin: EdgeInsets.only(top: 4),
     );
   }
@@ -1270,19 +1329,19 @@ class _SequenceScreenState extends State<SequenceScreen>
   Widget _buildGrid({required bool enabled}) {
     // gridSize: 9 = 3x3, 16 = 4x4
     final gridDimension = _gridSize == 16 ? 4 : 3;
-    final cellSize = MediaQuery.of(context).size.width / (gridDimension + 1.5);
+    final screenW = MediaQuery.of(context).size.width;
+    // 패널 패딩/테두리까지 포함해서 화면 폭을 넘지 않도록 계산
+    final cellSize = math.min(screenW / (gridDimension + 1.5), 110.0);
 
     return Center(
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: _theme.primary.withValues(alpha: 0.2),
-              blurRadius: 20,
-            ),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: CandyColors.ink, width: 3),
+          boxShadow: const [
+            BoxShadow(color: CandyColors.ink, offset: Offset(0, 5)),
           ],
         ),
         child: Column(
@@ -1292,11 +1351,7 @@ class _SequenceScreenState extends State<SequenceScreen>
               mainAxisSize: MainAxisSize.min,
               children: List.generate(gridDimension, (col) {
                 final position = row * gridDimension + col;
-                return _buildCell(
-                  position,
-                  cellSize,
-                  enabled: enabled,
-                );
+                return _buildCell(position, cellSize, enabled: enabled);
               }),
             );
           }),
@@ -1307,49 +1362,32 @@ class _SequenceScreenState extends State<SequenceScreen>
 
   Widget _buildCell(int position, double size, {required bool enabled}) {
     final isShowing =
-        _showingIndex >= 0 && _sequence[_showingIndex] == position;
+        _showingIndex >= 0 &&
+        _showingIndex < _sequence.length &&
+        _sequence[_showingIndex] == position;
     final isLastInput = _lastInputPosition == position;
     final isCorrectInput = isLastInput && _lastInputCorrect == true;
     final isWrongInput = isLastInput && _lastInputCorrect == false;
     final alreadyInput = _myInputs.contains(position) && !isLastInput;
 
-    Color cellColor = Colors.grey.shade200;
+    final _PadState state;
     if (isShowing) {
-      cellColor = _theme.primary;
+      state = _PadState.lit;
     } else if (isCorrectInput) {
-      cellColor = Colors.green;
+      state = _PadState.correct;
     } else if (isWrongInput) {
-      cellColor = Colors.red;
+      state = _PadState.wrong;
     } else if (alreadyInput) {
-      cellColor = _theme.primary.withValues(alpha: 0.3);
+      state = _PadState.done;
+    } else {
+      state = _PadState.idle;
     }
 
-    return GestureDetector(
+    return _SequencePad(
+      size: size - 8,
+      baseColor: _padPalette[position % _padPalette.length],
+      state: state,
       onTap: enabled ? () => _onCellTap(position) : null,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        width: size - 8,
-        height: size - 8,
-        margin: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          color: cellColor,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: isShowing
-              ? [
-                  BoxShadow(
-                    color: _theme.primary.withValues(alpha: 0.5),
-                    blurRadius: 15,
-                    spreadRadius: 2,
-                  )
-                ]
-              : null,
-        ),
-        child: Center(
-          child: isShowing
-              ? const Icon(Icons.star, color: Colors.white, size: 32)
-              : null,
-        ),
-      ),
     );
   }
 
@@ -1385,7 +1423,7 @@ class _SequenceScreenState extends State<SequenceScreen>
 
     if (_isDraw) {
       resultText = '무승부!';
-      resultColor = Colors.orange;
+      resultColor = CandyColors.tangerine;
       resultIcon = Icons.handshake;
     } else if (isWinner) {
       resultText = '승리!';
@@ -1393,7 +1431,7 @@ class _SequenceScreenState extends State<SequenceScreen>
       resultIcon = Icons.emoji_events;
     } else {
       resultText = '아쉬워요...';
-      resultColor = Colors.grey;
+      resultColor = CandyColors.inkSoft;
       resultIcon = Icons.sentiment_dissatisfied;
     }
 
@@ -1402,10 +1440,7 @@ class _SequenceScreenState extends State<SequenceScreen>
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            resultColor.withValues(alpha: 0.1),
-            Colors.white,
-          ],
+          colors: [resultColor.withValues(alpha: 0.14), CandyColors.cream],
         ),
       ),
       child: Center(
@@ -1414,67 +1449,74 @@ class _SequenceScreenState extends State<SequenceScreen>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-            GameResultHero(
-              icon: resultIcon,
-              color: resultColor,
-              title: resultText,
-              subtitle: _isDraw
-                  ? '기억력 대결이 끝까지 팽팽했어요.'
-                  : (isWinner ? '더 높은 단계까지 침착하게 도달했어요.' : '다음 판은 초반 패턴부터 더 단단하게 기억해봐요.'),
-            ),
-            const SizedBox(height: 22),
-            GameResultMatchupRow(
-              leftLabel: '나',
-              leftValue: 'Lv.$_myMaxLevel',
-              rightLabel: _opponentNickname ?? '상대',
-              rightValue: 'Lv.$_opponentMaxLevel',
-              accentColor: resultColor,
-            ),
-            const SizedBox(height: 24),
-            if (_opponentWantsRematch && !_opponentLeft)
-              GameResultStatusPill(
-                icon: Icons.hourglass_top_rounded,
-                text: '$_opponentNickname님이 재경기 대기 중',
-                color: const Color(0xFF15803D),
+              GameResultHero(
+                icon: resultIcon,
+                color: resultColor,
+                title: resultText,
+                subtitle: _isDraw
+                    ? '기억력 대결이 끝까지 팽팽했어요.'
+                    : (isWinner
+                          ? '더 높은 단계까지 침착하게 도달했어요.'
+                          : '다음 판은 초반 패턴부터 더 단단하게 기억해봐요.'),
               ),
-            GameResultActionButtons(
-              accentColor: _theme.primary,
-              opponentLeft: _opponentLeft,
-              rematchWaiting: _rematchWaiting,
-              isInvitationGame: _isInvitationGame,
-              canSendFriendRequest: !_isInvitationGame &&
-                  !_opponentLeft &&
-                  _opponentUserId != null &&
-                  !context.read<FriendProvider>().isFriend(_opponentUserId!),
-              onRematchPressed: _rematchWaiting ? _cancelRematch : _requestRematch,
-              onSearchAgainPressed: () {
-                _leaveGame();
-                _findMatch();
-              },
-              onLobbyPressed: () {
-                GameSessionHelper.leaveGameAndReturnToLobby(
-                  context: context,
-                  socketService: _socketService,
-                  roomId: _roomId,
-                  isRanked: widget.isRanked,
-                  resetState: _reset,
-                );
-              },
-              onFriendRequestPressed: _opponentUserId == null
-                  ? null
-                  : () {
-                      context.read<FriendProvider>().sendFriendRequestByUserId(_opponentUserId!);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('$_opponentNickname님에게 친구 요청을 보냈습니다'),
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
-                    },
-            ),
-          ],
+              const SizedBox(height: 22),
+              GameResultMatchupRow(
+                leftLabel: '나',
+                leftValue: 'Lv.$_myMaxLevel',
+                rightLabel: _opponentNickname ?? '상대',
+                rightValue: 'Lv.$_opponentMaxLevel',
+                accentColor: resultColor,
+              ),
+              const SizedBox(height: 24),
+              if (_opponentWantsRematch && !_opponentLeft)
+                GameResultStatusPill(
+                  icon: Icons.hourglass_top_rounded,
+                  text: '$_opponentNickname님이 재경기 대기 중',
+                  color: CandyColors.mintDeep,
+                ),
+              GameResultActionButtons(
+                accentColor: _theme.primary,
+                opponentLeft: _opponentLeft,
+                rematchWaiting: _rematchWaiting,
+                isInvitationGame: _isInvitationGame,
+                canSendFriendRequest:
+                    !_isInvitationGame &&
+                    !_opponentLeft &&
+                    _opponentUserId != null &&
+                    !context.read<FriendProvider>().isFriend(_opponentUserId!),
+                onRematchPressed: _rematchWaiting
+                    ? _cancelRematch
+                    : _requestRematch,
+                onSearchAgainPressed: () {
+                  _leaveGame();
+                  _findMatch();
+                },
+                onLobbyPressed: () {
+                  GameSessionHelper.leaveGameAndReturnToLobby(
+                    context: context,
+                    socketService: _socketService,
+                    roomId: _roomId,
+                    isRanked: widget.isRanked,
+                    resetState: _reset,
+                  );
+                },
+                onFriendRequestPressed: _opponentUserId == null
+                    ? null
+                    : () {
+                        context
+                            .read<FriendProvider>()
+                            .sendFriendRequestByUserId(_opponentUserId!);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('$_opponentNickname님에게 친구 요청을 보냈습니다'),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      },
+              ),
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -1487,7 +1529,8 @@ class _SequenceScreenState extends State<SequenceScreen>
     }
 
     // 랭크 게임에서 대기 중인 상태인지 확인
-    final isRankedWaiting = widget.isRanked &&
+    final isRankedWaiting =
+        widget.isRanked &&
         (_status == SequenceGameStatus.idle ||
             _status == SequenceGameStatus.searching ||
             _status == SequenceGameStatus.matched);
@@ -1515,5 +1558,265 @@ class _SequenceScreenState extends State<SequenceScreen>
           : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
       onExit: _leaveGame,
     ).then((_) => _isExitDialogOpen = false);
+  }
+}
+
+// ───────────────────────── 캔디 카툰 패드 위젯 ─────────────────────────
+
+enum _PadState { idle, lit, correct, wrong, done }
+
+const List<Color> _padPalette = [
+  CandyColors.pink,
+  CandyColors.sky,
+  CandyColors.sun,
+  CandyColors.mint,
+  CandyColors.grape,
+  CandyColors.tangerine,
+];
+
+/// 순서 기억하기의 한 칸. 켜지면 글로우 + 통통 튀고, 오답이면 흔들린다.
+class _SequencePad extends StatefulWidget {
+  final double size;
+  final Color baseColor;
+  final _PadState state;
+  final VoidCallback? onTap;
+
+  const _SequencePad({
+    required this.size,
+    required this.baseColor,
+    required this.state,
+    required this.onTap,
+  });
+
+  @override
+  State<_SequencePad> createState() => _SequencePadState();
+}
+
+class _SequencePadState extends State<_SequencePad>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 460),
+  );
+  bool _down = false;
+
+  @override
+  void didUpdateWidget(covariant _SequencePad old) {
+    super.didUpdateWidget(old);
+    if (old.state != widget.state &&
+        (widget.state == _PadState.lit ||
+            widget.state == _PadState.correct ||
+            widget.state == _PadState.wrong)) {
+      _c.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final base = widget.baseColor;
+    final st = widget.state;
+    final Color face = switch (st) {
+      _PadState.idle => Color.lerp(base, Colors.white, 0.72)!,
+      _PadState.lit => base,
+      _PadState.correct => CandyColors.mint,
+      _PadState.wrong => const Color(0xFFFF5A5F),
+      _PadState.done => Color.lerp(base, Colors.white, 0.45)!,
+    };
+    final glow =
+        st == _PadState.lit || st == _PadState.correct || st == _PadState.wrong;
+    final pressed = _down || glow;
+    final depth = pressed ? 1.0 : 4.0;
+
+    Widget? icon;
+    if (st == _PadState.lit) {
+      icon = Icon(
+        Icons.star_rounded,
+        color: Colors.white,
+        size: widget.size * 0.5,
+      );
+    } else if (st == _PadState.correct) {
+      icon = Icon(
+        Icons.check_rounded,
+        color: Colors.white,
+        size: widget.size * 0.5,
+      );
+    } else if (st == _PadState.wrong) {
+      icon = Icon(
+        Icons.close_rounded,
+        color: Colors.white,
+        size: widget.size * 0.5,
+      );
+    }
+
+    return RepaintBoundary(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: widget.onTap == null
+            ? null
+            : (_) => setState(() => _down = true),
+        onTapCancel: widget.onTap == null
+            ? null
+            : () => setState(() => _down = false),
+        onTapUp: widget.onTap == null
+            ? null
+            : (_) => setState(() => _down = false),
+        onTap: widget.onTap,
+        child: AnimatedBuilder(
+          animation: _c,
+          builder: (context, child) {
+            final t = _c.value;
+            double scale = 1.0;
+            double dx = 0;
+            if (st == _PadState.lit || st == _PadState.correct) {
+              scale = 0.84 + 0.16 * Curves.elasticOut.transform(t);
+              if (st == _PadState.lit) scale *= 1.05;
+            } else if (st == _PadState.wrong) {
+              dx = math.sin(t * math.pi * 7) * 8 * (1 - t);
+            }
+            if (_down) scale *= 0.94;
+            return Transform.translate(
+              offset: Offset(dx, 0),
+              child: Transform.scale(scale: scale, child: child),
+            );
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeOut,
+            width: widget.size,
+            height: widget.size,
+            margin: EdgeInsets.fromLTRB(4, 8 - depth, 4, depth),
+            decoration: BoxDecoration(
+              color: face,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: CandyColors.ink, width: 3),
+              boxShadow: [
+                if (glow)
+                  BoxShadow(
+                    color: face.withValues(alpha: 0.75),
+                    blurRadius: 20,
+                    spreadRadius: 3,
+                  ),
+                BoxShadow(color: CandyColors.ink, offset: Offset(0, depth)),
+              ],
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // 광택
+                Positioned(
+                  left: 10,
+                  right: 10,
+                  top: 6,
+                  child: Container(
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: glow ? 0.5 : 0.35),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                ),
+                if (icon != null) icon,
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 안내 문구 알약.
+class _PromptPill extends StatelessWidget {
+  final String text;
+  final Color color;
+  final IconData icon;
+  const _PromptPill({
+    required this.text,
+    required this.color,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 320),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: CandyColors.ink, width: 2.5),
+        boxShadow: const [
+          BoxShadow(color: CandyColors.ink, offset: Offset(0, 3)),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
+                color: CandyColors.ink,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 입력 진행 점. 맞출 때마다 통통 채워진다.
+class _ProgressDots extends StatelessWidget {
+  final int total;
+  final int done;
+  final Color color;
+  const _ProgressDots({
+    required this.total,
+    required this.done,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (total <= 0) return const SizedBox.shrink();
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 300),
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 5,
+        runSpacing: 5,
+        children: List.generate(total, (i) {
+          final filled = i < done;
+          return AnimatedScale(
+            scale: filled ? 1.0 : 0.8,
+            duration: const Duration(milliseconds: 260),
+            curve: Curves.elasticOut,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                color: filled ? color : Colors.white,
+                shape: BoxShape.circle,
+                border: Border.all(color: CandyColors.ink, width: 2),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
   }
 }
