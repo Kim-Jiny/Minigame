@@ -17,7 +17,7 @@ class GamePlayerProfile extends StatelessWidget {
     required this.isActive,
     required this.isMe,
     this.profileSettings,
-    this.activeColor = const Color(0xFF6C5CE7),
+    this.activeColor = const Color(0xFFFF6B9D),
     this.extraWidget,
   });
 

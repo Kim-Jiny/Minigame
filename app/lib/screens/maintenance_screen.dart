@@ -196,7 +196,7 @@ class ConnectionFailedScreen extends StatelessWidget {
                         horizontal: 24,
                         vertical: 12,
                       ),
-                      backgroundColor: const Color(0xFF6C5CE7),
+                      backgroundColor: const Color(0xFFFF6B9D),
                     ),
                   ),
               ],

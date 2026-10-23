@@ -1456,7 +1456,7 @@ class _GaugePainter extends CustomPainter {
     final markerPaint = Paint()
       ..color = stoppedValue != null
           ? _getColorForPosition(value)
-          : const Color(0xFF6C5CE7)
+          : const Color(0xFFFF6B9D)
       ..style = PaintingStyle.fill;
     final markerShadow = Paint()
       ..color = Colors.black.withValues(alpha: 0.2)

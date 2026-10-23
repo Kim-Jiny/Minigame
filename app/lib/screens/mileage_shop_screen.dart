@@ -11,7 +11,7 @@ class MileageShopScreen extends StatelessWidget {
   static const Color _goldDeep = Color(0xFFD9A441);
   static const Color _panel = Color(0xFF1B2238);
   static const Color _panelAlt = Color(0xFF24304F);
-  static const Color _accent = Color(0xFF6C5CE7);
+  static const Color _accent = Color(0xFFFF6B9D);
   static const Color _teal = Color(0xFF00D2D3);
 
   @override
@@ -459,7 +459,7 @@ class MileageShopScreen extends StatelessWidget {
 
   void _showResetGameSelectDialog(BuildContext context, StatsProvider statsProvider) {
     final gameTypes = [
-      {'type': 'tictactoe', 'name': '틱택토', 'icon': Icons.grid_3x3, 'color': const Color(0xFF6C5CE7)},
+      {'type': 'tictactoe', 'name': '틱택토', 'icon': Icons.grid_3x3, 'color': const Color(0xFFFF6B9D)},
       {'type': 'infinite_tictactoe', 'name': '무한 틱택토', 'icon': Icons.all_inclusive, 'color': const Color(0xFF74B9FF)},
       {'type': 'gomoku', 'name': '오목', 'icon': Icons.circle_outlined, 'color': const Color(0xFF2D3436)},
       {'type': 'reaction', 'name': '반응속도', 'icon': Icons.flash_on, 'color': const Color(0xFFE17055)},

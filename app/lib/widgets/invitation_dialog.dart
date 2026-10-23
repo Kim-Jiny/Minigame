@@ -16,7 +16,7 @@ class InvitationDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isHardcore = invitation.isHardcore;
-    final primaryColor = isHardcore ? Colors.red : const Color(0xFF6C5CE7);
+    final primaryColor = isHardcore ? Colors.red : const Color(0xFFFF6B9D);
     final bgColor = isHardcore ? Colors.red.shade50 : const Color(0xFFE8E0FF);
 
     return AlertDialog(

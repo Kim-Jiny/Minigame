@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'navigation/game_routes.dart';
+import 'theme/candy_theme.dart';
 import 'providers/auth_provider.dart';
 import 'providers/game_provider.dart';
 import 'providers/friend_provider.dart';
@@ -22,12 +23,12 @@ final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 // 앱 테마 색상 정의
 class AppColors {
-  static const primary = Color(0xFF6C5CE7);       // 파스텔 퍼플
-  static const secondary = Color(0xFF74B9FF);     // 파스텔 블루
-  static const accent = Color(0xFFFDCB6E);        // 파스텔 옐로우
-  static const background = Color(0xFFF8F9FF);    // 연한 라벤더 배경
-  static const mint = Color(0xFF00CEC9);          // 민트
-  static const coral = Color(0xFFFF7675);         // 코랄
+  static const primary = CandyColors.pink;
+  static const secondary = CandyColors.sky;
+  static const accent = CandyColors.sun;
+  static const background = CandyColors.cream;
+  static const mint = CandyColors.mint;
+  static const coral = Color(0xFFFF8787);
 }
 
 void main() async {
@@ -52,10 +53,7 @@ void main() async {
 class MinigameApp extends StatelessWidget {
   final RemoteConfigService remoteConfigService;
 
-  const MinigameApp({
-    super.key,
-    required this.remoteConfigService,
-  });
+  const MinigameApp({super.key, required this.remoteConfigService});
 
   @override
   Widget build(BuildContext context) {
@@ -73,70 +71,15 @@ class MinigameApp extends StatelessWidget {
         navigatorKey: appNavigatorKey,
         title: '우리만의 게임',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: AppColors.primary,
-            primary: AppColors.primary,
-            secondary: AppColors.secondary,
-            surface: Colors.white,
-          ),
-          primaryColor: AppColors.primary,
-          scaffoldBackgroundColor: Colors.white,
-          useMaterial3: true,
-          appBarTheme: const AppBarTheme(
-            backgroundColor: AppColors.primary,
-            foregroundColor: Colors.white,
-            elevation: 0,
-          ),
-          elevatedButtonTheme: ElevatedButtonThemeData(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            ),
-          ),
-          outlinedButtonTheme: OutlinedButtonThemeData(
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.primary,
-              side: const BorderSide(color: AppColors.primary),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            ),
-          ),
-          inputDecorationTheme: InputDecorationTheme(
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: AppColors.primary, width: 2),
-            ),
-            prefixIconColor: AppColors.primary,
-          ),
-          cardTheme: CardThemeData(
-            elevation: 4,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-          ),
-          bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-            selectedItemColor: AppColors.primary,
-            unselectedItemColor: Colors.grey,
-          ),
-        ),
+        theme: CandyTheme.light(),
         builder: (context, child) {
           // 안드로이드에서 텍스트 크기 축소 (85%)
           if (Platform.isAndroid) {
             final scale = MediaQuery.of(context).textScaler.scale(1.0) * 0.85;
             return MediaQuery(
-              data: MediaQuery.of(context).copyWith(
-                textScaler: TextScaler.linear(scale),
-              ),
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(scale)),
               child: child!,
             );
           }
@@ -163,7 +106,9 @@ class AuthWrapper extends StatefulWidget {
 class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
   bool _serverConnected = false;
   final SocketService _socketService = SocketService();
-  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(
+    _socketService,
+  );
   DateTime? _pausedAt;
   bool _providersInitialized = false;
   bool _userProvidersCleared = false;

@@ -1204,7 +1204,7 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
     final isTriple = ticket.ticketEffect == 'delete_loss_3';
     final deleteCount = isTriple ? 3 : 1;
     final gameTypes = [
-      {'type': 'tictactoe', 'name': '틱택토', 'icon': Icons.grid_3x3, 'color': const Color(0xFF6C5CE7)},
+      {'type': 'tictactoe', 'name': '틱택토', 'icon': Icons.grid_3x3, 'color': const Color(0xFFFF6B9D)},
       {'type': 'infinite_tictactoe', 'name': '무한 틱택토', 'icon': Icons.all_inclusive, 'color': const Color(0xFF74B9FF)},
       {'type': 'gomoku', 'name': '오목', 'icon': Icons.circle_outlined, 'color': const Color(0xFF2D3436)},
       {'type': 'reaction', 'name': '반응속도', 'icon': Icons.flash_on, 'color': const Color(0xFFE17055)},
@@ -1431,7 +1431,7 @@ class _ShopScreenState extends State<ShopScreen> with SingleTickerProviderStateM
 
   void _showResetGameSelectDialog(StatsProvider statsProvider) {
     final gameTypes = [
-      {'type': 'tictactoe', 'name': '틱택토', 'icon': Icons.grid_3x3, 'color': const Color(0xFF6C5CE7)},
+      {'type': 'tictactoe', 'name': '틱택토', 'icon': Icons.grid_3x3, 'color': const Color(0xFFFF6B9D)},
       {'type': 'infinite_tictactoe', 'name': '무한 틱택토', 'icon': Icons.all_inclusive, 'color': const Color(0xFF74B9FF)},
       {'type': 'gomoku', 'name': '오목', 'icon': Icons.circle_outlined, 'color': const Color(0xFF2D3436)},
       {'type': 'reaction', 'name': '반응속도', 'icon': Icons.flash_on, 'color': const Color(0xFFE17055)},

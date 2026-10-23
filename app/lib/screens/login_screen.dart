@@ -141,7 +141,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                               child: Icon(
                                 Icons.cloud_rounded,
                                 size: 22,
-                                color: const Color(0xFF74B9FF).withValues(alpha: 0.5),
+                                color: const Color(0xFF4DB8FF).withValues(alpha: 0.5),
                               ),
                             );
                           },
@@ -158,7 +158,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                               child: Icon(
                                 Icons.auto_awesome,
                                 size: 18,
-                                color: const Color(0xFF6C5CE7).withValues(alpha: 0.5),
+                                color: const Color(0xFFFF6B9D).withValues(alpha: 0.5),
                               ),
                             );
                           },
@@ -191,12 +191,12 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                               gradient: const LinearGradient(
                                 begin: Alignment.topLeft,
                                 end: Alignment.bottomRight,
-                                colors: [Color(0xFF6C5CE7), Color(0xFF74B9FF)],
+                                colors: [Color(0xFFFF6B9D), Color(0xFF4DB8FF)],
                               ),
                               shape: BoxShape.circle,
                               boxShadow: [
                                 BoxShadow(
-                                  color: const Color(0xFF6C5CE7).withValues(alpha: 0.4),
+                                  color: const Color(0xFFFF6B9D).withValues(alpha: 0.4),
                                   blurRadius: 25,
                                   offset: const Offset(0, 10),
                                   spreadRadius: 2,
@@ -219,7 +219,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 // 앱 이름
                 ShaderMask(
                   shaderCallback: (bounds) => const LinearGradient(
-                    colors: [Color(0xFF6C5CE7), Color(0xFF74B9FF)],
+                    colors: [Color(0xFFFF6B9D), Color(0xFF4DB8FF)],
                   ).createShader(bounds),
                   child: const Text(
                     '듀오아레나',
@@ -248,7 +248,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                     borderRadius: BorderRadius.circular(24),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF6C5CE7).withValues(alpha: 0.12),
+                        color: const Color(0xFFFF6B9D).withValues(alpha: 0.12),
                         blurRadius: 20,
                         offset: const Offset(0, 10),
                       ),
@@ -268,7 +268,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
                             borderSide: const BorderSide(
-                              color: Color(0xFF6C5CE7),
+                              color: Color(0xFFFF6B9D),
                               width: 2,
                             ),
                           ),
@@ -287,13 +287,13 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                         child: ElevatedButton(
                           onPressed: isLoading ? null : _loginAsGuest,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF6C5CE7),
+                            backgroundColor: const Color(0xFFFF6B9D),
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
                             ),
                             elevation: 4,
-                            shadowColor: const Color(0xFF6C5CE7).withValues(alpha: 0.4),
+                            shadowColor: const Color(0xFFFF6B9D).withValues(alpha: 0.4),
                           ),
                           child: isLoading
                               ? const CircularProgressIndicator(color: Colors.white)

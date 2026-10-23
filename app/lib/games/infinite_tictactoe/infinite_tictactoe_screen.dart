@@ -216,7 +216,7 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
   }
 
   Widget _buildPieceCount(int pieceCount, bool isMe) {
-    final color = isMe ? const Color(0xFF6C5CE7) : const Color(0xFFFFB74D);
+    final color = isMe ? const Color(0xFFFF6B9D) : const Color(0xFFFFB74D);
     return Padding(
       padding: const EdgeInsets.only(top: 2),
       child: Row(
@@ -320,7 +320,7 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
       return const Icon(
         Icons.circle_outlined,
         size: 48,
-        color: Color(0xFF6C5CE7),
+        color: Color(0xFFFF6B9D),
       );
     } else {
       return const Icon(

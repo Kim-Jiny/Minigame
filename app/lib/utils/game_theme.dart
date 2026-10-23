@@ -19,10 +19,10 @@ class GameTheme {
 
   /// 기본 테마 (보라색)
   static const defaultTheme = GameTheme(
-    primary: Color(0xFF6C5CE7),
-    secondary: Color(0xFFA29BFE),
-    background1: Color(0xFFE8E0FF),
-    background2: Color(0xFFF5F0FF),
+    primary: Color(0xFFFF6B9D),
+    secondary: Color(0xFFFFA8C5),
+    background1: Color(0xFFFFE0EC),
+    background2: Color(0xFFFFF0F6),
   );
 
   /// UserProfileSettings에서 테마 생성

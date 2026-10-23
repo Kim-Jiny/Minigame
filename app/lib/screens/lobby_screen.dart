@@ -12,6 +12,11 @@ import '../widgets/invitation_dialog.dart';
 import 'friends_screen.dart';
 import 'profile_screen.dart';
 import 'maintenance_screen.dart';
+import '../theme/candy_theme.dart';
+import '../widgets/cartoon/cartoon_card.dart';
+import '../widgets/cartoon/duo_mascot.dart';
+import '../widgets/cartoon/floating_bg.dart';
+import '../widgets/cartoon/pop_in.dart';
 import 'mode_games_screen.dart';
 
 class _LobbyNoticeStyle {
@@ -104,10 +109,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
     friendProvider.onInvitationExpired = (message) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message),
-            backgroundColor: Colors.orange,
-          ),
+          SnackBar(content: Text(message), backgroundColor: Colors.orange),
         );
       }
     };
@@ -126,7 +128,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
     // 게임 시작 (초대 수락 후)
     friendProvider.onGameStart = (gameType, roomId, gameState, shouldNavigate) {
-      debugPrint('🎮 onGameStart: gameType=$gameType, roomId=$roomId, shouldNavigate=$shouldNavigate, mounted=$mounted');
+      debugPrint(
+        '🎮 onGameStart: gameType=$gameType, roomId=$roomId, shouldNavigate=$shouldNavigate, mounted=$mounted',
+      );
 
       // 중복 처리 방지: 같은 roomId로 이미 처리된 경우 스킵
       if (_lastProcessedInvitationRoomId == roomId) {
@@ -139,7 +143,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
         final gameProvider = context.read<GameProvider>();
 
         // 이미 게임이 진행 중이면 스킵 (중복 이벤트 처리 방지)
-        if (gameProvider.roomId == roomId && gameProvider.status == GameStatus.playing) {
+        if (gameProvider.roomId == roomId &&
+            gameProvider.status == GameStatus.playing) {
           debugPrint('🎮 onGameStart: 이미 해당 roomId로 게임 진행 중, 스킵');
           return;
         }
@@ -161,7 +166,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
               turnStartTime: gameState['turnStartTime'] as int?,
             );
           } else {
-            debugPrint('🎮 onGameStart: currentTurn or board is null, skipping initializeInvitationGame');
+            debugPrint(
+              '🎮 onGameStart: currentTurn or board is null, skipping initializeInvitationGame',
+            );
           }
         } else if (gameState != null && !isBoardGame) {
           // 비보드 게임의 경우: roomId와 기본 정보만 설정
@@ -196,15 +203,26 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
         return Scaffold(
           appBar: AppBar(
-            title: Text(_currentIndex == 0 ? '듀오아레나' : _currentIndex == 1 ? '친구' : '프로필'),
-            backgroundColor: Theme.of(context).primaryColor,
-            foregroundColor: Colors.white,
-            elevation: 0,
+            title: Text(
+              _currentIndex == 0
+                  ? '듀오 아레나'
+                  : _currentIndex == 1
+                  ? '친구'
+                  : '프로필',
+            ),
+            shape: const Border(
+              bottom: BorderSide(
+                color: CandyColors.ink,
+                width: CandyTheme.outline,
+              ),
+            ),
           ),
           body: Consumer<GameProvider>(
             builder: (context, gameProvider, child) {
-              final showFullNotice = gameProvider.hasLobbyNotice && _currentIndex == 0;
-              final showCompactNotice = gameProvider.hasLobbyNotice && _currentIndex != 0;
+              final showFullNotice =
+                  gameProvider.hasLobbyNotice && _currentIndex == 0;
+              final showCompactNotice =
+                  gameProvider.hasLobbyNotice && _currentIndex != 0;
               return Column(
                 children: [
                   if (showFullNotice)
@@ -235,7 +253,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 _currentIndex = index;
               });
             },
-            selectedItemColor: Theme.of(context).primaryColor,
+            type: BottomNavigationBarType.fixed,
+            backgroundColor: Colors.white,
+            selectedItemColor: CandyColors.pink,
+            unselectedItemColor: CandyColors.inkSoft,
+            selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w900),
+            unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700),
             items: [
               const BottomNavigationBarItem(
                 icon: Icon(Icons.sports_esports_outlined),
@@ -288,8 +311,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   Widget _buildGamesTab() {
     final auth = context.watch<AuthProvider>();
-    return Container(
-      color: const Color(0xFFF7F7FB),
+    return FloatingBackground(
       child: LayoutBuilder(
         builder: (context, constraints) {
           final width = constraints.maxWidth;
@@ -312,9 +334,18 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   children: [
                     _buildGreeting(auth.nickname ?? '플레이어'),
                     const SizedBox(height: 28),
-                    _buildEntryCard(GameEntryMode.versus, emphasized: true),
-                    const SizedBox(height: 14),
-                    _buildEntryCard(GameEntryMode.solo),
+                    PopIn(
+                      delay: const Duration(milliseconds: 150),
+                      child: _buildEntryCard(
+                        GameEntryMode.versus,
+                        emphasized: true,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    PopIn(
+                      delay: const Duration(milliseconds: 300),
+                      child: _buildEntryCard(GameEntryMode.solo),
+                    ),
                   ],
                 ),
               ),
@@ -326,141 +357,120 @@ class _LobbyScreenState extends State<LobbyScreen> {
   }
 
   Widget _buildGreeting(String nickname) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
       children: [
-        Text(
-          '안녕하세요,',
-          style: TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.w500,
-            color: Colors.grey.shade500,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          '$nickname님',
-          style: const TextStyle(
-            fontSize: 30,
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF1F2430),
-            letterSpacing: -0.6,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          '오늘은 어떤 방식으로 즐겨볼까요?',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w500,
-            color: Colors.grey.shade600,
+        const DuoMascot(size: 84, mood: MascotMood.cheer),
+        const SizedBox(width: 12),
+        Expanded(
+          child: CartoonCard(
+            color: Colors.white,
+            radius: 22,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$nickname님!',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                    color: CandyColors.ink,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  '오늘은 뭐하고 놀까요?',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: CandyColors.inkSoft,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildEntryCard(
-    GameEntryMode entry, {
-    bool emphasized = false,
-  }) {
+  Widget _buildEntryCard(GameEntryMode entry, {bool emphasized = false}) {
     final count = GameRegistry.countForEntry(entry);
-    final meta = '$count개 게임 · ${entry.tagline}';
-
-    final color = entry.color;
-    return Material(
-      color: emphasized ? color : Colors.white,
-      borderRadius: BorderRadius.circular(24),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(24),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => ModeGamesScreen(entry: entry)),
-          );
-        },
-        child: Ink(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: emphasized ? color : Colors.white,
-            borderRadius: BorderRadius.circular(24),
-            border: emphasized
-                ? null
-                : Border.all(color: const Color(0xFFEDEDF2)),
-            boxShadow: [
-              BoxShadow(
-                color: emphasized
-                    ? color.withValues(alpha: 0.28)
-                    : Colors.black.withValues(alpha: 0.03),
-                blurRadius: emphasized ? 22 : 12,
-                offset: Offset(0, emphasized ? 10 : 4),
-              ),
-            ],
+    final color = entry == GameEntryMode.versus
+        ? CandyColors.pink
+        : CandyColors.mint;
+    final fg = emphasized ? Colors.white : CandyColors.ink;
+    return CartoonCard(
+      color: color,
+      radius: 26,
+      padding: const EdgeInsets.all(20),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => ModeGamesScreen(entry: entry)),
+        );
+      },
+      child: Row(
+        children: [
+          Container(
+            width: 62,
+            height: 62,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: CandyColors.ink, width: 3),
+            ),
+            child: Icon(entry.icon, color: color, size: 32),
           ),
-          child: Row(
-            children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: emphasized
-                      ? Colors.white.withValues(alpha: 0.2)
-                      : color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(18),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  entry.title,
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                    color: fg,
+                    letterSpacing: -0.5,
+                  ),
                 ),
-                child: Icon(
-                  entry.icon,
-                  color: emphasized ? Colors.white : color,
-                  size: 28,
+                const SizedBox(height: 3),
+                Text(
+                  '$count개 게임 · ${entry.tagline}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: fg.withValues(alpha: 0.85),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      entry.title,
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: emphasized ? Colors.white : const Color(0xFF1F2430),
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      meta,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: emphasized
-                            ? Colors.white.withValues(alpha: 0.85)
-                            : Colors.grey.shade500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: emphasized
-                    ? Colors.white.withValues(alpha: 0.9)
-                    : Colors.grey.shade300,
-                size: 26,
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+          Icon(Icons.play_circle_fill_rounded, color: fg, size: 34),
+        ],
       ),
     );
   }
 
   Widget _buildLobbyNoticeCard(GameProvider gameProvider) {
     final style = switch (gameProvider.lobbyNoticeTone) {
-      LobbyNoticeTone.success => const _LobbyNoticeStyle(Color(0xFF16A34A), Icons.check_circle_rounded),
-      LobbyNoticeTone.warning => const _LobbyNoticeStyle(Color(0xFFEA580C), Icons.info_rounded),
-      LobbyNoticeTone.info => const _LobbyNoticeStyle(Color(0xFF2563EB), Icons.notifications_active_rounded),
+      LobbyNoticeTone.success => const _LobbyNoticeStyle(
+        Color(0xFF16A34A),
+        Icons.check_circle_rounded,
+      ),
+      LobbyNoticeTone.warning => const _LobbyNoticeStyle(
+        Color(0xFFEA580C),
+        Icons.info_rounded,
+      ),
+      LobbyNoticeTone.info => const _LobbyNoticeStyle(
+        Color(0xFF2563EB),
+        Icons.notifications_active_rounded,
+      ),
     };
 
     return Dismissible(
@@ -525,9 +535,18 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   Widget _buildCompactLobbyNoticeBar(GameProvider gameProvider) {
     final style = switch (gameProvider.lobbyNoticeTone) {
-      LobbyNoticeTone.success => const _LobbyNoticeStyle(Color(0xFF16A34A), Icons.check_circle_rounded),
-      LobbyNoticeTone.warning => const _LobbyNoticeStyle(Color(0xFFEA580C), Icons.info_rounded),
-      LobbyNoticeTone.info => const _LobbyNoticeStyle(Color(0xFF2563EB), Icons.notifications_active_rounded),
+      LobbyNoticeTone.success => const _LobbyNoticeStyle(
+        Color(0xFF16A34A),
+        Icons.check_circle_rounded,
+      ),
+      LobbyNoticeTone.warning => const _LobbyNoticeStyle(
+        Color(0xFFEA580C),
+        Icons.info_rounded,
+      ),
+      LobbyNoticeTone.info => const _LobbyNoticeStyle(
+        Color(0xFF2563EB),
+        Icons.notifications_active_rounded,
+      ),
     };
 
     return Container(
@@ -559,5 +578,4 @@ class _LobbyScreenState extends State<LobbyScreen> {
       ),
     );
   }
-
 }

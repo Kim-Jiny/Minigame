@@ -6,7 +6,7 @@ class LevelManageScreen extends StatelessWidget {
   const LevelManageScreen({super.key});
 
   static const List<_GameMeta> _allGames = [
-    _GameMeta('tictactoe', '틱택토', Icons.grid_3x3, Color(0xFF6C5CE7)),
+    _GameMeta('tictactoe', '틱택토', Icons.grid_3x3, Color(0xFFFF6B9D)),
     _GameMeta('infinite_tictactoe', '무한 틱택토', Icons.all_inclusive, Color(0xFF74B9FF)),
     _GameMeta('gomoku', '오목', Icons.circle_outlined, Color(0xFF2D3436)),
     _GameMeta('reaction', '반응속도', Icons.flash_on, Color(0xFFE17055)),

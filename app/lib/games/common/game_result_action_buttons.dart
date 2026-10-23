@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/cartoon/chunky_button.dart';
 
 /// 결과 화면 하단 액션. 가장 우선되는 1개를 풀폭 1차 CTA로,
 /// 나머지는 토널 보조 버튼으로 묶어 시선 위계를 만든다.
@@ -35,9 +36,13 @@ class GameResultActionButtons extends StatelessWidget {
       if (!opponentLeft)
         _ResultAction(
           label: rematchWaiting ? '대기 중...' : '재경기',
-          icon: rematchWaiting ? Icons.hourglass_top_rounded : Icons.replay_rounded,
+          icon: rematchWaiting
+              ? Icons.hourglass_top_rounded
+              : Icons.replay_rounded,
           onPressed: onRematchPressed,
-          color: rematchWaiting ? (rematchWaitingColor ?? Colors.orange) : accentColor,
+          color: rematchWaiting
+              ? (rematchWaitingColor ?? Colors.orange)
+              : accentColor,
         ),
       if (!isInvitationGame)
         _ResultAction(
@@ -84,8 +89,11 @@ class GameResultActionButtons extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.info_outline_rounded,
-                      size: 18, color: Colors.grey.shade500),
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 18,
+                    color: Colors.grey.shade500,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -102,33 +110,29 @@ class GameResultActionButtons extends StatelessWidget {
             ),
           ],
           // 1차 CTA — 풀폭 필드 버튼
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: primary.onPressed,
-              icon: Icon(primary.icon),
-              label: Text(
-                primary.label,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: primary.color,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                elevation: 0,
-              ),
-            ),
+          ChunkyButton(
+            label: primary.label,
+            icon: primary.icon,
+            color: primary.color,
+            onPressed: primary.onPressed,
           ),
           if (secondary.isNotEmpty) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             Row(
               children: [
                 for (var i = 0; i < secondary.length; i++) ...[
                   if (i > 0) const SizedBox(width: 10),
-                  Expanded(child: _TonalButton(action: secondary[i])),
+                  Expanded(
+                    child: ChunkyButton(
+                      label: secondary[i].label,
+                      icon: secondary[i].icon,
+                      color: secondary[i].color,
+                      height: 46,
+                      radius: 15,
+                      fontSize: 14,
+                      onPressed: secondary[i].onPressed,
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -151,45 +155,4 @@ class _ResultAction {
     required this.onPressed,
     required this.color,
   });
-}
-
-/// 보조 액션 — 색을 옅게 깐 토널 버튼(테두리 없음)으로 부드럽게.
-class _TonalButton extends StatelessWidget {
-  final _ResultAction action;
-
-  const _TonalButton({required this.action});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: action.color.withValues(alpha: 0.10),
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: action.onPressed,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 13),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(action.icon, size: 18, color: action.color),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  action.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: action.color,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
