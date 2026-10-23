@@ -1,8 +1,14 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/ranked_provider.dart';
 import '../providers/auth_provider.dart';
+import '../theme/candy_theme.dart';
 import '../widgets/tier_badge.dart';
+import '../widgets/cartoon/cartoon_card.dart';
+import '../widgets/cartoon/duo_mascot.dart';
+import '../widgets/cartoon/floating_bg.dart';
+import '../widgets/cartoon/pop_in.dart';
 
 class LeaderboardScreen extends StatefulWidget {
   const LeaderboardScreen({super.key});
@@ -26,42 +32,42 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('리더보드'),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
-      ),
-      body: Consumer2<RankedProvider, AuthProvider>(
-        builder: (context, ranked, auth, child) {
-          if (ranked.isLoading && ranked.leaderboard.isEmpty) {
-            return const Center(
-              child: CircularProgressIndicator(),
+      appBar: AppBar(title: const Text('리더보드')),
+      body: FloatingBackground(
+        child: Consumer2<RankedProvider, AuthProvider>(
+          builder: (context, ranked, auth, child) {
+            if (ranked.isLoading && ranked.leaderboard.isEmpty) {
+              return const Center(
+                child: CircularProgressIndicator(color: CandyColors.pink),
+              );
+            }
+
+            return Column(
+              children: [
+                if (auth.userId != null && ranked.myRank != null)
+                  _buildMyRankCard(ranked, auth),
+                Expanded(
+                  child: ranked.leaderboard.isEmpty
+                      ? _buildEmptyState()
+                      : ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                          itemCount: ranked.leaderboard.length,
+                          itemBuilder: (context, index) {
+                            final entry = ranked.leaderboard[index];
+                            final isMe = entry.userId == auth.userId;
+                            return PopIn(
+                              delay: Duration(
+                                milliseconds: math.min(index, 8) * 50,
+                              ),
+                              child: _buildLeaderboardItem(entry, isMe),
+                            );
+                          },
+                        ),
+                ),
+              ],
             );
-          }
-
-          return Column(
-            children: [
-              // 내 순위 (고정)
-              if (auth.userId != null && ranked.myRank != null)
-                _buildMyRankCard(ranked, auth),
-
-              // 리더보드 목록
-              Expanded(
-                child: ranked.leaderboard.isEmpty
-                    ? _buildEmptyState()
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: ranked.leaderboard.length,
-                        itemBuilder: (context, index) {
-                          final entry = ranked.leaderboard[index];
-                          final isMe = entry.userId == auth.userId;
-                          return _buildLeaderboardItem(entry, isMe);
-                        },
-                      ),
-              ),
-            ],
-          );
-        },
+          },
+        ),
       ),
     );
   }
@@ -70,135 +76,149 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     final stats = ranked.stats;
     if (stats == null) return const SizedBox();
 
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Theme.of(context).primaryColor,
-            Theme.of(context).primaryColor.withValues(alpha: 0.8),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Theme.of(context).primaryColor.withValues(alpha: 0.3),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          // 순위
-          Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.2),
-              shape: BoxShape.circle,
-            ),
-            child: Center(
-              child: Text(
-                '${ranked.myRank}',
-                style: const TextStyle(
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: PopIn(
+        child: CartoonCard(
+          color: CandyColors.sun,
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
                   color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: CandyColors.ink,
+                    width: CandyTheme.outline,
+                  ),
+                ),
+                alignment: Alignment.center,
+                child: FittedBox(
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Text(
+                      '${ranked.myRank}',
+                      style: const TextStyle(
+                        color: CandyColors.ink,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 20,
+                      ),
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(width: 16),
-
-          // 정보
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  '나의 순위',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
-                  ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '나의 순위',
+                      style: TextStyle(
+                        color: CandyColors.ink,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      auth.nickname ?? '나',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: CandyColors.ink,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ],
                 ),
-                Text(
-                  auth.nickname ?? '나',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 8),
+              TierBadge(
+                tier: stats.tier,
+                tierColor: stats.tierColor,
+                elo: stats.elo,
+                size: 0.8,
+              ),
+            ],
           ),
-
-          // 티어 뱃지
-          TierBadge(
-            tier: stats.tier,
-            tierColor: stats.tierColor,
-            elo: stats.elo,
-            size: 0.8,
-          ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildLeaderboardItem(LeaderboardEntry entry, bool isMe) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: isMe
-            ? Theme.of(context).primaryColor.withValues(alpha: 0.1)
-            : Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: isMe
-            ? Border.all(color: Theme.of(context).primaryColor, width: 2)
-            : null,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: _buildRankBadge(entry.rank),
-        title: Row(
+    final good = entry.winRate >= 50;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: CartoonCard(
+        color: isMe ? const Color(0xFFFFE3EE) : Colors.white,
+        shadow: 4,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
           children: [
+            _buildRankBadge(entry.rank),
+            const SizedBox(width: 12),
             Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          entry.nickname,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 15,
+                            color: CandyColors.ink,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      TierBadgeSmall(
+                        tier: entry.tier,
+                        tierColor: entry.tierColor,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${entry.elo} LP | ${entry.wins}승 ${entry.losses}패',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: CandyColors.inkSoft,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: good ? CandyColors.mint : CandyColors.pink,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: CandyColors.ink, width: 2),
+              ),
               child: Text(
-                entry.nickname,
-                style: TextStyle(
-                  fontWeight: isMe ? FontWeight.bold : FontWeight.w600,
+                '${entry.winRate}%',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 13,
                 ),
               ),
             ),
-            TierBadgeSmall(
-              tier: entry.tier,
-              tierColor: entry.tierColor,
-            ),
           ],
-        ),
-        subtitle: Text(
-          '${entry.elo} LP | ${entry.wins}승 ${entry.losses}패',
-          style: TextStyle(
-            color: Colors.grey.shade600,
-            fontSize: 12,
-          ),
-        ),
-        trailing: Text(
-          '${entry.winRate}%',
-          style: TextStyle(
-            color: entry.winRate >= 50 ? Colors.green : Colors.red,
-            fontWeight: FontWeight.bold,
-          ),
         ),
       ),
     );
@@ -206,79 +226,76 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
   Widget _buildRankBadge(int rank) {
     Color bgColor;
-    Color textColor;
-    IconData? icon;
-
     switch (rank) {
       case 1:
-        bgColor = const Color(0xFFFFD700);
-        textColor = Colors.white;
-        icon = Icons.emoji_events;
+        bgColor = CandyColors.sun;
         break;
       case 2:
-        bgColor = const Color(0xFFC0C0C0);
-        textColor = Colors.white;
-        icon = Icons.emoji_events;
+        bgColor = const Color(0xFFC9D3E3);
         break;
       case 3:
-        bgColor = const Color(0xFFCD7F32);
-        textColor = Colors.white;
-        icon = Icons.emoji_events;
+        bgColor = CandyColors.tangerine;
         break;
       default:
-        bgColor = Colors.grey.shade200;
-        textColor = Colors.grey.shade700;
-        icon = null;
+        bgColor = CandyColors.cream;
     }
 
     return Container(
-      width: 40,
-      height: 40,
+      width: 42,
+      height: 42,
       decoration: BoxDecoration(
         color: bgColor,
         shape: BoxShape.circle,
+        border: Border.all(color: CandyColors.ink, width: 2.5),
       ),
-      child: Center(
-        child: icon != null
-            ? Icon(icon, color: textColor, size: 20)
-            : Text(
-                '$rank',
-                style: TextStyle(
-                  color: textColor,
-                  fontWeight: FontWeight.bold,
+      alignment: Alignment.center,
+      child: rank <= 3
+          ? const Icon(Icons.emoji_events, color: CandyColors.ink, size: 22)
+          : FittedBox(
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Text(
+                  '$rank',
+                  style: const TextStyle(
+                    color: CandyColors.ink,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
-      ),
+            ),
     );
   }
 
   Widget _buildEmptyState() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.leaderboard_outlined,
-            size: 64,
-            color: Colors.grey.shade400,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            '아직 랭킹 데이터가 없습니다',
-            style: TextStyle(
-              color: Colors.grey.shade600,
-              fontSize: 16,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: const [
+            DuoMascot(size: 110, mood: MascotMood.sad),
+            SizedBox(height: 16),
+            Text(
+              '아직 랭킹이 텅 비었어요',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: CandyColors.ink,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '랭크전에 참여해보세요!',
-            style: TextStyle(
-              color: Colors.grey.shade500,
-              fontSize: 14,
+            SizedBox(height: 6),
+            Text(
+              '랭크전에 참여하고 1등을 차지해 보세요!',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: CandyColors.inkSoft,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

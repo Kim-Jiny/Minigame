@@ -3,6 +3,10 @@ import 'package:provider/provider.dart';
 import '../services/socket_service.dart';
 import '../services/socket_listener_registry.dart';
 import '../providers/friend_provider.dart';
+import '../theme/candy_theme.dart';
+import '../widgets/cartoon/chunky_button.dart';
+import '../widgets/cartoon/duo_mascot.dart';
+import '../widgets/cartoon/floating_bg.dart';
 
 class Message {
   final int id;
@@ -50,15 +54,20 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final SocketService _socketService = SocketService();
-  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(
+    _socketService,
+  );
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<Message> _messages = [];
   bool _isLoading = true;
 
+  late final FriendProvider _friendProvider;
+
   @override
   void initState() {
     super.initState();
+    _friendProvider = context.read<FriendProvider>(); // dispose 에서 context 를 쓰지 않기 위해 미리 보관
     _setupSocketListeners();
     if (_socketService.isReady) {
       _loadMessages();
@@ -130,8 +139,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
     _messages
       ..clear()
-      ..addAll(messagesById.values.toList()
-        ..sort((a, b) => a.createdAt.compareTo(b.createdAt)));
+      ..addAll(
+        messagesById.values.toList()
+          ..sort((a, b) => a.createdAt.compareTo(b.createdAt)),
+      );
   }
 
   void _appendMessage(Message message) {
@@ -167,11 +178,30 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
-    context.read<FriendProvider>().setActiveChatFriend(null);
+    _friendProvider.setActiveChatFriend(null);
     _socketListeners.offAll();
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Widget _avatar(double radius, double iconSize) {
+    return Container(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: CandyColors.ink, width: 2),
+      ),
+      child: CircleAvatar(
+        radius: radius,
+        backgroundColor: CandyColors.cream,
+        backgroundImage: widget.friend.avatarUrl != null
+            ? NetworkImage(widget.friend.avatarUrl!)
+            : null,
+        child: widget.friend.avatarUrl == null
+            ? Icon(Icons.person, size: iconSize, color: CandyColors.inkSoft)
+            : null,
+      ),
+    );
   }
 
   @override
@@ -180,17 +210,8 @@ class _ChatScreenState extends State<ChatScreen> {
       appBar: AppBar(
         title: Row(
           children: [
-            CircleAvatar(
-              radius: 16,
-              backgroundColor: Colors.white.withValues(alpha: 0.2),
-              backgroundImage: widget.friend.avatarUrl != null
-                  ? NetworkImage(widget.friend.avatarUrl!)
-                  : null,
-              child: widget.friend.avatarUrl == null
-                  ? const Icon(Icons.person, size: 16, color: Colors.white)
-                  : null,
-            ),
-            const SizedBox(width: 8),
+            _avatar(15, 16),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -199,76 +220,113 @@ class _ChatScreenState extends State<ChatScreen> {
                     widget.friend.memo != null && widget.friend.memo!.isNotEmpty
                         ? '${widget.friend.nickname} (${widget.friend.memo})'
                         : widget.friend.nickname,
-                    style: const TextStyle(fontSize: 16),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                    ),
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   if (widget.friend.isOnline)
                     const Text(
                       '온라인',
-                      style: TextStyle(fontSize: 12, color: Colors.white70),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
                     ),
                 ],
               ),
             ),
           ],
         ),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
       ),
-      body: Column(
-        children: [
-          // 안내 메시지
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: Colors.amber.shade50,
-            child: Row(
-              children: [
-                Icon(Icons.info_outline, size: 16, color: Colors.amber.shade700),
-                const SizedBox(width: 8),
-                Text(
-                  '메시지는 7일간 보관됩니다',
-                  style: TextStyle(fontSize: 12, color: Colors.amber.shade700),
+      body: FloatingBackground(
+        child: Column(
+          children: [
+            // 안내 메시지
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: const BoxDecoration(
+                color: CandyColors.sun,
+                border: Border(
+                  bottom: BorderSide(color: CandyColors.ink, width: 2),
                 ),
-              ],
-            ),
-          ),
-
-          // 메시지 목록
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _messages.isEmpty
-                    ? _buildEmptyState()
-                    : ListView.builder(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.all(16),
-                        itemCount: _messages.length,
-                        itemBuilder: (context, index) {
-                          return _buildMessageBubble(_messages[index]);
-                        },
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, size: 16, color: CandyColors.ink),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '메시지는 7일간 보관됩니다',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: CandyColors.ink,
                       ),
-          ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
-          // 입력창
-          _buildInputArea(),
-        ],
+            // 메시지 목록
+            Expanded(
+              child: _isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(color: CandyColors.pink),
+                    )
+                  : _messages.isEmpty
+                  ? _buildEmptyState()
+                  : ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _messages.length,
+                      itemBuilder: (context, index) {
+                        return _buildMessageBubble(_messages[index]);
+                      },
+                    ),
+            ),
+
+            // 입력창
+            _buildInputArea(),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildEmptyState() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey.shade300),
-          const SizedBox(height: 16),
-          Text(
-            '${widget.friend.nickname}님과의 대화를 시작해보세요!',
-            style: TextStyle(color: Colors.grey.shade500),
-          ),
-        ],
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const DuoMascot(size: 100, mood: MascotMood.wink),
+            const SizedBox(height: 14),
+            Text(
+              '${widget.friend.nickname}님과의 대화를 시작해보세요!',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: CandyColors.ink,
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              '첫 인사를 건네볼까요?',
+              style: TextStyle(
+                color: CandyColors.inkSoft,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -277,57 +335,63 @@ class _ChatScreenState extends State<ChatScreen> {
     final isMine = message.isMine;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 10),
       child: Row(
-        mainAxisAlignment: isMine ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: isMine
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          if (!isMine) ...[
-            CircleAvatar(
-              radius: 14,
-              backgroundColor: Colors.grey.shade200,
-              backgroundImage: widget.friend.avatarUrl != null
-                  ? NetworkImage(widget.friend.avatarUrl!)
-                  : null,
-              child: widget.friend.avatarUrl == null
-                  ? const Icon(Icons.person, size: 14, color: Colors.grey)
-                  : null,
+          if (!isMine) ...[_avatar(14, 14), const SizedBox(width: 8)],
+          Flexible(
+            child: Column(
+              crossAxisAlignment: isMine
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
+              children: [
+                Container(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.68,
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isMine ? CandyColors.pink : Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(18),
+                      topRight: const Radius.circular(18),
+                      bottomLeft: Radius.circular(isMine ? 18 : 4),
+                      bottomRight: Radius.circular(isMine ? 4 : 18),
+                    ),
+                    border: Border.all(color: CandyColors.ink, width: 2.5),
+                    boxShadow: const [
+                      BoxShadow(color: CandyColors.ink, offset: Offset(0, 3)),
+                    ],
+                  ),
+                  child: Text(
+                    message.content,
+                    style: TextStyle(
+                      color: isMine ? Colors.white : CandyColors.ink,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _formatTime(message.createdAt),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: CandyColors.inkSoft,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-          ],
-          Column(
-            crossAxisAlignment: isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-            children: [
-              Container(
-                constraints: BoxConstraints(
-                  maxWidth: MediaQuery.of(context).size.width * 0.65,
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: isMine ? Theme.of(context).primaryColor : Colors.grey.shade200,
-                  borderRadius: BorderRadius.only(
-                    topLeft: const Radius.circular(16),
-                    topRight: const Radius.circular(16),
-                    bottomLeft: Radius.circular(isMine ? 16 : 4),
-                    bottomRight: Radius.circular(isMine ? 4 : 16),
-                  ),
-                ),
-                child: Text(
-                  message.content,
-                  style: TextStyle(
-                    color: isMine ? Colors.white : Colors.black87,
-                    fontSize: 15,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                _formatTime(message.createdAt),
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
-              ),
-            ],
           ),
-          if (isMine) const SizedBox(width: 8),
+          if (isMine) const SizedBox(width: 4),
         ],
       ),
     );
@@ -336,47 +400,82 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget _buildInputArea() {
     return Container(
       padding: EdgeInsets.only(
-        left: 16,
-        right: 8,
-        top: 8,
-        bottom: MediaQuery.of(context).padding.bottom + 8,
+        left: 12,
+        right: 12,
+        top: 10,
+        bottom: MediaQuery.of(context).padding.bottom + 10,
       ),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.shade200,
-            offset: const Offset(0, -1),
-            blurRadius: 4,
-          ),
-        ],
+        border: Border(
+          top: BorderSide(color: CandyColors.ink, width: CandyTheme.outline),
+        ),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(
             child: TextField(
               controller: _messageController,
               decoration: InputDecoration(
                 hintText: '메시지를 입력하세요',
+                filled: true,
+                fillColor: CandyColors.cream,
+                isDense: true,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(24),
-                  borderSide: BorderSide.none,
+                  borderSide: const BorderSide(
+                    color: CandyColors.ink,
+                    width: 2.5,
+                  ),
                 ),
-                filled: true,
-                fillColor: Colors.grey.shade100,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: const BorderSide(
+                    color: CandyColors.ink,
+                    width: 2.5,
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: const BorderSide(
+                    color: CandyColors.pink,
+                    width: 3,
+                  ),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
               ),
-              maxLines: null,
+              minLines: 1,
+              maxLines: 4,
               maxLength: 500,
-              buildCounter: (context, {required currentLength, required isFocused, maxLength}) => null,
+              buildCounter:
+                  (
+                    context, {
+                    required currentLength,
+                    required isFocused,
+                    maxLength,
+                  }) => null,
               textInputAction: TextInputAction.send,
               onSubmitted: (_) => _sendMessage(),
             ),
           ),
-          const SizedBox(width: 8),
-          IconButton(
-            onPressed: _sendMessage,
-            icon: Icon(Icons.send, color: Theme.of(context).primaryColor),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 56,
+            child: ChunkyButton(
+              onPressed: _sendMessage,
+              height: 48,
+              radius: 24,
+              expand: false,
+              child: const Icon(
+                Icons.send_rounded,
+                color: Colors.white,
+                size: 22,
+              ),
+            ),
           ),
         ],
       ),

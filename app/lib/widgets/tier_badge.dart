@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/candy_theme.dart';
 
 class TierBadge extends StatelessWidget {
   final String tier;
@@ -20,7 +21,7 @@ class TierBadge extends StatelessWidget {
     try {
       return Color(int.parse(tierColor.replaceFirst('#', '0xFF')));
     } catch (_) {
-      return Colors.grey;
+      return CandyColors.inkSoft;
     }
   }
 
@@ -72,61 +73,63 @@ class TierBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = _tierColor;
+    final medal = 34 * size;
     return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: 12 * size,
-        vertical: 6 * size,
-      ),
+      padding: EdgeInsets.fromLTRB(5 * size, 5 * size, 14 * size, 5 * size),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            _tierColor.withValues(alpha: 0.2),
-            _tierColor.withValues(alpha: 0.1),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(20 * size),
-        border: Border.all(
-          color: _tierColor.withValues(alpha: 0.5),
-          width: 1.5,
-        ),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(40 * size),
+        border: Border.all(color: CandyColors.ink, width: 2.5),
         boxShadow: [
           BoxShadow(
-            color: _tierColor.withValues(alpha: 0.3),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            color: CandyColors.ink,
+            offset: Offset(0, 3 * size.clamp(0.7, 1.6)),
           ),
         ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            _tierIcon,
-            color: _tierColor,
-            size: 20 * size,
+          Container(
+            width: medal,
+            height: medal,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: c,
+              border: Border.all(color: CandyColors.ink, width: 2.5),
+            ),
+            child: Icon(_tierIcon, color: Colors.white, size: 20 * size),
           ),
-          SizedBox(width: 6 * size),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _tierName,
-                style: TextStyle(
-                  color: _tierColor,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14 * size,
-                ),
-              ),
-              if (showElo)
+          SizedBox(width: 8 * size),
+          Flexible(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Text(
-                  '$elo LP',
+                  _tierName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: _tierColor.withValues(alpha: 0.8),
-                    fontSize: 11 * size,
+                    color: CandyColors.ink,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 14 * size,
                   ),
                 ),
-            ],
+                if (showElo)
+                  Text(
+                    '$elo LP',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: CandyColors.inkSoft,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 11 * size,
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
       ),
@@ -148,7 +151,7 @@ class TierBadgeSmall extends StatelessWidget {
     try {
       return Color(int.parse(tierColor.replaceFirst('#', '0xFF')));
     } catch (_) {
-      return Colors.grey;
+      return CandyColors.inkSoft;
     }
   }
 
@@ -178,20 +181,13 @@ class TierBadgeSmall extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(4),
+      padding: const EdgeInsets.all(5),
       decoration: BoxDecoration(
-        color: _tierColor.withValues(alpha: 0.2),
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: _tierColor.withValues(alpha: 0.5),
-          width: 1,
-        ),
-      ),
-      child: Icon(
-        _tierIcon,
         color: _tierColor,
-        size: 16,
+        shape: BoxShape.circle,
+        border: Border.all(color: CandyColors.ink, width: 2.5),
       ),
+      child: Icon(_tierIcon, color: Colors.white, size: 18),
     );
   }
 }
@@ -212,7 +208,7 @@ class TierProgressBar extends StatelessWidget {
     try {
       return Color(int.parse(tierColor.replaceFirst('#', '0xFF')));
     } catch (_) {
-      return Colors.grey;
+      return CandyColors.inkSoft;
     }
   }
 
@@ -284,31 +280,59 @@ class TierProgressBar extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: _progress,
-            backgroundColor: Colors.grey.shade300,
-            valueColor: AlwaysStoppedAnimation(_tierColor),
-            minHeight: 8,
+        TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: _progress),
+          duration: const Duration(milliseconds: 900),
+          curve: Curves.easeOutCubic,
+          builder: (context, v, _) => Container(
+            height: 20,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: CandyColors.ink, width: 2.5),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(9),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: FractionallySizedBox(
+                  widthFactor: v.clamp(0.0, 1.0),
+                  heightFactor: 1,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: _tierColor,
+                      border: v > 0.02
+                          ? const Border(
+                              right: BorderSide(
+                                color: CandyColors.ink,
+                                width: 2.5,
+                              ),
+                            )
+                          : null,
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         if (_nextTier.isNotEmpty)
           Text(
             '다음 티어까지 $_eloToNext LP',
-            style: TextStyle(
-              color: Colors.grey.shade600,
+            style: const TextStyle(
+              color: CandyColors.inkSoft,
               fontSize: 12,
+              fontWeight: FontWeight.w800,
             ),
           )
         else
           Text(
             '최고 티어 달성!',
             style: TextStyle(
-              color: _tierColor,
+              color: CandyColors.deepen(_tierColor),
               fontSize: 12,
-              fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.w900,
             ),
           ),
       ],

@@ -1,7 +1,13 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/stats_provider.dart';
+import '../theme/candy_theme.dart';
 import '../utils/game_registry.dart';
+import '../widgets/cartoon/cartoon_card.dart';
+import '../widgets/cartoon/duo_mascot.dart';
+import '../widgets/cartoon/floating_bg.dart';
+import '../widgets/cartoon/pop_in.dart';
 
 class RecentRecordsScreen extends StatefulWidget {
   const RecentRecordsScreen({super.key});
@@ -39,18 +45,26 @@ class _RecentRecordsScreenState extends State<RecentRecordsScreen> {
     // 랭크 매치 그룹을 리스트에 추가 (시간순 정렬을 위해)
     for (final entry in rankedMatches.entries) {
       // 게임 인덱스 순으로 정렬
-      entry.value.sort((a, b) => (a.rankedGameIndex ?? 0).compareTo(b.rankedGameIndex ?? 0));
-      grouped.add(_RankedMatchGroup(
-        matchId: entry.key,
-        games: entry.value,
-        createdAt: entry.value.first.createdAt,
-      ));
+      entry.value.sort(
+        (a, b) => (a.rankedGameIndex ?? 0).compareTo(b.rankedGameIndex ?? 0),
+      );
+      grouped.add(
+        _RankedMatchGroup(
+          matchId: entry.key,
+          games: entry.value,
+          createdAt: entry.value.first.createdAt,
+        ),
+      );
     }
 
     // 시간순 정렬 (최신 먼저)
     grouped.sort((a, b) {
-      final aTime = a is GameRecord ? a.createdAt : (a as _RankedMatchGroup).createdAt;
-      final bTime = b is GameRecord ? b.createdAt : (b as _RankedMatchGroup).createdAt;
+      final aTime = a is GameRecord
+          ? a.createdAt
+          : (a as _RankedMatchGroup).createdAt;
+      final bTime = b is GameRecord
+          ? b.createdAt
+          : (b as _RankedMatchGroup).createdAt;
       return bTime.compareTo(aTime);
     });
 
@@ -60,59 +74,118 @@ class _RecentRecordsScreenState extends State<RecentRecordsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('최근 기록'),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
-      ),
-      body: Consumer<StatsProvider>(
-        builder: (context, statsProvider, child) {
-          final groupedRecords = _groupRecords(statsProvider.recentRecords);
+      appBar: AppBar(title: const Text('최근 기록')),
+      body: FloatingBackground(
+        child: Consumer<StatsProvider>(
+          builder: (context, statsProvider, child) {
+            final groupedRecords = _groupRecords(statsProvider.recentRecords);
 
-          return RefreshIndicator(
-            onRefresh: () async {
-              statsProvider.getRecentRecords();
-            },
-            child: groupedRecords.isEmpty
-                ? _buildEmptyState()
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: groupedRecords.length,
-                    itemBuilder: (context, index) {
-                      final item = groupedRecords[index];
-                      if (item is _RankedMatchGroup) {
-                        return _buildRankedMatchCard(context, item);
-                      } else {
-                        return _buildRecordCard(context, item as GameRecord);
-                      }
-                    },
-                  ),
-          );
-        },
+            return RefreshIndicator(
+              color: CandyColors.pink,
+              onRefresh: () async {
+                statsProvider.getRecentRecords();
+              },
+              child: groupedRecords.isEmpty
+                  ? _buildEmptyState()
+                  : ListView.builder(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                      itemCount: groupedRecords.length,
+                      itemBuilder: (context, index) {
+                        final item = groupedRecords[index];
+                        final Widget card = item is _RankedMatchGroup
+                            ? _buildRankedMatchCard(context, item)
+                            : _buildRecordCard(context, item as GameRecord);
+                        return PopIn(
+                          delay: Duration(
+                            milliseconds: math.min(index, 8) * 50,
+                          ),
+                          child: card,
+                        );
+                      },
+                    ),
+            );
+          },
+        ),
       ),
     );
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.history_outlined, size: 80, color: Colors.grey.shade300),
-          const SizedBox(height: 16),
-          Text(
-            '아직 기록이 없어요',
-            style: TextStyle(
-              fontSize: 18,
-              color: Colors.grey.shade500,
+    return LayoutBuilder(
+      builder: (context, c) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: c.maxHeight),
+          child: const Padding(
+            padding: EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                DuoMascot(size: 110, mood: MascotMood.sad),
+                SizedBox(height: 16),
+                Text(
+                  '아직 기록이 없어요',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: CandyColors.ink,
+                  ),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  '게임을 플레이하면 기록이 쌓여요!',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: CandyColors.inkSoft,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            '게임을 플레이하면 기록이 쌓여요!',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade400,
+        ),
+      ),
+    );
+  }
+
+  Color _resultColor(String result) {
+    switch (result) {
+      case 'win':
+        return CandyColors.mint;
+      case 'loss':
+        return CandyColors.pink;
+      default:
+        return const Color(0xFFB9B3C9);
+    }
+  }
+
+  Widget _pill(String text, Color color, {IconData? icon}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: CandyColors.ink, width: 2),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, color: Colors.white, size: 16),
+            const SizedBox(width: 4),
+          ],
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 13,
+              ),
             ),
           ),
         ],
@@ -122,7 +195,6 @@ class _RecentRecordsScreenState extends State<RecentRecordsScreen> {
 
   // 랭크 매치 그룹 카드
   Widget _buildRankedMatchCard(BuildContext context, _RankedMatchGroup match) {
-    // 전체 승패 계산
     int wins = match.games.where((g) => g.result == 'win').length;
     int losses = match.games.where((g) => g.result == 'loss').length;
     final isOverallWin = wins > losses;
@@ -131,321 +203,268 @@ class _RecentRecordsScreenState extends State<RecentRecordsScreen> {
     Color resultColor;
     String resultText;
     if (isDraw) {
-      resultColor = Colors.grey;
+      resultColor = const Color(0xFFB9B3C9);
       resultText = '무승부';
     } else if (isOverallWin) {
-      resultColor = Colors.green;
+      resultColor = CandyColors.mint;
       resultText = '승리';
     } else {
-      resultColor = Colors.red;
+      resultColor = CandyColors.pink;
       resultText = '패배';
     }
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          border: Border(
-            left: BorderSide(color: Colors.purple, width: 4),
-          ),
-        ),
-        child: Column(
-          children: [
-            // 헤더
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.purple.withValues(alpha: 0.1),
-                borderRadius: const BorderRadius.only(
-                  topRight: Radius.circular(16),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: CartoonCard(
+        padding: EdgeInsets.zero,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(CandyTheme.radius - 3),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: const BoxDecoration(
+                  color: CandyColors.grape,
+                  border: Border(
+                    bottom: BorderSide(
+                      color: CandyColors.ink,
+                      width: CandyTheme.outline,
+                    ),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: CandyColors.ink, width: 2),
+                      ),
+                      child: const Icon(
+                        Icons.emoji_events,
+                        color: CandyColors.grapeDeep,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '랭크전',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 16,
+                              color: Colors.white,
+                            ),
+                          ),
+                          Text(
+                            'vs ${match.games.first.opponentNickname}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          _pill('$resultText ($wins-$losses)', resultColor),
+                          const SizedBox(height: 4),
+                          Text(
+                            _formatDateTime(match.createdAt),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.purple.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(
-                      Icons.emoji_events,
-                      color: Colors.purple,
-                      size: 24,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          '랭크전',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                            color: Colors.purple,
-                          ),
-                        ),
-                        Text(
-                          'vs ${match.games.first.opponentNickname}',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: resultColor.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          '$resultText ($wins-$losses)',
-                          style: TextStyle(
-                            color: resultColor,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _formatDateTime(match.createdAt),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  children: match.games.asMap().entries.map((entry) {
+                    final index = entry.key;
+                    final game = entry.value;
+                    return _buildRankedGameItem(
+                      game,
+                      index + 1,
+                      index == match.games.length - 1,
+                    );
+                  }).toList(),
+                ),
               ),
-            ),
-            // 개별 게임 목록
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                children: match.games.asMap().entries.map((entry) {
-                  final index = entry.key;
-                  final game = entry.value;
-                  return _buildRankedGameItem(game, index + 1, index == match.games.length - 1);
-                }).toList(),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildRankedGameItem(GameRecord game, int gameNum, bool isLast) {
-    final isWin = game.result == 'win';
-    final isDraw = game.result == 'draw';
-    final resultColor = isDraw ? Colors.grey : (isWin ? Colors.green : Colors.red);
-
+    final resultColor = _resultColor(game.result);
     final gameColor = GameRegistry.colorOf(game.gameType);
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
       decoration: BoxDecoration(
-        border: isLast ? null : Border(bottom: BorderSide(color: Colors.grey.shade200)),
+        border: isLast
+            ? null
+            : const Border(
+                bottom: BorderSide(color: CandyColors.creamDeep, width: 2),
+              ),
       ),
       child: Row(
         children: [
-          // 게임 번호
           Container(
-            width: 24,
-            height: 24,
+            width: 26,
+            height: 26,
             decoration: BoxDecoration(
-              color: resultColor.withValues(alpha: 0.2),
+              color: resultColor,
               shape: BoxShape.circle,
+              border: Border.all(color: CandyColors.ink, width: 2),
             ),
-            child: Center(
-              child: Text(
-                '$gameNum',
-                style: TextStyle(
-                  color: resultColor,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          // 게임 아이콘
-          Icon(
-            GameRegistry.iconOf(game.gameType),
-            color: gameColor,
-            size: 20,
-          ),
-          const SizedBox(width: 8),
-          // 게임 이름
-          Expanded(
+            alignment: Alignment.center,
             child: Text(
-              game.gameTypeName,
-              style: const TextStyle(fontSize: 14),
-            ),
-          ),
-          // 결과
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: resultColor.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              game.resultText,
-              style: TextStyle(
-                color: resultColor,
-                fontWeight: FontWeight.bold,
+              '$gameNum',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
                 fontSize: 12,
               ),
             ),
           ),
+          const SizedBox(width: 10),
+          Icon(GameRegistry.iconOf(game.gameType), color: gameColor, size: 22),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              game.gameTypeName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: CandyColors.ink,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          _pill(game.resultText, resultColor),
         ],
       ),
     );
   }
 
   Widget _buildRecordCard(BuildContext context, GameRecord record) {
-    Color resultColor;
     IconData resultIcon;
-    Color resultBgColor;
-
     switch (record.result) {
       case 'win':
-        resultColor = Colors.green;
         resultIcon = Icons.emoji_events;
-        resultBgColor = Colors.green.shade50;
         break;
       case 'loss':
-        resultColor = Colors.red;
         resultIcon = Icons.sentiment_dissatisfied;
-        resultBgColor = Colors.red.shade50;
         break;
       default:
-        resultColor = Colors.grey;
         resultIcon = Icons.handshake;
-        resultBgColor = Colors.grey.shade100;
     }
-
+    final resultColor = _resultColor(record.result);
     final gameColor = GameRegistry.colorOf(record.gameType);
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          border: Border(
-            left: BorderSide(color: resultColor, width: 4),
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              // 게임 아이콘
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: gameColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  GameRegistry.iconOf(record.gameType),
-                  color: gameColor,
-                  size: 28,
-                ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: CartoonCard(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: gameColor.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: CandyColors.ink, width: 2),
               ),
-              const SizedBox(width: 16),
-
-              // 정보
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      record.gameTypeName,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'vs ${record.opponentNickname}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _formatDateTime(record.createdAt),
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade500,
-                      ),
-                    ),
-                  ],
-                ),
+              child: Icon(
+                GameRegistry.iconOf(record.gameType),
+                color: gameColor,
+                size: 28,
               ),
-
-              // 결과
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: resultBgColor,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(resultIcon, color: resultColor, size: 18),
-                        const SizedBox(width: 4),
-                        Text(
-                          record.resultText,
-                          style: TextStyle(
-                            color: resultColor,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
+                  Text(
+                    record.gameTypeName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: CandyColors.inkSoft,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.add, size: 14, color: Colors.amber.shade700),
-                      Text(
-                        '${record.expGained} EXP',
-                        style: TextStyle(
-                          color: Colors.amber.shade700,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 2),
+                  Text(
+                    'vs ${record.opponentNickname}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                      color: CandyColors.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _formatDateTime(record.createdAt),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: CandyColors.inkSoft,
+                    ),
                   ),
                 ],
               ),
-            ],
-          ),
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  _pill(record.resultText, resultColor, icon: resultIcon),
+                  const SizedBox(height: 8),
+                  Text(
+                    '+${record.expGained} EXP',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: CandyColors.sunDeep,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

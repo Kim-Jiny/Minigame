@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -6,6 +7,12 @@ import '../providers/auth_provider.dart';
 import '../models/shop_item.dart';
 import '../services/socket_service.dart';
 import 'chat_screen.dart';
+import '../theme/candy_theme.dart';
+import '../widgets/cartoon/cartoon_card.dart';
+import '../widgets/cartoon/chunky_button.dart';
+import '../widgets/cartoon/duo_mascot.dart';
+import '../widgets/cartoon/floating_bg.dart';
+import '../widgets/cartoon/pop_in.dart';
 
 class FriendsScreen extends StatefulWidget {
   const FriendsScreen({super.key});
@@ -46,19 +53,18 @@ class _FriendsScreenState extends State<FriendsScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
       decoration: BoxDecoration(
         gradient: hasGradient
-            ? LinearGradient(
-                colors: [gradientColors.$1, gradientColors.$2],
-              )
+            ? LinearGradient(colors: [gradientColors.$1, gradientColors.$2])
             : null,
-        color: hasGradient ? null : Colors.grey.shade200,
+        color: hasGradient ? null : CandyColors.creamDeep,
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: CandyColors.ink, width: 1.5),
       ),
       child: Text(
         settings.activeTitleName ?? '',
         style: TextStyle(
           fontSize: 10,
-          fontWeight: FontWeight.w500,
-          color: hasGradient ? Colors.white : Colors.grey.shade700,
+          fontWeight: FontWeight.w900,
+          color: hasGradient ? Colors.white : CandyColors.ink,
         ),
       ),
     );
@@ -71,9 +77,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            Icon(Icons.person_add, color: Theme.of(context).primaryColor),
+            const Icon(Icons.person_add, color: CandyColors.pink),
             const SizedBox(width: 8),
-            const Text('친구 요청'),
+            const Text('친구 요청', style: TextStyle(fontWeight: FontWeight.w900)),
           ],
         ),
         content: TextField(
@@ -91,15 +97,13 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   final text = data!.text!.trim().toUpperCase();
                   if (text.length <= 8) {
                     _friendCodeController.text = text;
-                    _friendCodeController.selection = TextSelection.fromPosition(
-                      TextPosition(offset: text.length),
-                    );
+                    _friendCodeController.selection =
+                        TextSelection.fromPosition(
+                          TextPosition(offset: text.length),
+                        );
                   }
                 }
               },
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
             ),
           ),
           textCapitalization: TextCapitalization.characters,
@@ -110,7 +114,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
             onPressed: () => Navigator.pop(context),
             child: const Text('취소'),
           ),
-          ElevatedButton(
+          ChunkyButton(
             onPressed: () {
               final code = _friendCodeController.text.trim();
               if (code.length == 8) {
@@ -118,18 +122,21 @@ class _FriendsScreenState extends State<FriendsScreen> {
                 Navigator.pop(context);
               }
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Theme.of(context).primaryColor,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('요청 보내기'),
+            height: 44,
+            fontSize: 15,
+            expand: false,
+            label: '요청 보내기',
           ),
         ],
       ),
     );
   }
 
-  void _showEditMemoDialog(BuildContext context, Friend friend, FriendProvider friendProvider) {
+  void _showEditMemoDialog(
+    BuildContext context,
+    Friend friend,
+    FriendProvider friendProvider,
+  ) {
     final controller = TextEditingController(text: friend.memo ?? '');
 
     showDialog(
@@ -137,9 +144,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            Icon(Icons.edit_note, color: Theme.of(context).primaryColor),
+            const Icon(Icons.edit_note, color: CandyColors.pink),
             const SizedBox(width: 8),
-            const Text('메모 수정'),
+            const Text('메모 수정', style: TextStyle(fontWeight: FontWeight.w900)),
           ],
         ),
         content: TextField(
@@ -148,9 +155,6 @@ class _FriendsScreenState extends State<FriendsScreen> {
             labelText: '메모 (최대 20자)',
             hintText: '친구를 구분할 메모',
             prefixIcon: const Icon(Icons.note),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
           ),
           maxLength: 20,
           autofocus: true,
@@ -160,16 +164,18 @@ class _FriendsScreenState extends State<FriendsScreen> {
             onPressed: () => Navigator.pop(context),
             child: const Text('취소'),
           ),
-          ElevatedButton(
+          ChunkyButton(
             onPressed: () {
-              friendProvider.updateFriendMemo(friend.id, controller.text.trim());
+              friendProvider.updateFriendMemo(
+                friend.id,
+                controller.text.trim(),
+              );
               Navigator.pop(context);
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Theme.of(context).primaryColor,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('저장'),
+            height: 44,
+            fontSize: 15,
+            expand: false,
+            label: '저장',
           ),
         ],
       ),
@@ -182,39 +188,34 @@ class _FriendsScreenState extends State<FriendsScreen> {
 
     // 게스트 로그인인 경우
     if (auth.userId == null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.lock_outline,
-                size: 64,
-                color: Colors.grey.shade400,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                '친구 기능을 사용하려면\n소셜 로그인이 필요합니다',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey.shade600,
+      return FloatingBackground(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const DuoMascot(size: 110, mood: MascotMood.sad),
+                const SizedBox(height: 16),
+                const Text(
+                  '친구 기능을 사용하려면\n소셜 로그인이 필요해요',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                    color: CandyColors.ink,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton.icon(
-                onPressed: () {
-                  auth.logout();
-                },
-                icon: const Icon(Icons.login),
-                label: const Text('다시 로그인'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Theme.of(context).primaryColor,
-                  foregroundColor: Colors.white,
+                const SizedBox(height: 24),
+                ChunkyButton(
+                  onPressed: () {
+                    auth.logout();
+                  },
+                  icon: Icons.login,
+                  label: '다시 로그인',
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       );
@@ -228,7 +229,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(friendProvider.error!),
-                backgroundColor: Colors.red,
+                backgroundColor: CandyColors.pinkDeep,
               ),
             );
             friendProvider.clearMessages();
@@ -237,120 +238,197 @@ class _FriendsScreenState extends State<FriendsScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(friendProvider.successMessage!),
-                backgroundColor: Colors.green,
+                backgroundColor: CandyColors.mintDeep,
               ),
             );
             friendProvider.clearMessages();
           }
         });
 
-        return RefreshIndicator(
-          onRefresh: () async {
-            friendProvider.refreshAll();
-          },
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final width = constraints.maxWidth;
-              final maxContentWidth = width >= 1300 ? 1080.0 : double.infinity;
-              final horizontalPadding = width >= 900 ? 24.0 : 16.0;
+        return FloatingBackground(
+          child: RefreshIndicator(
+            color: CandyColors.pink,
+            onRefresh: () async {
+              friendProvider.refreshAll();
+            },
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final width = constraints.maxWidth;
+                final maxContentWidth = width >= 1300
+                    ? 1080.0
+                    : double.infinity;
+                final horizontalPadding = width >= 900 ? 24.0 : 16.0;
 
-              return Align(
-                alignment: Alignment.topCenter,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: maxContentWidth),
-                  child: SingleChildScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: EdgeInsets.fromLTRB(horizontalPadding, 16, horizontalPadding, 100),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildMyFriendCodeCard(context, friendProvider),
-                        const SizedBox(height: 24),
-                        if (friendProvider.invitations.isNotEmpty) ...[
-                          _buildInvitationsSection(context, friendProvider),
+                return Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: maxContentWidth),
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: EdgeInsets.fromLTRB(
+                        horizontalPadding,
+                        16,
+                        horizontalPadding,
+                        100,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          PopIn(
+                            child: _buildMyFriendCodeCard(
+                              context,
+                              friendProvider,
+                            ),
+                          ),
                           const SizedBox(height: 24),
+                          if (friendProvider.invitations.isNotEmpty) ...[
+                            _buildInvitationsSection(context, friendProvider),
+                            const SizedBox(height: 24),
+                          ],
+                          if (friendProvider.receivedRequests.isNotEmpty) ...[
+                            _buildFriendRequestsSection(
+                              context,
+                              friendProvider,
+                            ),
+                            const SizedBox(height: 24),
+                          ],
+                          if (friendProvider.sentRequests.isNotEmpty) ...[
+                            _buildSentRequestsSection(context, friendProvider),
+                            const SizedBox(height: 24),
+                          ],
+                          _buildFriendsSection(context, friendProvider),
                         ],
-                        if (friendProvider.receivedRequests.isNotEmpty) ...[
-                          _buildFriendRequestsSection(context, friendProvider),
-                          const SizedBox(height: 24),
-                        ],
-                        if (friendProvider.sentRequests.isNotEmpty) ...[
-                          _buildSentRequestsSection(context, friendProvider),
-                          const SizedBox(height: 24),
-                        ],
-                        _buildFriendsSection(context, friendProvider),
-                      ],
+                      ),
                     ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
         );
       },
     );
   }
 
-  Widget _buildMyFriendCodeCard(BuildContext context, FriendProvider friendProvider) {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          gradient: LinearGradient(
-            colors: [
-              Theme.of(context).primaryColor,
-              Theme.of(context).primaryColor.withValues(alpha: 0.8),
-            ],
+  Widget _sectionHeader(
+    IconData icon,
+    Color color,
+    String text, {
+    Widget? trailing,
+  }) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: CandyColors.ink, width: 2.5),
+          ),
+          child: Icon(icon, color: Colors.white, size: 20),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              color: CandyColors.ink,
+            ),
           ),
         ),
+        if (trailing != null) trailing,
+      ],
+    );
+  }
+
+  Widget _personAvatar(Color color) {
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        border: Border.all(color: CandyColors.ink, width: 2.5),
+      ),
+      child: const Icon(Icons.person, color: Colors.white),
+    );
+  }
+
+  Widget _buildMyFriendCodeCard(
+    BuildContext context,
+    FriendProvider friendProvider,
+  ) {
+    return CartoonCard(
+      color: CandyColors.sun,
+      padding: const EdgeInsets.all(18),
+      child: SizedBox(
+        width: double.infinity,
         child: Column(
           children: [
             const Text(
               '내 친구 코드',
               style: TextStyle(
-                color: Colors.white70,
+                color: CandyColors.ink,
                 fontSize: 14,
+                fontWeight: FontWeight.w900,
               ),
             ),
             const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  friendProvider.myFriendCode ?? '------',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 4,
+            Container(
+              padding: const EdgeInsets.only(left: 16, right: 4),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: CandyColors.ink, width: 2.5),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        friendProvider.myFriendCode ?? '------',
+                        style: const TextStyle(
+                          color: CandyColors.ink,
+                          fontSize: 32,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 4,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                IconButton(
-                  onPressed: friendProvider.myFriendCode != null
-                      ? () {
-                          Clipboard.setData(
-                            ClipboardData(text: friendProvider.myFriendCode!),
-                          );
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('친구 코드가 복사되었습니다!')),
-                          );
-                        }
-                      : null,
-                  icon: const Icon(Icons.copy, color: Colors.white),
-                ),
-              ],
+                  const SizedBox(width: 4),
+                  IconButton(
+                    onPressed: friendProvider.myFriendCode != null
+                        ? () {
+                            Clipboard.setData(
+                              ClipboardData(text: friendProvider.myFriendCode!),
+                            );
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('친구 코드가 복사되었습니다!')),
+                            );
+                          }
+                        : null,
+                    icon: const Icon(
+                      Icons.copy_rounded,
+                      color: CandyColors.pinkDeep,
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 8),
             const Text(
               '친구에게 이 코드를 공유하세요',
               style: TextStyle(
-                color: Colors.white70,
+                color: CandyColors.ink,
                 fontSize: 12,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
@@ -359,64 +437,78 @@ class _FriendsScreenState extends State<FriendsScreen> {
     );
   }
 
-  Widget _buildInvitationsSection(BuildContext context, FriendProvider friendProvider) {
+  Widget _staggered(int i, Widget child) => PopIn(
+    delay: Duration(milliseconds: math.min(i, 8) * 50),
+    child: child,
+  );
+
+  Widget _buildInvitationsSection(
+    BuildContext context,
+    FriendProvider friendProvider,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Icon(Icons.mail, color: Theme.of(context).primaryColor),
-            const SizedBox(width: 8),
-            Text(
-              '받은 초대 (${friendProvider.invitations.length})',
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
+        _sectionHeader(
+          Icons.mail,
+          CandyColors.pink,
+          '받은 초대 (${friendProvider.invitations.length})',
         ),
         const SizedBox(height: 12),
-        ...friendProvider.invitations.map((invitation) => _buildInvitationCard(context, invitation, friendProvider)),
+        for (int i = 0; i < friendProvider.invitations.length; i++)
+          _staggered(
+            i,
+            _buildInvitationCard(
+              context,
+              friendProvider.invitations[i],
+              friendProvider,
+            ),
+          ),
       ],
     );
   }
 
-  Widget _buildInvitationCard(BuildContext context, Invitation invitation, FriendProvider friendProvider) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+  Widget _requestCard({
+    required Color avatarColor,
+    required String title,
+    required String subtitle,
+    required VoidCallback onDecline,
+    required VoidCallback onAccept,
+    required Color acceptColor,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: CartoonCard(
+        shadow: 4,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                CircleAvatar(
-                  backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.2),
-                  child: Icon(
-                    Icons.person,
-                    color: Theme.of(context).primaryColor,
-                  ),
-                ),
+                _personAvatar(avatarColor),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${invitation.inviterNickname}님의 초대',
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w900,
                           fontSize: 16,
+                          color: CandyColors.ink,
                         ),
                       ),
                       Text(
-                        invitation.gameTypeName,
-                        style: TextStyle(
-                          color: Colors.grey.shade600,
-                          fontSize: 14,
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: CandyColors.inkSoft,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ],
@@ -428,24 +520,23 @@ class _FriendsScreenState extends State<FriendsScreen> {
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton(
-                    onPressed: () {
-                      friendProvider.declineInvitation(invitation.id);
-                    },
-                    child: const Text('거절'),
+                  child: ChunkyButton(
+                    onPressed: onDecline,
+                    label: '거절',
+                    color: Colors.white,
+                    textColor: CandyColors.ink,
+                    height: 44,
+                    fontSize: 15,
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: ElevatedButton(
-                    onPressed: () {
-                      friendProvider.acceptInvitation(invitation.id);
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Theme.of(context).primaryColor,
-                      foregroundColor: Colors.white,
-                    ),
-                    child: const Text('수락'),
+                  child: ChunkyButton(
+                    onPressed: onAccept,
+                    label: '수락',
+                    color: acceptColor,
+                    height: 44,
+                    fontSize: 15,
                   ),
                 ),
               ],
@@ -456,213 +547,230 @@ class _FriendsScreenState extends State<FriendsScreen> {
     );
   }
 
-  Widget _buildFriendRequestsSection(BuildContext context, FriendProvider friendProvider) {
+  Widget _buildInvitationCard(
+    BuildContext context,
+    Invitation invitation,
+    FriendProvider friendProvider,
+  ) {
+    return _requestCard(
+      avatarColor: CandyColors.pink,
+      title: '${invitation.inviterNickname}님의 초대',
+      subtitle: invitation.gameTypeName,
+      acceptColor: CandyColors.pink,
+      onDecline: () {
+        friendProvider.declineInvitation(invitation.id);
+      },
+      onAccept: () {
+        friendProvider.acceptInvitation(invitation.id);
+      },
+    );
+  }
+
+  Widget _buildFriendRequestsSection(
+    BuildContext context,
+    FriendProvider friendProvider,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Icon(Icons.person_add, color: Colors.green),
-            const SizedBox(width: 8),
-            Text(
-              '받은 친구 요청 (${friendProvider.receivedRequests.length})',
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
+        _sectionHeader(
+          Icons.person_add,
+          CandyColors.mint,
+          '받은 친구 요청 (${friendProvider.receivedRequests.length})',
         ),
         const SizedBox(height: 12),
-        ...friendProvider.receivedRequests.map((request) => _buildFriendRequestCard(context, request, friendProvider)),
+        for (int i = 0; i < friendProvider.receivedRequests.length; i++)
+          _staggered(
+            i,
+            _buildFriendRequestCard(
+              context,
+              friendProvider.receivedRequests[i],
+              friendProvider,
+            ),
+          ),
       ],
     );
   }
 
-  Widget _buildFriendRequestCard(BuildContext context, FriendRequest request, FriendProvider friendProvider) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: Colors.green.withValues(alpha: 0.2),
-                  child: const Icon(Icons.person, color: Colors.green),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        request.fromNickname,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      Text(
-                        '친구 요청을 보냈습니다',
-                        style: TextStyle(
-                          color: Colors.grey.shade600,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () {
-                      friendProvider.declineFriendRequest(request.id);
-                    },
-                    child: const Text('거절'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: () {
-                      friendProvider.acceptFriendRequest(request.id);
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                    ),
-                    child: const Text('수락'),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+  Widget _buildFriendRequestCard(
+    BuildContext context,
+    FriendRequest request,
+    FriendProvider friendProvider,
+  ) {
+    return _requestCard(
+      avatarColor: CandyColors.mint,
+      title: request.fromNickname,
+      subtitle: '친구 요청을 보냈어요',
+      acceptColor: CandyColors.mint,
+      onDecline: () {
+        friendProvider.declineFriendRequest(request.id);
+      },
+      onAccept: () {
+        friendProvider.acceptFriendRequest(request.id);
+      },
     );
   }
 
-  Widget _buildSentRequestsSection(BuildContext context, FriendProvider friendProvider) {
+  Widget _buildSentRequestsSection(
+    BuildContext context,
+    FriendProvider friendProvider,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Icon(Icons.send, color: Colors.orange),
-            const SizedBox(width: 8),
-            Text(
-              '보낸 친구 요청 (${friendProvider.sentRequests.length})',
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
+        _sectionHeader(
+          Icons.send,
+          CandyColors.tangerine,
+          '보낸 친구 요청 (${friendProvider.sentRequests.length})',
         ),
         const SizedBox(height: 12),
-        ...friendProvider.sentRequests.map((request) => _buildSentRequestCard(context, request, friendProvider)),
+        for (int i = 0; i < friendProvider.sentRequests.length; i++)
+          _staggered(
+            i,
+            _buildSentRequestCard(
+              context,
+              friendProvider.sentRequests[i],
+              friendProvider,
+            ),
+          ),
       ],
     );
   }
 
-  Widget _buildSentRequestCard(BuildContext context, FriendRequest request, FriendProvider friendProvider) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: Colors.orange.withValues(alpha: 0.2),
-          child: const Icon(Icons.person, color: Colors.orange),
-        ),
-        title: Text(
-          request.toNickname,
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        subtitle: Text(
-          '요청 대기 중...',
-          style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-        ),
-        trailing: TextButton(
-          onPressed: () {
-            friendProvider.cancelFriendRequest(request.id);
-          },
-          child: const Text('취소', style: TextStyle(color: Colors.red)),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFriendsSection(BuildContext context, FriendProvider friendProvider) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildSentRequestCard(
+    BuildContext context,
+    FriendRequest request,
+    FriendProvider friendProvider,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: CartoonCard(
+        shadow: 4,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
           children: [
-            Row(
-              children: [
-                Icon(Icons.people, color: Theme.of(context).primaryColor),
-                const SizedBox(width: 8),
-                Text(
-                  '친구 목록 (${friendProvider.friends.length})',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            IconButton(
-              onPressed: () => _showAddFriendDialog(context),
-              icon: Icon(Icons.person_add, color: Theme.of(context).primaryColor),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        if (friendProvider.friends.isEmpty)
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
+            _personAvatar(CandyColors.tangerine),
+            const SizedBox(width: 12),
+            Expanded(
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    Icons.people_outline,
-                    size: 64,
-                    color: Colors.grey.shade300,
-                  ),
-                  const SizedBox(height: 16),
                   Text(
-                    '아직 친구가 없어요',
-                    style: TextStyle(
-                      color: Colors.grey.shade500,
-                      fontSize: 16,
+                    request.toNickname,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: CandyColors.ink,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  TextButton.icon(
-                    onPressed: () => _showAddFriendDialog(context),
-                    icon: const Icon(Icons.add),
-                    label: const Text('친구 추가하기'),
+                  const Text(
+                    '요청 대기 중...',
+                    style: TextStyle(
+                      color: CandyColors.inkSoft,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ],
               ),
             ),
+            TextButton(
+              onPressed: () {
+                friendProvider.cancelFriendRequest(request.id);
+              },
+              child: const Text(
+                '취소',
+                style: TextStyle(
+                  color: CandyColors.pinkDeep,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFriendsSection(
+    BuildContext context,
+    FriendProvider friendProvider,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionHeader(
+          Icons.people,
+          CandyColors.sky,
+          '친구 목록 (${friendProvider.friends.length})',
+          trailing: IconButton(
+            onPressed: () => _showAddFriendDialog(context),
+            tooltip: '친구 추가',
+            icon: const Icon(Icons.person_add, color: CandyColors.pinkDeep),
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (friendProvider.friends.isEmpty)
+          PopIn(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: Center(
+                child: Column(
+                  children: [
+                    const DuoMascot(size: 100, mood: MascotMood.sad),
+                    const SizedBox(height: 14),
+                    const Text(
+                      '아직 친구가 없어요',
+                      style: TextStyle(
+                        color: CandyColors.ink,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      '친구 코드로 같이 놀 친구를 찾아보세요!',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: CandyColors.inkSoft,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    ChunkyButton(
+                      onPressed: () => _showAddFriendDialog(context),
+                      icon: Icons.add,
+                      label: '친구 추가하기',
+                      height: 48,
+                      fontSize: 16,
+                      expand: false,
+                    ),
+                  ],
+                ),
+              ),
+            ),
           )
         else
-          ...friendProvider.friends.map((friend) => _buildFriendCard(context, friend, friendProvider)),
+          for (int i = 0; i < friendProvider.friends.length; i++)
+            _staggered(
+              i,
+              _buildFriendCard(
+                context,
+                friendProvider.friends[i],
+                friendProvider,
+              ),
+            ),
       ],
     );
   }
 
-  Widget _buildFriendCard(BuildContext context, Friend friend, FriendProvider friendProvider) {
+  Widget _buildFriendCard(
+    BuildContext context,
+    Friend friend,
+    FriendProvider friendProvider,
+  ) {
     // 프레임 색상 가져오기
     final frameColors = friend.profileSettings?.getFrameColors();
     final isRainbow = friend.profileSettings?.isRainbowFrame() ?? false;
@@ -672,114 +780,134 @@ class _FriendsScreenState extends State<FriendsScreen> {
     final avatarEmoji = avatarInfo?.$1;
     final avatarBgColor = avatarInfo?.$2;
     final isRemoving = friendProvider.isRemoving(friend.id);
+    final unread = friendProvider.unreadCounts[friend.id] ?? 0;
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ListTile(
-        leading: Stack(
+    final avatar = Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          padding: hasFrame ? const EdgeInsets.all(3) : EdgeInsets.zero,
+          decoration: hasFrame
+              ? BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: isRainbow
+                      ? const SweepGradient(
+                          colors: [
+                            Colors.red,
+                            Colors.orange,
+                            Colors.yellow,
+                            Colors.green,
+                            Colors.blue,
+                            Colors.purple,
+                            Colors.red,
+                          ],
+                        )
+                      : LinearGradient(
+                          colors: [frameColors!.$1, frameColors.$2],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                  border: Border.all(color: CandyColors.ink, width: 2.5),
+                )
+              : BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: CandyColors.ink, width: 2.5),
+                ),
+          child: CircleAvatar(
+            radius: 22,
+            backgroundColor:
+                avatarBgColor ?? CandyColors.pink.withValues(alpha: 0.25),
+            child: avatarEmoji != null
+                ? Text(avatarEmoji, style: const TextStyle(fontSize: 24))
+                : const Icon(Icons.person, color: CandyColors.pink),
+          ),
+        ),
+        if (friend.isOnline)
+          Positioned(
+            right: -2,
+            bottom: -2,
+            child: Container(
+              width: 16,
+              height: 16,
+              decoration: BoxDecoration(
+                color: CandyColors.mint,
+                shape: BoxShape.circle,
+                border: Border.all(color: CandyColors.ink, width: 2.5),
+              ),
+            ),
+          ),
+      ],
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: CartoonCard(
+        shadow: 4,
+        radius: 18,
+        padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+        child: Row(
           children: [
-            // 프레임이 있으면 테두리 적용
-            Container(
-              padding: hasFrame ? const EdgeInsets.all(2) : EdgeInsets.zero,
-              decoration: hasFrame
-                  ? BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: isRainbow
-                          ? const SweepGradient(
-                              colors: [
-                                Colors.red,
-                                Colors.orange,
-                                Colors.yellow,
-                                Colors.green,
-                                Colors.blue,
-                                Colors.purple,
-                                Colors.red,
-                              ],
-                            )
-                          : LinearGradient(
-                              colors: [frameColors!.$1, frameColors.$2],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
+            avatar,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          friend.nickname,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 16,
+                            color: CandyColors.ink,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (friend.memo != null && friend.memo!.isNotEmpty) ...[
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            '(${friend.memo})',
+                            style: const TextStyle(
+                              color: CandyColors.inkSoft,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
                             ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: isRainbow
-                              ? Colors.purple.withValues(alpha: 0.4)
-                              : frameColors!.$1.withValues(alpha: 0.4),
-                          blurRadius: 6,
-                          spreadRadius: 1,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                       ],
-                    )
-                  : null,
-              child: CircleAvatar(
-                backgroundColor: avatarBgColor ?? Theme.of(context).primaryColor.withValues(alpha: 0.2),
-                child: avatarEmoji != null
-                    ? Text(avatarEmoji, style: const TextStyle(fontSize: 24))
-                    : Icon(Icons.person, color: Theme.of(context).primaryColor),
-              ),
-            ),
-            if (friend.isOnline)
-              Positioned(
-                right: 0,
-                bottom: 0,
-                child: Container(
-                  width: 12,
-                  height: 12,
-                  decoration: BoxDecoration(
-                    color: Colors.green,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
+                    ],
                   ),
-                ),
-              ),
-          ],
-        ),
-        title: Row(
-          children: [
-            Flexible(
-              child: Text(
-                friend.nickname,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            if (friend.memo != null && friend.memo!.isNotEmpty) ...[
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  '(${friend.memo})',
-                  style: TextStyle(
-                    color: Colors.grey.shade600,
-                    fontSize: 13,
+                  const SizedBox(height: 2),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 2,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      // 칭호 표시
+                      if (friend.profileSettings?.activeTitleName != null)
+                        _buildTitleBadge(friend.profileSettings!),
+                      Text(
+                        friend.isOnline ? '온라인' : '오프라인',
+                        style: TextStyle(
+                          color: friend.isOnline
+                              ? CandyColors.mintDeep
+                              : CandyColors.inkSoft,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
                   ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ],
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 칭호 표시
-            if (friend.profileSettings?.activeTitleName != null) ...[
-              _buildTitleBadge(friend.profileSettings!),
-              const SizedBox(height: 2),
-            ],
-            Text(
-              friend.isOnline ? '온라인' : '오프라인',
-              style: TextStyle(
-                color: friend.isOnline ? Colors.green : Colors.grey,
-                fontSize: 12,
+                ],
               ),
             ),
-          ],
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
             // 메시지 버튼
             Stack(
               children: [
@@ -787,30 +915,40 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   onPressed: () async {
                     await Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => ChatScreen(friend: friend)),
+                      MaterialPageRoute(
+                        builder: (_) => ChatScreen(friend: friend),
+                      ),
                     );
                     friendProvider.getUnreadCounts();
                   },
-                  icon: Icon(
-                    Icons.chat_bubble_outline,
-                    color: Colors.blue.shade600,
+                  icon: const Icon(
+                    Icons.chat_bubble_rounded,
+                    color: CandyColors.skyDeep,
                   ),
                   tooltip: '메시지',
                 ),
-                if (friendProvider.unreadCounts[friend.id] != null && friendProvider.unreadCounts[friend.id]! > 0)
+                if (unread > 0)
                   Positioned(
-                    right: 4,
-                    top: 4,
+                    right: 2,
+                    top: 2,
                     child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(
-                        color: Colors.red,
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(
+                        color: CandyColors.pink,
                         shape: BoxShape.circle,
+                        border: Border.all(color: CandyColors.ink, width: 2),
                       ),
-                      constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                      constraints: const BoxConstraints(
+                        minWidth: 20,
+                        minHeight: 20,
+                      ),
                       child: Text(
-                        '${friendProvider.unreadCounts[friend.id]! > 99 ? '99+' : friendProvider.unreadCounts[friend.id]}',
-                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                        unread > 99 ? '99+' : '$unread',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                        ),
                         textAlign: TextAlign.center,
                       ),
                     ),
@@ -818,13 +956,23 @@ class _FriendsScreenState extends State<FriendsScreen> {
               ],
             ),
             if (isRemoving)
-              const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
+              const Padding(
+                padding: EdgeInsets.all(8),
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3,
+                    color: CandyColors.pink,
+                  ),
+                ),
               )
             else
               PopupMenuButton<String>(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: const BorderSide(color: CandyColors.ink, width: 2.5),
+                ),
                 onSelected: (value) {
                   if (value == 'memo') {
                     _showEditMemoDialog(context, friend, friendProvider);
@@ -836,10 +984,14 @@ class _FriendsScreenState extends State<FriendsScreen> {
                           final isRemoving = provider.isRemoving(friend.id);
                           return AlertDialog(
                             title: const Text('친구 삭제'),
-                            content: Text('${friend.nickname}님을 친구 목록에서 삭제할까요?'),
+                            content: Text(
+                              '${friend.nickname}님을 친구 목록에서 삭제할까요?',
+                            ),
                             actions: [
                               TextButton(
-                                onPressed: isRemoving ? null : () => Navigator.pop(context),
+                                onPressed: isRemoving
+                                    ? null
+                                    : () => Navigator.pop(context),
                                 child: const Text('취소'),
                               ),
                               TextButton(
@@ -853,9 +1005,17 @@ class _FriendsScreenState extends State<FriendsScreen> {
                                     ? const SizedBox(
                                         width: 18,
                                         height: 18,
-                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
                                       )
-                                    : const Text('삭제', style: TextStyle(color: Colors.red)),
+                                    : const Text(
+                                        '삭제',
+                                        style: TextStyle(
+                                          color: CandyColors.pinkDeep,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
                               ),
                             ],
                           );
@@ -879,7 +1039,11 @@ class _FriendsScreenState extends State<FriendsScreen> {
                     value: 'remove',
                     child: Row(
                       children: [
-                        Icon(Icons.person_remove, color: Colors.red, size: 20),
+                        Icon(
+                          Icons.person_remove,
+                          color: CandyColors.pinkDeep,
+                          size: 20,
+                        ),
                         SizedBox(width: 8),
                         Text('친구 삭제'),
                       ],

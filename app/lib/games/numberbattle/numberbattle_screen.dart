@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
@@ -10,6 +12,10 @@ import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
+import '../../theme/candy_theme.dart';
+import '../../widgets/cartoon/cartoon_card.dart';
+import '../../widgets/cartoon/chunky_button.dart';
+import '../../widgets/cartoon/pop_in.dart';
 import '../common/game_rematch_preparing_view.dart';
 import '../common/game_intro_view.dart';
 import '../common/game_scaffold.dart';
@@ -24,13 +30,7 @@ import '../common/game_screen_transition.dart';
 import '../common/game_session_helper.dart';
 import '../common/game_waiting_view.dart';
 
-enum NumberBattleGameStatus {
-  idle,
-  searching,
-  matched,
-  playing,
-  finished,
-}
+enum NumberBattleGameStatus { idle, searching, matched, playing, finished }
 
 class NumberBattleScreen extends StatefulWidget {
   final bool isRanked;
@@ -43,7 +43,9 @@ class NumberBattleScreen extends StatefulWidget {
 
 class _NumberBattleScreenState extends State<NumberBattleScreen> {
   final SocketService _socketService = SocketService();
-  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(
+    _socketService,
+  );
   bool _hasScheduledPop = false;
   bool _isExitDialogOpen = false;
 
@@ -78,7 +80,8 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
   bool _isWaitingForReconnect = false;
   Timer? _reconnectTimer;
   Timer? _waitingReconnectTimer;
-  int _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+  int _reconnectSecondsRemaining =
+      GameReconnectHelper.reconnectGraceDuration.inSeconds;
 
   // 타이머
   Timer? _countdownTimer;
@@ -100,10 +103,12 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
   void _initFromGameProvider() {
     try {
       final game = context.read<GameProvider>();
-      final isActiveInvitation = game.isInvitationGame &&
+      final isActiveInvitation =
+          game.isInvitationGame &&
           game.roomId != null &&
           game.opponentNickname != null &&
-          (game.status == GameStatus.matched || game.status == GameStatus.playing);
+          (game.status == GameStatus.matched ||
+              game.status == GameStatus.playing);
       if (isActiveInvitation) {
         setState(() {
           _roomId = game.roomId;
@@ -139,7 +144,10 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
     _countdownTimer?.cancel();
     _remainingSeconds = seconds;
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) { timer.cancel(); return; }
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       if (_remainingSeconds > 0) {
         setState(() => _remainingSeconds--);
       } else {
@@ -175,7 +183,8 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
         onEnterWaiting: () => setState(() {
           _isReconnecting = true;
           _isWaitingForReconnect = false;
-          _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+          _reconnectSecondsRemaining =
+              GameReconnectHelper.reconnectGraceDuration.inSeconds;
         }),
         onTick: (seconds) {
           if (!mounted) return;
@@ -202,10 +211,17 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
 
     _socketListeners.on('match_found', (data) {
       final players = data['players'] as List;
-      final opponent = players.cast<Map<String, dynamic>?>().firstWhere((p) => p!['id'] != _myId, orElse: () => null);
+      final opponent = players.cast<Map<String, dynamic>?>().firstWhere(
+        (p) => p!['id'] != _myId,
+        orElse: () => null,
+      );
       if (opponent == null) return;
-      final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
-      _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
+      final me = players.firstWhere(
+        (p) => p['id'] == _myId,
+        orElse: () => null,
+      );
+      final foundIndex = players.indexWhere((p) => p['id'] == _myId);
+      _myPlayerIndex = foundIndex < 0 ? 0 : foundIndex;
 
       setState(() {
         _status = NumberBattleGameStatus.matched;
@@ -216,10 +232,14 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
         _isInvitationGame = data['isInvitation'] == true;
         _isHardcore = data['isHardcore'] == true;
         if (opponent['profileSettings'] != null) {
-          _opponentProfileSettings = UserProfileSettings.fromJson(opponent['profileSettings']);
+          _opponentProfileSettings = UserProfileSettings.fromJson(
+            opponent['profileSettings'],
+          );
         }
         if (me != null && me['profileSettings'] != null) {
-          _myProfileSettings = UserProfileSettings.fromJson(me['profileSettings']);
+          _myProfileSettings = UserProfileSettings.fromJson(
+            me['profileSettings'],
+          );
         }
       });
     });
@@ -306,7 +326,9 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
         final myGrid = (grids != null && _myPlayerIndex < grids.length)
             ? grids[_myPlayerIndex]
             : data['grid'];
-        _grid = (myGrid as List).map<List<int>>((row) => List<int>.from(row)).toList();
+        _grid = (myGrid as List)
+            .map<List<int>>((row) => List<int>.from(row))
+            .toList();
         _progress = List<int>.from(data['progress']);
         _isWaitingForReconnect = false;
         _restoreTappedCells();
@@ -322,10 +344,13 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
       final remainingMs = (data['remainingTimeMs'] as num?)?.toInt() ?? 60000;
       setState(() {
         _roomId = data['roomId'] as String?;
-        _myPlayerIndex = (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
+        _myPlayerIndex =
+            (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
         _isHardcore = data['hardMode'] == true;
         if (gridData != null) {
-          _grid = gridData.map<List<int>>((row) => List<int>.from(row)).toList();
+          _grid = gridData
+              .map<List<int>>((row) => List<int>.from(row))
+              .toList();
         }
         _progress = List<int>.from(data['progress'] ?? _progress);
         _restoreTappedCells();
@@ -359,7 +384,8 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
       if (!_isGameActive) return;
       _stopCountdown();
       setState(() {
-        _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+        _reconnectSecondsRemaining =
+            GameReconnectHelper.reconnectGraceDuration.inSeconds;
         _isWaitingForReconnect = true;
         _isReconnecting = false;
       });
@@ -420,9 +446,9 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(widget.isRanked
-              ? '상대가 나가서 게임이 종료되었습니다. 승리!'
-              : '상대방이 나갔습니다.'),
+            content: Text(
+              widget.isRanked ? '상대가 나가서 게임이 종료되었습니다. 승리!' : '상대방이 나갔습니다.',
+            ),
             backgroundColor: Colors.orange,
           ),
         );
@@ -486,15 +512,22 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
     }
   }
 
-  void _tapCell(int row, int col) {
-    if (_roomId == null || _grid.isEmpty) return;
+  /// 정답 칸이면 서버로 전송하고 true, 아니면 false(오답 피드백용).
+  bool _tapCell(int row, int col) {
+    if (_roomId == null || _grid.isEmpty) return false;
+    if (row >= _grid.length || col >= _grid[row].length) return false;
     final targetNumber = _progress[_myPlayerIndex] + 1;
-    if (_grid[row][col] != targetNumber) return;
+    if (_grid[row][col] != targetNumber) {
+      HapticFeedback.lightImpact();
+      return false;
+    }
+    HapticFeedback.selectionClick();
 
     _socketService.emit('game_action', {
       'roomId': _roomId,
       'action': {'type': 'tap', 'row': row, 'col': col},
     });
+    return true;
   }
 
   void _requestRematch() {
@@ -594,9 +627,18 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
 
   Widget _buildBody(GameTheme theme) {
     return switch (_status) {
-      NumberBattleGameStatus.idle => widget.isRanked ? _buildRankedWaitingView(theme) : _buildIdleView(theme),
-      NumberBattleGameStatus.searching => widget.isRanked ? _buildRankedWaitingView(theme) : _buildSearchingView(theme),
-      NumberBattleGameStatus.matched => widget.isRanked ? _buildRankedWaitingView(theme) : _buildMatchedView(theme),
+      NumberBattleGameStatus.idle =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildIdleView(theme),
+      NumberBattleGameStatus.searching =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildSearchingView(theme),
+      NumberBattleGameStatus.matched =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildMatchedView(theme),
       NumberBattleGameStatus.playing => _buildPlayingView(theme),
       NumberBattleGameStatus.finished => _buildFinishedView(theme),
     };
@@ -614,26 +656,33 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
       backgroundColor: Colors.transparent,
       builder: (dialogContext) => Consumer<FriendProvider>(
         builder: (context, friendProvider, child) {
-          final onlineFriends = friendProvider.friends.where((f) => f.isOnline).toList();
+          final onlineFriends = friendProvider.friends
+              .where((f) => f.isOnline)
+              .toList();
 
           return Container(
             constraints: BoxConstraints(
               maxHeight: MediaQuery.of(dialogContext).size.height * 0.6,
             ),
             decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              color: CandyColors.cream,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border(
+                top: BorderSide(color: CandyColors.ink, width: 3),
+                left: BorderSide(color: CandyColors.ink, width: 3),
+                right: BorderSide(color: CandyColors.ink, width: 3),
+              ),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
                   margin: const EdgeInsets.only(top: 12),
-                  width: 40,
-                  height: 4,
+                  width: 44,
+                  height: 6,
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
+                    color: CandyColors.ink,
+                    borderRadius: BorderRadius.circular(3),
                   ),
                 ),
                 Padding(
@@ -644,12 +693,16 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
                       const SizedBox(width: 12),
                       const Text(
                         '친구 초대',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          color: CandyColors.ink,
+                        ),
                       ),
                     ],
                   ),
                 ),
-                const Divider(height: 1),
+                const Divider(height: 3, thickness: 3, color: CandyColors.ink),
                 Flexible(
                   child: onlineFriends.isEmpty
                       ? Center(
@@ -658,11 +711,18 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.person_off, size: 48, color: Colors.grey.shade400),
+                                const Icon(
+                                  Icons.person_off,
+                                  size: 48,
+                                  color: CandyColors.inkSoft,
+                                ),
                                 const SizedBox(height: 16),
                                 Text(
                                   '온라인 친구가 없습니다',
-                                  style: TextStyle(color: Colors.grey.shade600),
+                                  style: const TextStyle(
+                                    color: CandyColors.inkSoft,
+                                    fontWeight: FontWeight.w800,
+                                  ),
                                 ),
                               ],
                             ),
@@ -677,10 +737,17 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
                               leading: Stack(
                                 children: [
                                   CircleAvatar(
-                                    backgroundColor: theme.primary.withValues(alpha: 0.2),
+                                    backgroundColor: theme.primary.withValues(
+                                      alpha: 0.2,
+                                    ),
                                     child: Text(
-                                      friend.nickname.isNotEmpty ? friend.nickname[0].toUpperCase() : '?',
-                                      style: TextStyle(color: theme.primary),
+                                      friend.nickname.isNotEmpty
+                                          ? friend.nickname[0].toUpperCase()
+                                          : '?',
+                                      style: TextStyle(
+                                        color: theme.primary,
+                                        fontWeight: FontWeight.w900,
+                                      ),
                                     ),
                                   ),
                                   Positioned(
@@ -690,17 +757,32 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
                                       width: 12,
                                       height: 12,
                                       decoration: BoxDecoration(
-                                        color: Colors.green,
+                                        color: CandyColors.mint,
                                         shape: BoxShape.circle,
-                                        border: Border.all(color: Colors.white, width: 2),
+                                        border: Border.all(
+                                          color: CandyColors.ink,
+                                          width: 2,
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ],
                               ),
-                              title: Text(friend.nickname, style: const TextStyle(fontWeight: FontWeight.w600)),
-                              subtitle: friend.memo != null && friend.memo!.isNotEmpty
-                                  ? Text(friend.memo!, style: TextStyle(color: Colors.grey.shade600, fontSize: 12))
+                              title: Text(
+                                friend.nickname,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              subtitle:
+                                  friend.memo != null && friend.memo!.isNotEmpty
+                                  ? Text(
+                                      friend.memo!,
+                                      style: TextStyle(
+                                        color: Colors.grey.shade600,
+                                        fontSize: 12,
+                                      ),
+                                    )
                                   : null,
                               trailing: ElevatedButton(
                                 onPressed: () {
@@ -710,10 +792,14 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
                                     isHardcore: _isHardcore,
                                   );
                                   Navigator.pop(dialogContext);
-                                  ScaffoldMessenger.of(context).clearSnackBars();
+                                  ScaffoldMessenger.of(
+                                    context,
+                                  ).clearSnackBars();
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                      content: Text('${friend.nickname}님에게 초대를 보냈습니다!'),
+                                      content: Text(
+                                        '${friend.nickname}님에게 초대를 보냈습니다!',
+                                      ),
                                       backgroundColor: Colors.green,
                                     ),
                                   );
@@ -731,7 +817,9 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
                           },
                         ),
                 ),
-                SizedBox(height: MediaQuery.of(dialogContext).padding.bottom + 16),
+                SizedBox(
+                  height: MediaQuery.of(dialogContext).padding.bottom + 16,
+                ),
               ],
             ),
           );
@@ -763,95 +851,21 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
   }
 
   Widget _buildSearchingView(GameTheme theme) {
-    final accentColor = theme.primary;
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            accentColor.withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(
-              color: accentColor,
-            ),
-            const SizedBox(height: 24),
-            Text(
-              '상대를 찾는 중...',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: accentColor,
-              ),
-            ),
-            const SizedBox(height: 48),
-            OutlinedButton(
-              onPressed: _cancelMatch,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.grey,
-                side: BorderSide(color: Colors.grey.shade400),
-              ),
-              child: const Text('취소'),
-            ),
-          ],
-        ),
-      ),
+    return _CandyStatusView(
+      accentColor: theme.primary,
+      icon: Icons.search_rounded,
+      title: '상대를 찾는 중...',
+      spinner: true,
+      onCancel: _cancelMatch,
     );
   }
 
   Widget _buildMatchedView(GameTheme theme) {
-    final accentColor = theme.primary;
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            accentColor.withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: accentColor.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.sports_esports,
-                size: 64,
-                color: accentColor,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '$_opponentNickname님과 매칭!',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: accentColor,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '게임이 곧 시작됩니다...',
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
-          ],
-        ),
-      ),
+    return _CandyStatusView(
+      accentColor: theme.primary,
+      icon: Icons.sports_esports_rounded,
+      title: '${_opponentNickname ?? '상대'}님과 매칭!',
+      subtitle: '게임이 곧 시작됩니다...',
     );
   }
 
@@ -860,161 +874,144 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
     final myProgress = _progress[_myPlayerIndex];
     final opponentProgress = _progress[1 - _myPlayerIndex];
 
-    return Column(
-      children: [
-        GameDuelHeader(
-          backgroundColors: [accentColor.withValues(alpha: 0.08), const Color(0xFFFFF5F5)],
-          accentColor: accentColor,
-          centerLabel: '$_remainingSeconds',
-          centerSubtitle: '남은 시간',
-          myName: _myNickname ?? '나',
-          opponentName: _opponentNickname ?? '상대',
-          myAvatarUrl: _myAvatarUrl,
-          opponentAvatarUrl: _opponentAvatarUrl,
-          myActive: true,
-          opponentActive: false,
-          myProfileSettings: _myProfileSettings,
-          opponentProfileSettings: _opponentProfileSettings,
-          myExtraWidget: GameHeaderScorePill(
-            score: myProgress,
-            color: accentColor,
-          ),
-          opponentExtraWidget: GameHeaderScorePill(
-            score: opponentProgress,
-            color: Colors.grey,
-          ),
-        ),
-
-        // 진행도 바
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: _buildProgressBar(myProgress, accentColor, '나'),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildProgressBar(opponentProgress, Colors.grey.shade500, _opponentNickname ?? '상대'),
-              ),
+    return Container(
+      color: CandyColors.cream,
+      child: Column(
+        children: [
+          GameDuelHeader(
+            backgroundColors: [
+              accentColor.withValues(alpha: 0.12),
+              CandyColors.cream,
             ],
+            accentColor: accentColor,
+            centerLabel: '$_remainingSeconds',
+            centerSubtitle: '남은 시간',
+            myName: _myNickname ?? '나',
+            opponentName: _opponentNickname ?? '상대',
+            myAvatarUrl: _myAvatarUrl,
+            opponentAvatarUrl: _opponentAvatarUrl,
+            myActive: true,
+            opponentActive: false,
+            myProfileSettings: _myProfileSettings,
+            opponentProfileSettings: _opponentProfileSettings,
+            myExtraWidget: GameHeaderScorePill(
+              score: myProgress,
+              color: accentColor,
+            ),
+            opponentExtraWidget: GameHeaderScorePill(
+              score: opponentProgress,
+              color: CandyColors.inkSoft,
+            ),
           ),
-        ),
 
-        // 5x5 그리드
-        Expanded(
-          child: _grid.isEmpty
-              ? const Center(child: CircularProgressIndicator())
-              : _buildGrid(accentColor),
-        ),
-      ],
+          // 진행도 바
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildProgressBar(
+                    myProgress,
+                    accentColor,
+                    '나',
+                    highlight: true,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildProgressBar(
+                    opponentProgress,
+                    CandyColors.sky,
+                    _opponentNickname ?? '상대',
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // 5x5 그리드
+          Expanded(
+            child: _grid.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : _buildGrid(accentColor),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildProgressBar(int progress, Color color, String label) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: color,
-              ),
-            ),
-            Text(
-              '$progress/$_total',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade600,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: progress / _total,
-            backgroundColor: Colors.grey.shade200,
-            valueColor: AlwaysStoppedAnimation<Color>(color),
-            minHeight: 6,
-          ),
-        ),
-      ],
+  Widget _buildProgressBar(
+    int progress,
+    Color color,
+    String label, {
+    bool highlight = false,
+  }) {
+    return _RaceLane(
+      name: label,
+      value: _total <= 0 ? 0 : progress / _total,
+      valueText: '$progress/$_total',
+      color: color,
+      highlight: highlight,
     );
   }
 
   Widget _buildGrid(Color accentColor) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final gridSize = constraints.maxWidth < constraints.maxHeight
-            ? constraints.maxWidth
-            : constraints.maxHeight;
-        final cellSize = (gridSize - 48) / 5; // padding 포함
+        const gap = 8.0;
+        const boardPad = 10.0;
+        final side = math.min(
+          constraints.maxWidth - 32,
+          constraints.maxHeight - 24,
+        );
+        final inner = side - boardPad * 2 - 6 - 5;
+        final cellSize = math.max(20.0, (inner - gap * 4) / 5);
+        final boardSide = cellSize * 5 + gap * 4;
 
         return Center(
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            child: SizedBox(
-              width: cellSize * 5 + 4 * 4, // 5 cells + 4 gaps
-              height: cellSize * 5 + 4 * 4,
-              child: GridView.builder(
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 5,
-                  crossAxisSpacing: 4,
-                  mainAxisSpacing: 4,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: PopIn(
+              child: CartoonCard(
+                color: CandyColors.creamDeep,
+                radius: 24,
+                padding: const EdgeInsets.all(boardPad),
+                child: SizedBox(
+                  width: boardSide,
+                  height: boardSide,
+                  child: GridView.builder(
+                    physics: const NeverScrollableScrollPhysics(),
+                    padding: EdgeInsets.zero,
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 5,
+                          crossAxisSpacing: gap,
+                          mainAxisSpacing: gap,
+                        ),
+                    itemCount: 25,
+                    itemBuilder: (context, index) {
+                      final row = index ~/ 5;
+                      final col = index % 5;
+                      if (row >= _grid.length || col >= _grid[row].length) {
+                        return const SizedBox.shrink();
+                      }
+                      final number = _grid[row][col];
+                      final isTapped = _myTappedCells.contains('$row,$col');
+                      // 하드모드: 0 = 다 소진된 빈 칸(누른 숫자가 100을 넘어 채울 게 없음).
+                      final isEmpty = number == 0;
+                      return _NumberTile(
+                        number: number,
+                        tapped: isTapped,
+                        empty: isEmpty,
+                        accent: accentColor,
+                        size: cellSize,
+                        // 다음 숫자 힌트(컬러 강조) 없음 — 모든 미탭·비어있지 않은 칸을 탭 가능하게
+                        // 두고, 정답 숫자만 _tapCell 에서 통과시킨다.
+                        onTap: () => _tapCell(row, col),
+                      );
+                    },
+                  ),
                 ),
-                itemCount: 25,
-                itemBuilder: (context, index) {
-                  final row = index ~/ 5;
-                  final col = index % 5;
-                  final number = _grid[row][col];
-                  final isTapped = _myTappedCells.contains('$row,$col');
-                  // 하드모드: 0 = 다 소진된 빈 칸(누른 숫자가 100을 넘어 채울 게 없음).
-                  final isEmpty = number == 0;
-
-                  return GestureDetector(
-                    // 다음 숫자 힌트(컬러 강조) 없음 — 모든 미탭·비어있지 않은 칸을 탭 가능하게
-                    // 두고, 정답 숫자만 _tapCell 에서 통과시킨다.
-                    onTap: (!isTapped && !isEmpty) ? () => _tapCell(row, col) : null,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
-                      decoration: BoxDecoration(
-                        color: isEmpty
-                            ? Colors.grey.shade100
-                            : isTapped
-                                ? accentColor.withValues(alpha: 0.15)
-                                : Colors.white,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: isTapped
-                              ? accentColor.withValues(alpha: 0.3)
-                              : Colors.grey.shade300,
-                          width: 1,
-                        ),
-                      ),
-                      child: Center(
-                        child: Text(
-                          isEmpty ? '' : '$number',
-                          style: TextStyle(
-                            fontSize: cellSize * 0.35,
-                            fontWeight: FontWeight.w600,
-                            color: isTapped
-                                ? accentColor.withValues(alpha: 0.4)
-                                : Colors.grey.shade800,
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                },
               ),
             ),
           ),
@@ -1042,10 +1039,10 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
         markScheduledPop: () => _hasScheduledPop = true,
       );
       return GameRankedResultView(
-      backgroundGradient: theme.backgroundGradient,
-      accentColor: theme.primary,
-      isWinner: isWinner,
-      isDraw: _isDraw,
+        backgroundGradient: theme.backgroundGradient,
+        accentColor: theme.primary,
+        isWinner: isWinner,
+        isDraw: _isDraw,
       );
     }
 
@@ -1072,10 +1069,7 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            resultColor.withValues(alpha: 0.1),
-            Colors.white,
-          ],
+          colors: [resultColor.withValues(alpha: 0.18), CandyColors.cream],
         ),
       ),
       child: Center(
@@ -1090,7 +1084,9 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
                 title: resultText,
                 subtitle: _isDraw
                     ? '서로 같은 수까지 눌러 무승부입니다.'
-                    : (isWinner ? '숫자를 빠르게 찾아 승리했어요!' : '다음엔 숫자 위치를 더 빠르게 파악해봐요.'),
+                    : (isWinner
+                          ? '숫자를 빠르게 찾아 승리했어요!'
+                          : '다음엔 숫자 위치를 더 빠르게 파악해봐요.'),
               ),
               const SizedBox(height: 22),
               GameResultMatchupRow(
@@ -1112,11 +1108,14 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
                 opponentLeft: _opponentLeft,
                 rematchWaiting: _rematchWaiting,
                 isInvitationGame: _isInvitationGame,
-                canSendFriendRequest: !_isInvitationGame &&
+                canSendFriendRequest:
+                    !_isInvitationGame &&
                     !_opponentLeft &&
                     _opponentUserId != null &&
                     !context.read<FriendProvider>().isFriend(_opponentUserId!),
-                onRematchPressed: _rematchWaiting ? _cancelRematch : _requestRematch,
+                onRematchPressed: _rematchWaiting
+                    ? _cancelRematch
+                    : _requestRematch,
                 onSearchAgainPressed: () {
                   _leaveGame();
                   _findMatch();
@@ -1128,7 +1127,9 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
                 onFriendRequestPressed: _opponentUserId == null
                     ? null
                     : () {
-                        context.read<FriendProvider>().sendFriendRequestByUserId(_opponentUserId!);
+                        context
+                            .read<FriendProvider>()
+                            .sendFriendRequestByUserId(_opponentUserId!);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('$_opponentNickname님에게 친구 요청을 보냈습니다'),
@@ -1150,7 +1151,8 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
       return;
     }
 
-    final isRankedWaiting = widget.isRanked &&
+    final isRankedWaiting =
+        widget.isRanked &&
         (_status == NumberBattleGameStatus.idle ||
             _status == NumberBattleGameStatus.searching ||
             _status == NumberBattleGameStatus.matched);
@@ -1174,5 +1176,390 @@ class _NumberBattleScreenState extends State<NumberBattleScreen> {
       message: '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
       onExit: _leaveGame,
     ).then((_) => _isExitDialogOpen = false);
+  }
+}
+
+/// 캔디 스타일 매칭 대기/성사 화면.
+class _CandyStatusView extends StatelessWidget {
+  final Color accentColor;
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final bool spinner;
+  final VoidCallback? onCancel;
+
+  const _CandyStatusView({
+    required this.accentColor,
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    this.spinner = false,
+    this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [accentColor.withValues(alpha: 0.16), CandyColors.cream],
+        ),
+      ),
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: PopIn(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    if (spinner)
+                      SizedBox(
+                        width: 112,
+                        height: 112,
+                        child: CircularProgressIndicator(
+                          color: accentColor,
+                          strokeWidth: 6,
+                        ),
+                      ),
+                    Container(
+                      width: 84,
+                      height: 84,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: CandyColors.ink, width: 3),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: CandyColors.ink,
+                            offset: Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Icon(icon, size: 42, color: accentColor),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 22),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                    color: accentColor,
+                  ),
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    subtitle!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: CandyColors.inkSoft,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+                if (onCancel != null) ...[
+                  const SizedBox(height: 36),
+                  SizedBox(
+                    width: 180,
+                    child: ChunkyButton(
+                      label: '취소',
+                      color: Colors.white,
+                      textColor: CandyColors.ink,
+                      height: 48,
+                      onPressed: onCancel,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 두 플레이어의 진행 상황을 보여주는 레이스 트랙(부드럽게 차오르는 바 + 아바타 마커).
+class _RaceLane extends StatelessWidget {
+  final String name;
+  final double value;
+  final String valueText;
+  final Color color;
+  final bool highlight;
+
+  const _RaceLane({
+    required this.name,
+    required this.value,
+    required this.valueText,
+    required this.color,
+    this.highlight = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final initial = name.isEmpty ? '?' : String.fromCharCode(name.runes.first);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                  color: highlight ? CandyColors.ink : CandyColors.inkSoft,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              valueText,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+                color: CandyColors.ink,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        SizedBox(
+          height: 30,
+          child: LayoutBuilder(
+            builder: (context, box) {
+              const m = 26.0;
+              final w = box.maxWidth;
+              return TweenAnimationBuilder<double>(
+                tween: Tween<double>(end: value.clamp(0.0, 1.0)),
+                duration: const Duration(milliseconds: 380),
+                curve: Curves.easeOutCubic,
+                builder: (context, v, _) {
+                  final fillW = ((w - m) * v + m / 2).clamp(0.0, w);
+                  return Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        top: 7,
+                        height: 16,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: CandyColors.ink,
+                              width: 2.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: 0,
+                        top: 7,
+                        height: 16,
+                        width: fillW,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: color,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: CandyColors.ink,
+                              width: 2.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: (w - m) * v,
+                        top: 2,
+                        child: Container(
+                          width: m,
+                          height: m,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: color,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: CandyColors.ink,
+                              width: 2.5,
+                            ),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: CandyColors.ink,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Text(
+                            initial,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.white,
+                              height: 1,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 숫자 타일: 눌림 스쿼시, 정답 팝, 오답 흔들림 + 빨간 플래시.
+class _NumberTile extends StatefulWidget {
+  final int number;
+  final bool tapped;
+  final bool empty;
+  final Color accent;
+  final double size;
+  final bool Function() onTap;
+
+  const _NumberTile({
+    required this.number,
+    required this.tapped,
+    required this.empty,
+    required this.accent,
+    required this.size,
+    required this.onTap,
+  });
+
+  @override
+  State<_NumberTile> createState() => _NumberTileState();
+}
+
+class _NumberTileState extends State<_NumberTile> {
+  bool _down = false;
+  int _okTick = 0;
+  int _wrongTick = 0;
+
+  bool get _enabled => !widget.tapped && !widget.empty;
+
+  void _handleTap() {
+    if (!_enabled) return;
+    final ok = widget.onTap();
+    setState(() {
+      if (ok) {
+        _okTick++;
+      } else {
+        _wrongTick++;
+      }
+    });
+  }
+
+  Widget _body(double flash) {
+    final Color base = widget.empty
+        ? CandyColors.creamDeep.withValues(alpha: 0.5)
+        : widget.tapped
+        ? CandyColors.mint.withValues(alpha: 0.55)
+        : Colors.white;
+    final face = Color.lerp(
+      base,
+      const Color(0xFFFF5A5F),
+      flash.clamp(0.0, 1.0),
+    )!;
+    final raised = _enabled && !_down;
+    return AnimatedScale(
+      scale: _down && _enabled ? 0.9 : 1.0,
+      duration: const Duration(milliseconds: 80),
+      curve: Curves.easeOut,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        decoration: BoxDecoration(
+          color: face,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: widget.empty
+                ? CandyColors.ink.withValues(alpha: 0.25)
+                : CandyColors.ink,
+            width: 2.5,
+          ),
+          boxShadow: [
+            if (!widget.empty)
+              BoxShadow(
+                color: CandyColors.ink,
+                offset: Offset(0, raised ? 3 : 1),
+              ),
+          ],
+        ),
+        child: Center(
+          child: widget.empty
+              ? const SizedBox.shrink()
+              : Padding(
+                  padding: const EdgeInsets.all(3),
+                  child: FittedBox(
+                    child: Text(
+                      widget.tapped ? '✓' : '${widget.number}',
+                      style: TextStyle(
+                        fontSize: math.max(12, widget.size * 0.42),
+                        fontWeight: FontWeight.w900,
+                        color: widget.tapped
+                            ? CandyColors.mintDeep
+                            : CandyColors.ink,
+                      ),
+                    ),
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget tile = _wrongTick == 0
+        ? _body(0)
+        : TweenAnimationBuilder<double>(
+            key: ValueKey('wrong$_wrongTick'),
+            tween: Tween(begin: 0, end: 1),
+            duration: const Duration(milliseconds: 380),
+            builder: (context, t, _) => Transform.translate(
+              offset: Offset(math.sin(t * math.pi * 5) * (1 - t) * 7, 0),
+              child: _body((1 - t) * 0.9),
+            ),
+          );
+    if (_okTick > 0) {
+      tile = TweenAnimationBuilder<double>(
+        key: ValueKey('ok$_okTick'),
+        tween: Tween(begin: 0.75, end: 1),
+        duration: const Duration(milliseconds: 450),
+        curve: Curves.elasticOut,
+        builder: (context, s, child) => Transform.scale(scale: s, child: child),
+        child: tile,
+      );
+    }
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: _enabled ? (_) => setState(() => _down = true) : null,
+      onTapUp: (_) {
+        if (_down) setState(() => _down = false);
+      },
+      onTapCancel: () {
+        if (_down) setState(() => _down = false);
+      },
+      onTap: _handleTap,
+      child: tile,
+    );
   }
 }

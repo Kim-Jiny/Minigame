@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
@@ -10,6 +12,11 @@ import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
+import '../../theme/candy_theme.dart';
+import '../../widgets/cartoon/cartoon_card.dart';
+import '../../widgets/cartoon/chunky_button.dart';
+import '../../widgets/cartoon/pop_in.dart';
+import '../../widgets/cartoon/duo_mascot.dart';
 import '../common/game_rematch_preparing_view.dart';
 import '../common/game_intro_view.dart';
 import '../common/game_scaffold.dart';
@@ -23,13 +30,7 @@ import '../common/game_screen_transition.dart';
 import '../common/game_session_helper.dart';
 import '../common/game_waiting_view.dart';
 
-enum MathraceGameStatus {
-  idle,
-  searching,
-  matched,
-  playing,
-  finished,
-}
+enum MathraceGameStatus { idle, searching, matched, playing, finished }
 
 class MathraceScreen extends StatefulWidget {
   final bool isRanked;
@@ -42,7 +43,9 @@ class MathraceScreen extends StatefulWidget {
 
 class _MathraceScreenState extends State<MathraceScreen> {
   final SocketService _socketService = SocketService();
-  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(
+    _socketService,
+  );
   bool _hasScheduledPop = false;
   bool _isExitDialogOpen = false;
 
@@ -67,6 +70,7 @@ class _MathraceScreenState extends State<MathraceScreen> {
   bool _isNegative = false;
   bool? _lastAnswerCorrect;
   Timer? _feedbackTimer;
+  int _feedbackTick = 0;
 
   // 게임 결과
   String? _winnerId;
@@ -78,15 +82,17 @@ class _MathraceScreenState extends State<MathraceScreen> {
   bool _isWaitingForReconnect = false;
   Timer? _reconnectTimer;
   Timer? _waitingReconnectTimer;
-  int _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+  int _reconnectSecondsRemaining =
+      GameReconnectHelper.reconnectGraceDuration.inSeconds;
 
   // 타이머
   Timer? _countdownTimer;
   int _remainingSeconds = 60;
 
   // 게임 고유색 대신 사용자 테마 컬러를 accent로 사용.
-  Color get _accentColor =>
-      GameTheme.fromProfileSettings(context.read<ShopProvider>().profileSettings).primary;
+  Color get _accentColor => GameTheme.fromProfileSettings(
+    context.read<ShopProvider>().profileSettings,
+  ).primary;
 
   @override
   void initState() {
@@ -104,10 +110,12 @@ class _MathraceScreenState extends State<MathraceScreen> {
   void _initFromGameProvider() {
     try {
       final game = context.read<GameProvider>();
-      final isActiveInvitation = game.isInvitationGame &&
+      final isActiveInvitation =
+          game.isInvitationGame &&
           game.roomId != null &&
           game.opponentNickname != null &&
-          (game.status == GameStatus.matched || game.status == GameStatus.playing);
+          (game.status == GameStatus.matched ||
+              game.status == GameStatus.playing);
       if (isActiveInvitation) {
         setState(() {
           _roomId = game.roomId;
@@ -144,7 +152,10 @@ class _MathraceScreenState extends State<MathraceScreen> {
     _countdownTimer?.cancel();
     _remainingSeconds = seconds;
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) { timer.cancel(); return; }
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       if (_remainingSeconds > 0) {
         setState(() => _remainingSeconds--);
       } else {
@@ -180,7 +191,8 @@ class _MathraceScreenState extends State<MathraceScreen> {
         onEnterWaiting: () => setState(() {
           _isReconnecting = true;
           _isWaitingForReconnect = false;
-          _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+          _reconnectSecondsRemaining =
+              GameReconnectHelper.reconnectGraceDuration.inSeconds;
         }),
         onTick: (seconds) {
           if (!mounted) return;
@@ -207,9 +219,15 @@ class _MathraceScreenState extends State<MathraceScreen> {
 
     _socketListeners.on('match_found', (data) {
       final players = data['players'] as List;
-      final opponent = players.cast<Map<String, dynamic>?>().firstWhere((p) => p!['id'] != _myId, orElse: () => null);
+      final opponent = players.cast<Map<String, dynamic>?>().firstWhere(
+        (p) => p!['id'] != _myId,
+        orElse: () => null,
+      );
       if (opponent == null) return;
-      final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
+      final me = players.firstWhere(
+        (p) => p['id'] == _myId,
+        orElse: () => null,
+      );
       final foundIndex = players.indexWhere((p) => p['id'] == _myId);
       if (foundIndex != -1) _myPlayerIndex = foundIndex;
 
@@ -221,10 +239,14 @@ class _MathraceScreenState extends State<MathraceScreen> {
         _opponentUserId = opponent['userId'];
         _isInvitationGame = data['isInvitation'] == true;
         if (opponent['profileSettings'] != null) {
-          _opponentProfileSettings = UserProfileSettings.fromJson(opponent['profileSettings']);
+          _opponentProfileSettings = UserProfileSettings.fromJson(
+            opponent['profileSettings'],
+          );
         }
         if (me != null && me['profileSettings'] != null) {
-          _myProfileSettings = UserProfileSettings.fromJson(me['profileSettings']);
+          _myProfileSettings = UserProfileSettings.fromJson(
+            me['profileSettings'],
+          );
         }
       });
     });
@@ -265,7 +287,9 @@ class _MathraceScreenState extends State<MathraceScreen> {
       final duration = data['duration'] as int? ?? 60000;
       setState(() {
         _status = MathraceGameStatus.playing;
-        _problems = problemsData.map<Map<String, dynamic>>((p) => Map<String, dynamic>.from(p)).toList();
+        _problems = problemsData
+            .map<Map<String, dynamic>>((p) => Map<String, dynamic>.from(p))
+            .toList();
         _progress = [0, 0];
         _inputText = '';
         _isNegative = false;
@@ -282,6 +306,12 @@ class _MathraceScreenState extends State<MathraceScreen> {
         _progress = List<int>.from(data['progress']);
         if (playerIndex == _myPlayerIndex) {
           _lastAnswerCorrect = correct;
+          _feedbackTick++;
+          if (correct) {
+            HapticFeedback.mediumImpact();
+          } else {
+            HapticFeedback.heavyImpact();
+          }
           if (correct) {
             _inputText = '';
             _isNegative = false;
@@ -307,7 +337,9 @@ class _MathraceScreenState extends State<MathraceScreen> {
       final duration = data['duration'] as int? ?? 60000;
       setState(() {
         _status = MathraceGameStatus.playing;
-        _problems = problemsData.map<Map<String, dynamic>>((p) => Map<String, dynamic>.from(p)).toList();
+        _problems = problemsData
+            .map<Map<String, dynamic>>((p) => Map<String, dynamic>.from(p))
+            .toList();
         _progress = List<int>.from(data['progress']);
         _inputText = '';
         _isNegative = false;
@@ -325,9 +357,12 @@ class _MathraceScreenState extends State<MathraceScreen> {
       final remainingMs = (data['remainingTimeMs'] as num?)?.toInt() ?? 60000;
       setState(() {
         _roomId = data['roomId'] as String?;
-        _myPlayerIndex = (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
+        _myPlayerIndex =
+            (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
         if (problemsData != null) {
-          _problems = problemsData.map<Map<String, dynamic>>((p) => Map<String, dynamic>.from(p)).toList();
+          _problems = problemsData
+              .map<Map<String, dynamic>>((p) => Map<String, dynamic>.from(p))
+              .toList();
         }
         _progress = List<int>.from(data['progress'] ?? _progress);
         _inputText = '';
@@ -363,7 +398,8 @@ class _MathraceScreenState extends State<MathraceScreen> {
       if (!_isGameActive) return;
       _stopCountdown();
       setState(() {
-        _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+        _reconnectSecondsRemaining =
+            GameReconnectHelper.reconnectGraceDuration.inSeconds;
         _isWaitingForReconnect = true;
         _isReconnecting = false;
       });
@@ -425,9 +461,9 @@ class _MathraceScreenState extends State<MathraceScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(widget.isRanked
-              ? '상대가 나가서 게임이 종료되었습니다. 승리!'
-              : '상대방이 나갔습니다.'),
+            content: Text(
+              widget.isRanked ? '상대가 나가서 게임이 종료되었습니다. 승리!' : '상대방이 나갔습니다.',
+            ),
             backgroundColor: Colors.orange,
           ),
         );
@@ -615,9 +651,18 @@ class _MathraceScreenState extends State<MathraceScreen> {
 
   Widget _buildBody(GameTheme theme) {
     return switch (_status) {
-      MathraceGameStatus.idle => widget.isRanked ? _buildRankedWaitingView(theme) : _buildIdleView(theme),
-      MathraceGameStatus.searching => widget.isRanked ? _buildRankedWaitingView(theme) : _buildSearchingView(theme),
-      MathraceGameStatus.matched => widget.isRanked ? _buildRankedWaitingView(theme) : _buildMatchedView(theme),
+      MathraceGameStatus.idle =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildIdleView(theme),
+      MathraceGameStatus.searching =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildSearchingView(theme),
+      MathraceGameStatus.matched =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildMatchedView(theme),
       MathraceGameStatus.playing => _buildPlayingView(theme),
       MathraceGameStatus.finished => _buildFinishedView(theme),
     };
@@ -635,26 +680,33 @@ class _MathraceScreenState extends State<MathraceScreen> {
       backgroundColor: Colors.transparent,
       builder: (dialogContext) => Consumer<FriendProvider>(
         builder: (context, friendProvider, child) {
-          final onlineFriends = friendProvider.friends.where((f) => f.isOnline).toList();
+          final onlineFriends = friendProvider.friends
+              .where((f) => f.isOnline)
+              .toList();
 
           return Container(
             constraints: BoxConstraints(
               maxHeight: MediaQuery.of(dialogContext).size.height * 0.6,
             ),
             decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              color: CandyColors.cream,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border(
+                top: BorderSide(color: CandyColors.ink, width: 3),
+                left: BorderSide(color: CandyColors.ink, width: 3),
+                right: BorderSide(color: CandyColors.ink, width: 3),
+              ),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
                   margin: const EdgeInsets.only(top: 12),
-                  width: 40,
-                  height: 4,
+                  width: 44,
+                  height: 6,
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
+                    color: CandyColors.ink,
+                    borderRadius: BorderRadius.circular(3),
                   ),
                 ),
                 Padding(
@@ -665,12 +717,16 @@ class _MathraceScreenState extends State<MathraceScreen> {
                       const SizedBox(width: 12),
                       const Text(
                         '친구 초대',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          color: CandyColors.ink,
+                        ),
                       ),
                     ],
                   ),
                 ),
-                const Divider(height: 1),
+                const Divider(height: 3, thickness: 3, color: CandyColors.ink),
                 Flexible(
                   child: onlineFriends.isEmpty
                       ? Center(
@@ -679,11 +735,18 @@ class _MathraceScreenState extends State<MathraceScreen> {
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.person_off, size: 48, color: Colors.grey.shade400),
+                                const Icon(
+                                  Icons.person_off,
+                                  size: 48,
+                                  color: CandyColors.inkSoft,
+                                ),
                                 const SizedBox(height: 16),
                                 Text(
                                   '온라인 친구가 없습니다',
-                                  style: TextStyle(color: Colors.grey.shade600),
+                                  style: TextStyle(
+                                    color: CandyColors.inkSoft,
+                                    fontWeight: FontWeight.w800,
+                                  ),
                                 ),
                               ],
                             ),
@@ -698,10 +761,17 @@ class _MathraceScreenState extends State<MathraceScreen> {
                               leading: Stack(
                                 children: [
                                   CircleAvatar(
-                                    backgroundColor: theme.primary.withValues(alpha: 0.2),
+                                    backgroundColor: theme.primary.withValues(
+                                      alpha: 0.2,
+                                    ),
                                     child: Text(
-                                      friend.nickname.isNotEmpty ? friend.nickname[0].toUpperCase() : '?',
-                                      style: TextStyle(color: theme.primary),
+                                      friend.nickname.isNotEmpty
+                                          ? friend.nickname[0].toUpperCase()
+                                          : '?',
+                                      style: TextStyle(
+                                        color: theme.primary,
+                                        fontWeight: FontWeight.w900,
+                                      ),
                                     ),
                                   ),
                                   Positioned(
@@ -711,17 +781,32 @@ class _MathraceScreenState extends State<MathraceScreen> {
                                       width: 12,
                                       height: 12,
                                       decoration: BoxDecoration(
-                                        color: Colors.green,
+                                        color: CandyColors.mint,
                                         shape: BoxShape.circle,
-                                        border: Border.all(color: Colors.white, width: 2),
+                                        border: Border.all(
+                                          color: CandyColors.ink,
+                                          width: 2,
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ],
                               ),
-                              title: Text(friend.nickname, style: const TextStyle(fontWeight: FontWeight.w600)),
-                              subtitle: friend.memo != null && friend.memo!.isNotEmpty
-                                  ? Text(friend.memo!, style: TextStyle(color: Colors.grey.shade600, fontSize: 12))
+                              title: Text(
+                                friend.nickname,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              subtitle:
+                                  friend.memo != null && friend.memo!.isNotEmpty
+                                  ? Text(
+                                      friend.memo!,
+                                      style: TextStyle(
+                                        color: Colors.grey.shade600,
+                                        fontSize: 12,
+                                      ),
+                                    )
                                   : null,
                               trailing: ElevatedButton(
                                 onPressed: () {
@@ -731,10 +816,14 @@ class _MathraceScreenState extends State<MathraceScreen> {
                                     isHardcore: false,
                                   );
                                   Navigator.pop(dialogContext);
-                                  ScaffoldMessenger.of(context).clearSnackBars();
+                                  ScaffoldMessenger.of(
+                                    context,
+                                  ).clearSnackBars();
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                      content: Text('${friend.nickname}님에게 초대를 보냈습니다!'),
+                                      content: Text(
+                                        '${friend.nickname}님에게 초대를 보냈습니다!',
+                                      ),
                                       backgroundColor: Colors.green,
                                     ),
                                   );
@@ -752,7 +841,9 @@ class _MathraceScreenState extends State<MathraceScreen> {
                           },
                         ),
                 ),
-                SizedBox(height: MediaQuery.of(dialogContext).padding.bottom + 16),
+                SizedBox(
+                  height: MediaQuery.of(dialogContext).padding.bottom + 16,
+                ),
               ],
             ),
           );
@@ -774,93 +865,21 @@ class _MathraceScreenState extends State<MathraceScreen> {
   }
 
   Widget _buildSearchingView(GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            _accentColor.withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(
-              color: _accentColor,
-            ),
-            const SizedBox(height: 24),
-            Text(
-              '상대를 찾는 중...',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: _accentColor,
-              ),
-            ),
-            const SizedBox(height: 48),
-            OutlinedButton(
-              onPressed: _cancelMatch,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.grey,
-                side: BorderSide(color: Colors.grey.shade400),
-              ),
-              child: const Text('취소'),
-            ),
-          ],
-        ),
-      ),
+    return _CandyStatusView(
+      accentColor: _accentColor,
+      icon: Icons.search_rounded,
+      title: '상대를 찾는 중...',
+      spinner: true,
+      onCancel: _cancelMatch,
     );
   }
 
   Widget _buildMatchedView(GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            _accentColor.withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: _accentColor.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.sports_esports,
-                size: 64,
-                color: _accentColor,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '$_opponentNickname님과 매칭!',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: _accentColor,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '게임이 곧 시작됩니다...',
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
-          ],
-        ),
-      ),
+    return _CandyStatusView(
+      accentColor: _accentColor,
+      icon: Icons.sports_esports_rounded,
+      title: '${_opponentNickname ?? '상대'}님과 매칭!',
+      subtitle: '게임이 곧 시작됩니다...',
     );
   }
 
@@ -868,93 +887,84 @@ class _MathraceScreenState extends State<MathraceScreen> {
     final myProgress = _progress[_myPlayerIndex];
     final opponentProgress = _progress[1 - _myPlayerIndex];
 
-    return Column(
-      children: [
-        GameDuelHeader(
-          backgroundColors: [_accentColor.withValues(alpha: 0.08), const Color(0xFFFFF5F5)],
-          accentColor: _accentColor,
-          centerLabel: '$_remainingSeconds',
-          centerSubtitle: '남은 시간',
-          myName: _myNickname ?? '나',
-          opponentName: _opponentNickname ?? '상대',
-          myAvatarUrl: _myAvatarUrl,
-          opponentAvatarUrl: _opponentAvatarUrl,
-          myActive: true,
-          opponentActive: false,
-          myProfileSettings: _myProfileSettings,
-          opponentProfileSettings: _opponentProfileSettings,
-          myExtraWidget: GameHeaderScorePill(
-            score: myProgress,
-            color: _accentColor,
-          ),
-          opponentExtraWidget: GameHeaderScorePill(
-            score: opponentProgress,
-            color: Colors.grey,
-          ),
-        ),
-
-        // 진행도 바
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: _buildProgressBar(myProgress, _accentColor, '나'),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildProgressBar(opponentProgress, Colors.grey.shade500, _opponentNickname ?? '상대'),
-              ),
+    return Container(
+      color: CandyColors.cream,
+      child: Column(
+        children: [
+          GameDuelHeader(
+            backgroundColors: [
+              _accentColor.withValues(alpha: 0.12),
+              CandyColors.cream,
             ],
+            accentColor: _accentColor,
+            centerLabel: '$_remainingSeconds',
+            centerSubtitle: '남은 시간',
+            myName: _myNickname ?? '나',
+            opponentName: _opponentNickname ?? '상대',
+            myAvatarUrl: _myAvatarUrl,
+            opponentAvatarUrl: _opponentAvatarUrl,
+            myActive: true,
+            opponentActive: false,
+            myProfileSettings: _myProfileSettings,
+            opponentProfileSettings: _opponentProfileSettings,
+            myExtraWidget: GameHeaderScorePill(
+              score: myProgress,
+              color: _accentColor,
+            ),
+            opponentExtraWidget: GameHeaderScorePill(
+              score: opponentProgress,
+              color: CandyColors.inkSoft,
+            ),
           ),
-        ),
 
-        // 문제 영역
-        Expanded(
-          child: _problems.isEmpty
-              ? const Center(child: CircularProgressIndicator())
-              : _buildProblemArea(),
-        ),
-      ],
+          // 진행도 바
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildProgressBar(
+                    myProgress,
+                    _accentColor,
+                    '나',
+                    highlight: true,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildProgressBar(
+                    opponentProgress,
+                    CandyColors.sky,
+                    _opponentNickname ?? '상대',
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // 문제 영역
+          Expanded(
+            child: _problems.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : _buildProblemArea(),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildProgressBar(int progress, Color color, String label) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: color,
-              ),
-            ),
-            Text(
-              '$progress/10',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade600,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: progress / 10,
-            backgroundColor: Colors.grey.shade200,
-            valueColor: AlwaysStoppedAnimation<Color>(color),
-            minHeight: 6,
-          ),
-        ),
-      ],
+  Widget _buildProgressBar(
+    int progress,
+    Color color,
+    String label, {
+    bool highlight = false,
+  }) {
+    return _RaceLane(
+      name: label,
+      value: progress / 10,
+      valueText: '$progress/10',
+      color: color,
+      highlight: highlight,
     );
   }
 
@@ -964,18 +974,30 @@ class _MathraceScreenState extends State<MathraceScreen> {
 
     if (isComplete) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.check_circle, size: 64, color: _accentColor),
-            const SizedBox(height: 16),
-            Text(
-              '모든 문제 완료!',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: _accentColor),
-            ),
-            const SizedBox(height: 8),
-            const Text('결과를 기다리는 중...', style: TextStyle(color: Colors.grey)),
-          ],
+        child: PopIn(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DuoMascot(size: 110, color: _accentColor, mood: MascotMood.cheer),
+              const SizedBox(height: 16),
+              Text(
+                '모든 문제 완료!',
+                style: TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w900,
+                  color: _accentColor,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '결과를 기다리는 중...',
+                style: TextStyle(
+                  color: CandyColors.inkSoft,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -988,108 +1010,190 @@ class _MathraceScreenState extends State<MathraceScreen> {
 
     return Column(
       children: [
-        // 진행 인디케이터
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(10, (i) {
-              return Container(
-                width: 24,
-                height: 6,
-                margin: const EdgeInsets.symmetric(horizontal: 2),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(3),
-                  color: i < myProg
-                      ? _accentColor
-                      : i == myProg
-                          ? _accentColor.withValues(alpha: 0.4)
-                          : Colors.grey.shade200,
-                ),
-              );
-            }),
-          ),
-        ),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, box) => SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: box.maxHeight),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // 진행 인디케이터
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(10, (i) {
+                          final done = i < myProg;
+                          final current = i == myProg;
+                          return Flexible(
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeOutBack,
+                              constraints: const BoxConstraints(maxWidth: 24),
+                              height: current ? 12 : 10,
+                              margin: const EdgeInsets.symmetric(horizontal: 2),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(6),
+                                color: done
+                                    ? CandyColors.mint
+                                    : current
+                                    ? CandyColors.sun
+                                    : Colors.white,
+                                border: Border.all(
+                                  color: CandyColors.ink,
+                                  width: 2,
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
+                      ),
+                    ),
 
-        const SizedBox(height: 8),
+                    const SizedBox(height: 8),
 
-        // 문제
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
-            children: [
-              Text(
-                '문제 ${myProg + 1}/10',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade500,
+                    // 문제 카드 (문제가 바뀔 때마다 통통 등장)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: TweenAnimationBuilder<double>(
+                        key: ValueKey('problem$myProg'),
+                        tween: Tween(begin: 0.7, end: 1),
+                        duration: const Duration(milliseconds: 520),
+                        curve: Curves.elasticOut,
+                        builder: (context, s, child) =>
+                            Transform.scale(scale: s, child: child),
+                        child: CartoonCard(
+                          radius: 26,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 16,
+                          ),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: Column(
+                              children: [
+                                Text(
+                                  '문제 ${myProg + 1}/10',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w900,
+                                    color: CandyColors.inkSoft,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(
+                                    '$num1 $operator $num2 = ?',
+                                    maxLines: 1,
+                                    style: const TextStyle(
+                                      fontSize: 40,
+                                      fontWeight: FontWeight.w900,
+                                      color: CandyColors.ink,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    // 입력 필드 + 정답/오답 피드백
+                    _buildAnswerBox(displayInput),
+                  ],
                 ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                '$num1 $operator $num2 = ?',
-                style: const TextStyle(
-                  fontSize: 36,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF1A1A2E),
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        const SizedBox(height: 12),
-
-        // 입력 필드 + 피드백
-        Container(
-          margin: const EdgeInsets.symmetric(horizontal: 24),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          decoration: BoxDecoration(
-            color: _lastAnswerCorrect == null
-                ? Colors.grey.shade100
-                : _lastAnswerCorrect!
-                    ? Colors.green.shade50
-                    : Colors.red.shade50,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: _lastAnswerCorrect == null
-                  ? Colors.grey.shade300
-                  : _lastAnswerCorrect!
-                      ? Colors.green.shade300
-                      : Colors.red.shade300,
-              width: 2,
             ),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (_lastAnswerCorrect != null)
-                Icon(
-                  _lastAnswerCorrect! ? Icons.check_circle : Icons.cancel,
-                  color: _lastAnswerCorrect! ? Colors.green : Colors.red,
-                  size: 24,
-                ),
-              if (_lastAnswerCorrect != null) const SizedBox(width: 8),
-              Text(
-                displayInput.isEmpty ? '답을 입력하세요' : displayInput,
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w800,
-                  color: displayInput.isEmpty ? Colors.grey.shade400 : const Color(0xFF1A1A2E),
-                ),
-              ),
-            ],
-          ),
         ),
-
-        const Spacer(),
 
         // 키패드
         _buildKeypad(),
 
         SizedBox(height: MediaQuery.of(context).padding.bottom + 8),
       ],
+    );
+  }
+
+  Widget _buildAnswerBox(String displayInput) {
+    final result = _lastAnswerCorrect;
+    final Color face = result == null
+        ? Colors.white
+        : result
+        ? const Color(0xFFC9F7E6)
+        : const Color(0xFFFFD6D8);
+    Widget box(double shake) {
+      return Transform.translate(
+        offset: Offset(shake, 0),
+        child: Container(
+          width: double.infinity,
+          margin: const EdgeInsets.symmetric(horizontal: 24),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          decoration: BoxDecoration(
+            color: face,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: CandyColors.ink, width: 3),
+            boxShadow: const [
+              BoxShadow(color: CandyColors.ink, offset: Offset(0, 4)),
+            ],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (result != null) ...[
+                Icon(
+                  result ? Icons.check_circle_rounded : Icons.cancel_rounded,
+                  color: result
+                      ? CandyColors.mintDeep
+                      : const Color(0xFFE5484D),
+                  size: 28,
+                ),
+                const SizedBox(width: 8),
+              ],
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    displayInput.isEmpty ? '답을 입력하세요' : displayInput,
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontSize: 30,
+                      fontWeight: FontWeight.w900,
+                      color: displayInput.isEmpty
+                          ? CandyColors.inkSoft.withValues(alpha: 0.6)
+                          : CandyColors.ink,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (result == null) return box(0);
+    return TweenAnimationBuilder<double>(
+      key: ValueKey('fb$_feedbackTick'),
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 520),
+      builder: (context, t, _) {
+        if (result) {
+          // 정답: 초록 팝 + 스케일 바운스
+          final s = 1 + 0.08 * math.sin(Curves.easeOut.transform(t) * math.pi);
+          return Transform.scale(scale: s, child: box(0));
+        }
+        // 오답: 좌우 흔들림
+        return box(math.sin(t * math.pi * 6) * (1 - t) * 9);
+      },
     );
   }
 
@@ -1106,46 +1210,29 @@ class _MathraceScreenState extends State<MathraceScreen> {
       child: Column(
         children: keys.map((row) {
           return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 3),
+            padding: const EdgeInsets.symmetric(vertical: 2),
             child: Row(
               children: row.map((key) {
                 final isSubmit = key == '=';
                 final isAction = key == '⌫' || key == 'C' || key == '±';
-                final flex = isSubmit ? 2 : 1;
+                final flex = key == '0' || isSubmit ? 2 : 1;
 
                 return Expanded(
                   flex: flex,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 3),
-                    child: Material(
+                    child: ChunkyButton(
+                      label: isSubmit ? '제출' : key,
+                      height: 46,
+                      radius: 14,
+                      fontSize: isSubmit ? 18 : 22,
                       color: isSubmit
                           ? _accentColor
                           : isAction
-                              ? Colors.grey.shade200
-                              : Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      elevation: isSubmit ? 2 : 0,
-                      child: InkWell(
-                        onTap: () => _onKeyPressed(key),
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          height: 52,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            border: isSubmit ? null : Border.all(color: Colors.grey.shade300),
-                          ),
-                          child: Center(
-                            child: Text(
-                              isSubmit ? '제출' : key,
-                              style: TextStyle(
-                                fontSize: isSubmit ? 18 : 20,
-                                fontWeight: FontWeight.w700,
-                                color: isSubmit ? Colors.white : const Color(0xFF1A1A2E),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
+                          ? CandyColors.sun
+                          : Colors.white,
+                      textColor: isSubmit ? Colors.white : CandyColors.ink,
+                      onPressed: () => _onKeyPressed(key),
                     ),
                   ),
                 );
@@ -1175,10 +1262,10 @@ class _MathraceScreenState extends State<MathraceScreen> {
         markScheduledPop: () => _hasScheduledPop = true,
       );
       return GameRankedResultView(
-      backgroundGradient: theme.backgroundGradient,
-      accentColor: theme.primary,
-      isWinner: isWinner,
-      isDraw: _isDraw,
+        backgroundGradient: theme.backgroundGradient,
+        accentColor: theme.primary,
+        isWinner: isWinner,
+        isDraw: _isDraw,
       );
     }
 
@@ -1205,10 +1292,7 @@ class _MathraceScreenState extends State<MathraceScreen> {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            resultColor.withValues(alpha: 0.1),
-            Colors.white,
-          ],
+          colors: [resultColor.withValues(alpha: 0.18), CandyColors.cream],
         ),
       ),
       child: Center(
@@ -1245,11 +1329,14 @@ class _MathraceScreenState extends State<MathraceScreen> {
                 opponentLeft: _opponentLeft,
                 rematchWaiting: _rematchWaiting,
                 isInvitationGame: _isInvitationGame,
-                canSendFriendRequest: !_isInvitationGame &&
+                canSendFriendRequest:
+                    !_isInvitationGame &&
                     !_opponentLeft &&
                     _opponentUserId != null &&
                     !context.read<FriendProvider>().isFriend(_opponentUserId!),
-                onRematchPressed: _rematchWaiting ? _cancelRematch : _requestRematch,
+                onRematchPressed: _rematchWaiting
+                    ? _cancelRematch
+                    : _requestRematch,
                 onSearchAgainPressed: () {
                   _leaveGame();
                   _findMatch();
@@ -1261,7 +1348,9 @@ class _MathraceScreenState extends State<MathraceScreen> {
                 onFriendRequestPressed: _opponentUserId == null
                     ? null
                     : () {
-                        context.read<FriendProvider>().sendFriendRequestByUserId(_opponentUserId!);
+                        context
+                            .read<FriendProvider>()
+                            .sendFriendRequestByUserId(_opponentUserId!);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('$_opponentNickname님에게 친구 요청을 보냈습니다'),
@@ -1283,7 +1372,8 @@ class _MathraceScreenState extends State<MathraceScreen> {
       return;
     }
 
-    final isRankedWaiting = widget.isRanked &&
+    final isRankedWaiting =
+        widget.isRanked &&
         (_status == MathraceGameStatus.idle ||
             _status == MathraceGameStatus.searching ||
             _status == MathraceGameStatus.matched);
@@ -1307,5 +1397,253 @@ class _MathraceScreenState extends State<MathraceScreen> {
       message: '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
       onExit: _leaveGame,
     ).then((_) => _isExitDialogOpen = false);
+  }
+}
+
+/// 캔디 스타일 매칭 대기/성사 화면.
+class _CandyStatusView extends StatelessWidget {
+  final Color accentColor;
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final bool spinner;
+  final VoidCallback? onCancel;
+
+  const _CandyStatusView({
+    required this.accentColor,
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    this.spinner = false,
+    this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [accentColor.withValues(alpha: 0.16), CandyColors.cream],
+        ),
+      ),
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: PopIn(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    if (spinner)
+                      SizedBox(
+                        width: 112,
+                        height: 112,
+                        child: CircularProgressIndicator(
+                          color: accentColor,
+                          strokeWidth: 6,
+                        ),
+                      ),
+                    Container(
+                      width: 84,
+                      height: 84,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: CandyColors.ink, width: 3),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: CandyColors.ink,
+                            offset: Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Icon(icon, size: 42, color: accentColor),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 22),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                    color: accentColor,
+                  ),
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    subtitle!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: CandyColors.inkSoft,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+                if (onCancel != null) ...[
+                  const SizedBox(height: 36),
+                  SizedBox(
+                    width: 180,
+                    child: ChunkyButton(
+                      label: '취소',
+                      color: Colors.white,
+                      textColor: CandyColors.ink,
+                      height: 48,
+                      onPressed: onCancel,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 두 플레이어의 진행 상황을 보여주는 레이스 트랙(부드럽게 차오르는 바 + 아바타 마커).
+class _RaceLane extends StatelessWidget {
+  final String name;
+  final double value;
+  final String valueText;
+  final Color color;
+  final bool highlight;
+
+  const _RaceLane({
+    required this.name,
+    required this.value,
+    required this.valueText,
+    required this.color,
+    this.highlight = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final initial = name.isEmpty ? '?' : String.fromCharCode(name.runes.first);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                  color: highlight ? CandyColors.ink : CandyColors.inkSoft,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              valueText,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+                color: CandyColors.ink,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        SizedBox(
+          height: 30,
+          child: LayoutBuilder(
+            builder: (context, box) {
+              const m = 26.0;
+              final w = box.maxWidth;
+              return TweenAnimationBuilder<double>(
+                tween: Tween<double>(end: value.clamp(0.0, 1.0)),
+                duration: const Duration(milliseconds: 380),
+                curve: Curves.easeOutCubic,
+                builder: (context, v, _) {
+                  final fillW = ((w - m) * v + m / 2).clamp(0.0, w);
+                  return Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        top: 7,
+                        height: 16,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: CandyColors.ink,
+                              width: 2.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: 0,
+                        top: 7,
+                        height: 16,
+                        width: fillW,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: color,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: CandyColors.ink,
+                              width: 2.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: (w - m) * v,
+                        top: 2,
+                        child: Container(
+                          width: m,
+                          height: m,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: color,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: CandyColors.ink,
+                              width: 2.5,
+                            ),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: CandyColors.ink,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Text(
+                            initial,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.white,
+                              height: 1,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 }

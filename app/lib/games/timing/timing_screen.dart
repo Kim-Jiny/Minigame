@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
@@ -10,6 +11,10 @@ import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
+import '../../theme/candy_theme.dart';
+import '../../widgets/cartoon/cartoon_card.dart';
+import '../../widgets/cartoon/chunky_button.dart';
+import '../../widgets/cartoon/pop_in.dart';
 import '../common/game_rematch_preparing_view.dart';
 import '../common/game_intro_view.dart';
 import '../common/game_scaffold.dart';
@@ -23,19 +28,9 @@ import '../common/game_screen_transition.dart';
 import '../common/game_session_helper.dart';
 import '../common/game_waiting_view.dart';
 
-enum TimingGameStatus {
-  idle,
-  searching,
-  matched,
-  playing,
-  finished,
-}
+enum TimingGameStatus { idle, searching, matched, playing, finished }
 
-enum TimingRoundPhase {
-  idle,
-  playing,
-  result,
-}
+enum TimingRoundPhase { idle, playing, result }
 
 class TimingScreen extends StatefulWidget {
   final bool isRanked;
@@ -49,8 +44,9 @@ class TimingScreen extends StatefulWidget {
 class _TimingScreenState extends State<TimingScreen>
     with SingleTickerProviderStateMixin {
   final SocketService _socketService = SocketService();
-  late final SocketListenerRegistry _socketListeners =
-      SocketListenerRegistry(_socketService);
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(
+    _socketService,
+  );
   bool _hasScheduledPop = false;
   bool _isExitDialogOpen = false;
 
@@ -74,6 +70,7 @@ class _TimingScreenState extends State<TimingScreen>
   // ignore: unused_field
   int _currentSpeed = 2000; // 서버 게이지 속도(향후 사용 대비 보관)
   bool _hasStopped = false;
+  int _stopTick = 0;
   bool _opponentStopped = false;
   double? _stoppedPosition;
   TimingRoundPhase _roundPhase = TimingRoundPhase.idle;
@@ -97,8 +94,9 @@ class _TimingScreenState extends State<TimingScreen>
   late AnimationController _gaugeController;
 
   // 게임 고유색 대신 사용자 테마 컬러를 accent로 사용.
-  Color get _accentColor =>
-      GameTheme.fromProfileSettings(context.read<ShopProvider>().profileSettings).primary;
+  Color get _accentColor => GameTheme.fromProfileSettings(
+    context.read<ShopProvider>().profileSettings,
+  ).primary;
   static const _maxRounds = 5;
 
   @override
@@ -121,7 +119,8 @@ class _TimingScreenState extends State<TimingScreen>
   void _initFromGameProvider() {
     try {
       final game = context.read<GameProvider>();
-      final isActiveInvitation = game.isInvitationGame &&
+      final isActiveInvitation =
+          game.isInvitationGame &&
           game.roomId != null &&
           game.opponentNickname != null &&
           (game.status == GameStatus.matched ||
@@ -180,11 +179,11 @@ class _TimingScreenState extends State<TimingScreen>
         context: context,
         showFailureSnackBar: false,
         onEnterWaiting: () => setState(() {
-              _isReconnecting = true;
-              _isWaitingForReconnect = false;
-              _reconnectSecondsRemaining =
-                  GameReconnectHelper.reconnectGraceDuration.inSeconds;
-            }),
+          _isReconnecting = true;
+          _isWaitingForReconnect = false;
+          _reconnectSecondsRemaining =
+              GameReconnectHelper.reconnectGraceDuration.inSeconds;
+        }),
         onTick: (seconds) {
           if (!mounted) return;
           setState(() => _reconnectSecondsRemaining = seconds);
@@ -207,12 +206,15 @@ class _TimingScreenState extends State<TimingScreen>
 
     _socketListeners.on('match_found', (data) {
       final players = data['players'] as List;
-      final opponent = players
-          .cast<Map<String, dynamic>?>()
-          .firstWhere((p) => p!['id'] != _myId, orElse: () => null);
+      final opponent = players.cast<Map<String, dynamic>?>().firstWhere(
+        (p) => p!['id'] != _myId,
+        orElse: () => null,
+      );
       if (opponent == null) return;
-      final me =
-          players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
+      final me = players.firstWhere(
+        (p) => p['id'] == _myId,
+        orElse: () => null,
+      );
       final foundIndex = players.indexWhere((p) => p['id'] == _myId);
       if (foundIndex != -1) _myPlayerIndex = foundIndex;
 
@@ -224,12 +226,14 @@ class _TimingScreenState extends State<TimingScreen>
         _opponentUserId = opponent['userId'];
         _isInvitationGame = data['isInvitation'] == true;
         if (opponent['profileSettings'] != null) {
-          _opponentProfileSettings =
-              UserProfileSettings.fromJson(opponent['profileSettings']);
+          _opponentProfileSettings = UserProfileSettings.fromJson(
+            opponent['profileSettings'],
+          );
         }
         if (me != null && me['profileSettings'] != null) {
-          _myProfileSettings =
-              UserProfileSettings.fromJson(me['profileSettings']);
+          _myProfileSettings = UserProfileSettings.fromJson(
+            me['profileSettings'],
+          );
         }
       });
     });
@@ -292,11 +296,14 @@ class _TimingScreenState extends State<TimingScreen>
       if (!mounted) return;
       _gaugeController.stop();
       final positions = List<double>.from(
-          (data['positions'] as List).map((e) => (e as num).toDouble()));
+        (data['positions'] as List).map((e) => (e as num).toDouble()),
+      );
       final roundScores = List<int>.from(
-          (data['roundScores'] as List).map((e) => (e as num).toInt()));
+        (data['roundScores'] as List).map((e) => (e as num).toInt()),
+      );
       final totalScores = List<int>.from(
-          (data['totalScores'] as List).map((e) => (e as num).toInt()));
+        (data['totalScores'] as List).map((e) => (e as num).toInt()),
+      );
       setState(() {
         _totalScores = totalScores;
         _lastRoundScores = roundScores;
@@ -309,7 +316,8 @@ class _TimingScreenState extends State<TimingScreen>
       if (!mounted) return;
       final round = (data['round'] as num).toInt();
       final totalScores = List<int>.from(
-          (data['totalScores'] as List).map((e) => (e as num).toInt()));
+        (data['totalScores'] as List).map((e) => (e as num).toInt()),
+      );
       final speed = (data['speed'] as num).toInt();
       setState(() {
         _status = TimingGameStatus.playing;
@@ -330,8 +338,9 @@ class _TimingScreenState extends State<TimingScreen>
       _reconnectTimer?.cancel();
       _myId = _socketService.socket?.id;
       final totalScores = List<int>.from(
-          (data['totalScores'] as List?)?.map((e) => (e as num).toInt()) ??
-              [0, 0]);
+        (data['totalScores'] as List?)?.map((e) => (e as num).toInt()) ??
+            [0, 0],
+      );
       final round = (data['round'] as num?)?.toInt() ?? 0;
       final speed = (data['speed'] as num?)?.toInt() ?? 2000;
       final hasStopped = data['hasPlayerStopped'] as bool? ?? false;
@@ -344,8 +353,9 @@ class _TimingScreenState extends State<TimingScreen>
         _currentSpeed = speed;
         _hasStopped = hasStopped;
         _opponentStopped = false;
-        _roundPhase =
-            round > 0 ? TimingRoundPhase.playing : TimingRoundPhase.idle;
+        _roundPhase = round > 0
+            ? TimingRoundPhase.playing
+            : TimingRoundPhase.idle;
         _status = TimingGameStatus.playing;
         _isReconnecting = false;
         _isWaitingForReconnect = false;
@@ -401,7 +411,8 @@ class _TimingScreenState extends State<TimingScreen>
         _isWaitingForReconnect = false;
         if (data['totalScores'] != null) {
           _totalScores = List<int>.from(
-              (data['totalScores'] as List).map((e) => (e as num).toInt()));
+            (data['totalScores'] as List).map((e) => (e as num).toInt()),
+          );
         }
       });
       _waitingReconnectTimer?.cancel();
@@ -439,9 +450,9 @@ class _TimingScreenState extends State<TimingScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(widget.isRanked
-                ? '상대가 나가서 게임이 종료되었습니다. 승리!'
-                : '상대방이 나갔습니다.'),
+            content: Text(
+              widget.isRanked ? '상대가 나가서 게임이 종료되었습니다. 승리!' : '상대방이 나갔습니다.',
+            ),
             backgroundColor: Colors.orange,
           ),
         );
@@ -481,19 +492,30 @@ class _TimingScreenState extends State<TimingScreen>
   }
 
   void _onStopTap() {
-    if (_hasStopped || _roomId == null || _roundPhase != TimingRoundPhase.playing || !_gaugeController.isAnimating) return;
+    if (_hasStopped ||
+        _roomId == null ||
+        _roundPhase != TimingRoundPhase.playing ||
+        !_gaugeController.isAnimating) {
+      return;
+    }
     final position = _gaugeController.value;
+    final distance = (position - 0.5).abs();
+    if (distance < 0.05) {
+      HapticFeedback.heavyImpact();
+    } else if (distance < 0.20) {
+      HapticFeedback.mediumImpact();
+    } else {
+      HapticFeedback.lightImpact();
+    }
     setState(() {
       _hasStopped = true;
       _stoppedPosition = position;
+      _stopTick++;
     });
     _gaugeController.stop();
     _socketService.emit('game_action', {
       'roomId': _roomId,
-      'action': {
-        'type': 'stop',
-        'position': position,
-      },
+      'action': {'type': 'stop', 'position': position},
     });
   }
 
@@ -614,15 +636,18 @@ class _TimingScreenState extends State<TimingScreen>
 
   Widget _buildBody(GameTheme theme) {
     return switch (_status) {
-      TimingGameStatus.idle => widget.isRanked
-          ? _buildRankedWaitingView(theme)
-          : _buildIdleView(theme),
-      TimingGameStatus.searching => widget.isRanked
-          ? _buildRankedWaitingView(theme)
-          : _buildSearchingView(theme),
-      TimingGameStatus.matched => widget.isRanked
-          ? _buildRankedWaitingView(theme)
-          : _buildMatchedView(theme),
+      TimingGameStatus.idle =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildIdleView(theme),
+      TimingGameStatus.searching =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildSearchingView(theme),
+      TimingGameStatus.matched =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildMatchedView(theme),
       TimingGameStatus.playing => _buildPlayingView(theme),
       TimingGameStatus.finished => _buildFinishedView(theme),
     };
@@ -634,7 +659,8 @@ class _TimingScreenState extends State<TimingScreen>
       return;
     }
 
-    final isRankedWaiting = widget.isRanked &&
+    final isRankedWaiting =
+        widget.isRanked &&
         (_status == TimingGameStatus.idle ||
             _status == TimingGameStatus.searching ||
             _status == TimingGameStatus.matched);
@@ -672,27 +698,33 @@ class _TimingScreenState extends State<TimingScreen>
       backgroundColor: Colors.transparent,
       builder: (dialogContext) => Consumer<FriendProvider>(
         builder: (context, friendProvider, child) {
-          final onlineFriends =
-              friendProvider.friends.where((f) => f.isOnline).toList();
+          final onlineFriends = friendProvider.friends
+              .where((f) => f.isOnline)
+              .toList();
 
           return Container(
             constraints: BoxConstraints(
               maxHeight: MediaQuery.of(dialogContext).size.height * 0.6,
             ),
             decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              color: CandyColors.cream,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border(
+                top: BorderSide(color: CandyColors.ink, width: 3),
+                left: BorderSide(color: CandyColors.ink, width: 3),
+                right: BorderSide(color: CandyColors.ink, width: 3),
+              ),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
                   margin: const EdgeInsets.only(top: 12),
-                  width: 40,
-                  height: 4,
+                  width: 44,
+                  height: 6,
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
+                    color: CandyColors.ink,
+                    borderRadius: BorderRadius.circular(3),
                   ),
                 ),
                 Padding(
@@ -704,12 +736,14 @@ class _TimingScreenState extends State<TimingScreen>
                       const Text(
                         '친구 초대',
                         style: TextStyle(
-                            fontSize: 20, fontWeight: FontWeight.bold),
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ],
                   ),
                 ),
-                const Divider(height: 1),
+                const Divider(height: 3, thickness: 3, color: CandyColors.ink),
                 Flexible(
                   child: onlineFriends.isEmpty
                       ? Center(
@@ -718,13 +752,15 @@ class _TimingScreenState extends State<TimingScreen>
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.person_off,
-                                    size: 48, color: Colors.grey.shade400),
+                                Icon(
+                                  Icons.person_off,
+                                  size: 48,
+                                  color: Colors.grey.shade400,
+                                ),
                                 const SizedBox(height: 16),
                                 Text(
                                   '온라인 친구가 없습니다',
-                                  style:
-                                      TextStyle(color: Colors.grey.shade600),
+                                  style: TextStyle(color: Colors.grey.shade600),
                                 ),
                               ],
                             ),
@@ -739,13 +775,17 @@ class _TimingScreenState extends State<TimingScreen>
                               leading: Stack(
                                 children: [
                                   CircleAvatar(
-                                    backgroundColor:
-                                        theme.primary.withValues(alpha: 0.2),
+                                    backgroundColor: theme.primary.withValues(
+                                      alpha: 0.2,
+                                    ),
                                     child: Text(
                                       friend.nickname.isNotEmpty
                                           ? friend.nickname[0].toUpperCase()
                                           : '?',
-                                      style: TextStyle(color: theme.primary),
+                                      style: TextStyle(
+                                        color: theme.primary,
+                                        fontWeight: FontWeight.w900,
+                                      ),
                                     ),
                                   ),
                                   Positioned(
@@ -758,21 +798,29 @@ class _TimingScreenState extends State<TimingScreen>
                                         color: Colors.green,
                                         shape: BoxShape.circle,
                                         border: Border.all(
-                                            color: Colors.white, width: 2),
+                                          color: Colors.white,
+                                          width: 2,
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ],
                               ),
-                              title: Text(friend.nickname,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w600)),
-                              subtitle: friend.memo != null &&
-                                      friend.memo!.isNotEmpty
-                                  ? Text(friend.memo!,
+                              title: Text(
+                                friend.nickname,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              subtitle:
+                                  friend.memo != null && friend.memo!.isNotEmpty
+                                  ? Text(
+                                      friend.memo!,
                                       style: TextStyle(
-                                          color: Colors.grey.shade600,
-                                          fontSize: 12))
+                                        color: Colors.grey.shade600,
+                                        fontSize: 12,
+                                      ),
+                                    )
                                   : null,
                               trailing: ElevatedButton(
                                 onPressed: () {
@@ -782,12 +830,14 @@ class _TimingScreenState extends State<TimingScreen>
                                     isHardcore: false,
                                   );
                                   Navigator.pop(dialogContext);
-                                  ScaffoldMessenger.of(context)
-                                      .clearSnackBars();
+                                  ScaffoldMessenger.of(
+                                    context,
+                                  ).clearSnackBars();
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
                                       content: Text(
-                                          '${friend.nickname}님에게 초대를 보냈습니다!'),
+                                        '${friend.nickname}님에게 초대를 보냈습니다!',
+                                      ),
                                       backgroundColor: Colors.green,
                                     ),
                                   );
@@ -806,7 +856,8 @@ class _TimingScreenState extends State<TimingScreen>
                         ),
                 ),
                 SizedBox(
-                    height: MediaQuery.of(dialogContext).padding.bottom + 16),
+                  height: MediaQuery.of(dialogContext).padding.bottom + 16,
+                ),
               ],
             ),
           );
@@ -828,191 +879,137 @@ class _TimingScreenState extends State<TimingScreen>
   }
 
   Widget _buildSearchingView(GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            _accentColor.withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(
-              color: _accentColor,
-            ),
-            const SizedBox(height: 24),
-            Text(
-              '상대를 찾는 중...',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: _accentColor,
-              ),
-            ),
-            const SizedBox(height: 48),
-            OutlinedButton(
-              onPressed: _cancelMatch,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.grey,
-                side: BorderSide(color: Colors.grey.shade400),
-              ),
-              child: const Text('취소'),
-            ),
-          ],
-        ),
-      ),
+    return _CandyStatusView(
+      accentColor: _accentColor,
+      icon: Icons.search_rounded,
+      title: '상대를 찾는 중...',
+      spinner: true,
+      onCancel: _cancelMatch,
     );
   }
 
   Widget _buildMatchedView(GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            _accentColor.withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: _accentColor.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.sports_esports,
-                size: 64,
-                color: _accentColor,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '$_opponentNickname님과 매칭!',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: _accentColor,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '게임이 곧 시작됩니다...',
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
-          ],
-        ),
-      ),
+    return _CandyStatusView(
+      accentColor: _accentColor,
+      icon: Icons.sports_esports_rounded,
+      title: '${_opponentNickname ?? '상대'}님과 매칭!',
+      subtitle: '게임이 곧 시작됩니다...',
     );
   }
 
   Widget _buildPlayingView(GameTheme theme) {
-    return Column(
-      children: [
-        GameDuelHeader(
-          backgroundColors: [
-            _accentColor.withValues(alpha: 0.08),
-            const Color(0xFFF0F0FF),
-          ],
-          accentColor: _accentColor,
-          centerLabel: 'R$_currentRound',
-          centerSubtitle: '$_maxRounds 라운드',
-          myName: _myNickname ?? '나',
-          opponentName: _opponentNickname ?? '상대',
-          myAvatarUrl: _myAvatarUrl,
-          opponentAvatarUrl: _opponentAvatarUrl,
-          myActive: !_hasStopped,
-          opponentActive: !_opponentStopped,
-          myProfileSettings: _myProfileSettings,
-          opponentProfileSettings: _opponentProfileSettings,
-          myExtraWidget: GameHeaderScorePill(
-            score: _myScore,
-            color: _accentColor,
+    return Container(
+      color: CandyColors.cream,
+      child: Column(
+        children: [
+          GameDuelHeader(
+            backgroundColors: [
+              _accentColor.withValues(alpha: 0.12),
+              CandyColors.cream,
+            ],
+            accentColor: _accentColor,
+            centerLabel: 'R$_currentRound',
+            centerSubtitle: '$_maxRounds 라운드',
+            myName: _myNickname ?? '나',
+            opponentName: _opponentNickname ?? '상대',
+            myAvatarUrl: _myAvatarUrl,
+            opponentAvatarUrl: _opponentAvatarUrl,
+            myActive: !_hasStopped,
+            opponentActive: !_opponentStopped,
+            myProfileSettings: _myProfileSettings,
+            opponentProfileSettings: _opponentProfileSettings,
+            myExtraWidget: GameHeaderScorePill(
+              score: _myScore,
+              color: _accentColor,
+            ),
+            opponentExtraWidget: GameHeaderScorePill(
+              score: _opponentScore,
+              color: CandyColors.inkSoft,
+            ),
           ),
-          opponentExtraWidget: GameHeaderScorePill(
-            score: _opponentScore,
-            color: Colors.grey,
-          ),
-        ),
 
-        // 라운드 인디케이터
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(_maxRounds, (i) {
-              final roundNum = i + 1;
-              final isActive = roundNum == _currentRound;
-              final isDone = roundNum < _currentRound;
-              return Container(
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isDone
-                      ? _accentColor
-                      : isActive
-                          ? _accentColor.withValues(alpha: 0.3)
-                          : Colors.grey.shade200,
-                  border: isActive
-                      ? Border.all(color: _accentColor, width: 2)
-                      : null,
-                ),
-                child: Center(
-                  child: Text(
-                    '$roundNum',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: isDone || isActive
-                          ? (isDone ? Colors.white : _accentColor)
-                          : Colors.grey.shade500,
-                    ),
+          // 라운드 인디케이터
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(_maxRounds, (i) {
+                final roundNum = i + 1;
+                final isActive = roundNum == _currentRound;
+                final isDone = roundNum < _currentRound;
+                final dot = AnimatedContainer(
+                  duration: const Duration(milliseconds: 250),
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isDone
+                        ? CandyColors.mint
+                        : isActive
+                        ? CandyColors.sun
+                        : Colors.white,
+                    border: Border.all(color: CandyColors.ink, width: 2.5),
+                    boxShadow: [
+                      if (isActive || isDone)
+                        const BoxShadow(
+                          color: CandyColors.ink,
+                          offset: Offset(0, 3),
+                        ),
+                    ],
                   ),
-                ),
-              );
-            }),
+                  child: Center(
+                    child: isDone
+                        ? const Icon(
+                            Icons.check_rounded,
+                            size: 20,
+                            color: Colors.white,
+                          )
+                        : Text(
+                            '$roundNum',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
+                              color: isActive
+                                  ? CandyColors.ink
+                                  : CandyColors.inkSoft,
+                            ),
+                          ),
+                  ),
+                );
+                if (!isActive) return dot;
+                return TweenAnimationBuilder<double>(
+                  key: ValueKey('rd$_currentRound'),
+                  tween: Tween(begin: 0.6, end: 1),
+                  duration: const Duration(milliseconds: 500),
+                  curve: Curves.elasticOut,
+                  builder: (context, s, child) =>
+                      Transform.scale(scale: s, child: child),
+                  child: dot,
+                );
+              }),
+            ),
           ),
-        ),
 
-        Expanded(
-          child: _roundPhase == TimingRoundPhase.result
-              ? _buildRoundResultView()
-              : _buildGaugeView(),
-        ),
-      ],
+          Expanded(
+            child: _roundPhase == TimingRoundPhase.result
+                ? _buildRoundResultView()
+                : _buildGaugeView(),
+          ),
+        ],
+      ),
     );
   }
 
-  Color _getZoneColor(double position) {
-    final distance = (position - 0.5).abs();
-    if (distance < 0.05) return Colors.green;
-    if (distance < 0.12) return const Color(0xFF7CB342);
-    if (distance < 0.20) return Colors.amber;
-    if (distance < 0.30) return Colors.orange;
-    return Colors.red;
-  }
+  Color _getZoneColor(double position) => _zoneColorFor(position);
 
   String _getGrade(double position) {
     final distance = (position - 0.5).abs();
-    if (distance < 0.05) return 'Perfect!';
-    if (distance < 0.12) return 'Great!';
-    if (distance < 0.20) return 'Good';
+    if (distance < 0.05) return 'PERFECT!';
+    if (distance < 0.12) return 'GREAT!';
+    if (distance < 0.20) return 'GOOD';
     if (distance < 0.30) return 'OK';
-    return 'Miss';
+    return 'MISS';
   }
 
   int _getScore(double position) {
@@ -1024,134 +1021,213 @@ class _TimingScreenState extends State<TimingScreen>
     return 0;
   }
 
+  /// 등급 말풍선 — 통 튀며 등장.
+  Widget _gradePill(double position, {double fontSize = 28}) {
+    final color = _getZoneColor(position);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: CandyColors.ink, width: 3),
+        boxShadow: const [
+          BoxShadow(color: CandyColors.ink, offset: Offset(0, 4)),
+        ],
+      ),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          _getGrade(position),
+          style: TextStyle(
+            fontSize: fontSize,
+            fontWeight: FontWeight.w900,
+            color: Colors.white,
+            letterSpacing: 1,
+            shadows: const [
+              Shadow(color: CandyColors.ink, offset: Offset(0, 2)),
+              Shadow(color: CandyColors.ink, offset: Offset(1.5, 0)),
+              Shadow(color: CandyColors.ink, offset: Offset(-1.5, 0)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildGaugeView() {
+    final stopped = _hasStopped && _stoppedPosition != null;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTapDown: (_) => _onStopTap(),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          if (_hasStopped && _stoppedPosition != null) ...[
-            Text(
-              _getGrade(_stoppedPosition!),
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: _getZoneColor(_stoppedPosition!),
-              ),
-            ),
-            Text(
-              '+${_getScore(_stoppedPosition!)}점',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: _getZoneColor(_stoppedPosition!),
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
-
-          // 게이지 바
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: SizedBox(
-              height: 80,
-              child: (_hasStopped && _stoppedPosition != null)
-                  ? _buildStaticGauge(_stoppedPosition!)
-                  : AnimatedBuilder(
-                      animation: _gaugeController,
-                      builder: (context, child) {
-                        return _buildGaugeBar(_gaugeController.value);
-                      },
-                    ),
-            ),
-          ),
-
-          const SizedBox(height: 32),
-
-          if (_hasStopped) ...[
-            Text(
-              _opponentStopped
-                  ? '곧 결과가 공개됩니다...'
-                  : '상대를 기다리는 중...',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-              ),
-            ),
-            if (_opponentStopped)
-              Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text(
-                  '상대 완료!',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: _accentColor,
+      child: LayoutBuilder(
+        builder: (context, box) => SingleChildScrollView(
+          physics: const NeverScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: box.maxHeight),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // 등급 팝 영역(높이 고정으로 레이아웃 흔들림 방지)
+                SizedBox(
+                  height: 96,
+                  child: Center(
+                    child: stopped
+                        ? TweenAnimationBuilder<double>(
+                            key: ValueKey('grade$_stopTick'),
+                            tween: Tween(begin: 0.2, end: 1),
+                            duration: const Duration(milliseconds: 600),
+                            curve: Curves.elasticOut,
+                            builder: (context, s, child) =>
+                                Transform.scale(scale: s, child: child),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _gradePill(_stoppedPosition!),
+                                const SizedBox(height: 6),
+                                Text(
+                                  '+${_getScore(_stoppedPosition!)}점',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w900,
+                                    color: _getZoneColor(_stoppedPosition!),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        : Text(
+                            _roundPhase == TimingRoundPhase.playing
+                                ? '가운데에 맞춰 멈춰요!'
+                                : '라운드 준비 중...',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                              color: CandyColors.inkSoft,
+                            ),
+                          ),
                   ),
                 ),
-              ),
-          ] else ...[
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 20),
-              decoration: BoxDecoration(
-                color: _accentColor,
-                borderRadius: BorderRadius.circular(40),
-                boxShadow: [
-                  BoxShadow(
-                    color: _accentColor.withValues(alpha: 0.4),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
+
+                // 게이지 바
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: RepaintBoundary(
+                    child: SizedBox(
+                      height: 88,
+                      child: stopped
+                          ? _buildStaticGauge(_stoppedPosition!)
+                          : AnimatedBuilder(
+                              animation: _gaugeController,
+                              builder: (context, child) {
+                                return _buildGaugeBar(_gaugeController.value);
+                              },
+                            ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 28),
+
+                if (_hasStopped) ...[
+                  Text(
+                    _opponentStopped ? '곧 결과가 공개됩니다...' : '상대를 기다리는 중...',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: CandyColors.inkSoft,
+                    ),
+                  ),
+                  if (_opponentStopped) _opponentDonePill(),
+                ] else ...[
+                  if (_roundPhase == TimingRoundPhase.playing)
+                    IgnorePointer(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 52,
+                          vertical: 16,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _accentColor,
+                          borderRadius: BorderRadius.circular(40),
+                          border: Border.all(color: CandyColors.ink, width: 4),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: CandyColors.ink,
+                              offset: Offset(0, 7),
+                            ),
+                          ],
+                        ),
+                        child: const Text(
+                          'STOP!',
+                          style: TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                            letterSpacing: 4,
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (_opponentStopped) _opponentDonePill(),
+                  const SizedBox(height: 14),
+                  const Text(
+                    '화면을 터치해서 멈추세요!',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: CandyColors.inkSoft,
+                    ),
                   ),
                 ],
-              ),
-              child: const Text(
-                'STOP!',
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w900,
-                  color: Colors.white,
-                  letterSpacing: 4,
-                ),
-              ),
+              ],
             ),
-            if (_opponentStopped)
-              Padding(
-                padding: EdgeInsets.only(top: 16),
-                child: Text(
-                  '상대 완료!',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: _accentColor,
-                  ),
-                ),
-              ),
-            const SizedBox(height: 12),
-            Text(
-              '화면을 터치해서 멈추세요!',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade500,
-              ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _opponentDonePill() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: PopIn(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+          decoration: BoxDecoration(
+            color: CandyColors.mint,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: CandyColors.ink, width: 2.5),
+          ),
+          child: const Text(
+            '상대 완료!',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
+              color: Colors.white,
             ),
-          ],
-        ],
+          ),
+        ),
       ),
     );
   }
 
   Widget _buildGaugeBar(double value) {
     return CustomPaint(
-      painter: _GaugePainter(value: value, stoppedValue: null),
+      painter: _GaugePainter(value: value, stoppedValue: null, flash: 0),
       child: const SizedBox.expand(),
     );
   }
 
   Widget _buildStaticGauge(double value) {
-    return CustomPaint(
-      painter: _GaugePainter(value: value, stoppedValue: value),
-      child: const SizedBox.expand(),
+    return TweenAnimationBuilder<double>(
+      key: ValueKey('flash$_stopTick'),
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 560),
+      curve: Curves.easeOut,
+      builder: (context, t, _) => CustomPaint(
+        painter: _GaugePainter(value: value, stoppedValue: value, flash: t),
+        child: const SizedBox.expand(),
+      ),
     );
   }
 
@@ -1161,112 +1237,149 @@ class _TimingScreenState extends State<TimingScreen>
     final myRoundScore = _lastRoundScores[_myPlayerIndex];
     final opRoundScore = _lastRoundScores[1 - _myPlayerIndex];
 
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            'Round $_currentRound 결과',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: _accentColor,
-            ),
+    return LayoutBuilder(
+      builder: (context, box) => SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            minHeight: box.maxHeight > 48 ? box.maxHeight - 48 : 0.0,
           ),
-          const SizedBox(height: 24),
-
-          // 내 결과
-          _buildPlayerResult(
-            _myNickname ?? '나',
-            myPos,
-            myRoundScore,
-            _accentColor,
-          ),
-          const SizedBox(height: 16),
-          const Text('VS', style: TextStyle(fontSize: 16, color: Colors.grey)),
-          const SizedBox(height: 16),
-
-          // 상대 결과
-          _buildPlayerResult(
-            _opponentNickname ?? '상대',
-            opPos,
-            opRoundScore,
-            Colors.grey.shade600,
-          ),
-
-          const SizedBox(height: 24),
-          Row(
+          child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(
-                '총점  $_myScore',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: _accentColor,
+              PopIn(
+                child: Text(
+                  'Round $_currentRound 결과',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                    color: _accentColor,
+                  ),
                 ),
               ),
-              const Text('  :  ',
-                  style: TextStyle(fontSize: 18, color: Colors.grey)),
-              Text(
-                '$_opponentScore',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey.shade600,
+              const SizedBox(height: 20),
+
+              // 내 결과
+              PopIn(
+                delay: const Duration(milliseconds: 120),
+                child: _buildPlayerResult(
+                  _myNickname ?? '나',
+                  myPos,
+                  myRoundScore,
+                  _accentColor,
                 ),
               ),
+              const SizedBox(height: 12),
+              const Text(
+                'VS',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  color: CandyColors.inkSoft,
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // 상대 결과
+              PopIn(
+                delay: const Duration(milliseconds: 300),
+                child: _buildPlayerResult(
+                  _opponentNickname ?? '상대',
+                  opPos,
+                  opRoundScore,
+                  CandyColors.sky,
+                ),
+              ),
+
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    '총점  $_myScore',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: _accentColor,
+                    ),
+                  ),
+                  const Text(
+                    '  :  ',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: CandyColors.inkSoft,
+                    ),
+                  ),
+                  Text(
+                    '$_opponentScore',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: CandyColors.inkSoft,
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+              if (_currentRound < _maxRounds)
+                const Text(
+                  '다음 라운드 준비 중...',
+                  style: TextStyle(
+                    color: CandyColors.inkSoft,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
             ],
           ),
-
-          const SizedBox(height: 16),
-          if (_currentRound < _maxRounds)
-            Text(
-              '다음 라운드 준비 중...',
-              style: TextStyle(color: Colors.grey.shade500),
-            ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildPlayerResult(
-      String name, double position, int score, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
-      ),
+    String name,
+    double position,
+    int score,
+    Color color,
+  ) {
+    return CartoonCard(
+      radius: 20,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            name,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
+          Container(
+            width: 14,
+            height: 14,
+            decoration: BoxDecoration(
               color: color,
+              shape: BoxShape.circle,
+              border: Border.all(color: CandyColors.ink, width: 2),
             ),
           ),
-          const SizedBox(width: 16),
-          Text(
-            _getGrade(position),
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: _getZoneColor(position),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+                color: CandyColors.ink,
+              ),
             ),
           ),
           const SizedBox(width: 8),
+          _gradePill(position, fontSize: 15),
+          const SizedBox(width: 10),
           Text(
             '+$score',
-            style: TextStyle(
-              fontSize: 18,
+            style: const TextStyle(
+              fontSize: 20,
               fontWeight: FontWeight.w900,
-              color: color,
+              color: CandyColors.ink,
             ),
           ),
         ],
@@ -1292,11 +1405,18 @@ class _TimingScreenState extends State<TimingScreen>
         markScheduledPop: () => _hasScheduledPop = true,
       );
       return GameRankedResultView(
-      backgroundGradient: theme.backgroundGradient,
-      accentColor: theme.primary,
-      isWinner: isWinner,
-      isDraw: _isDraw,
-      extra: Text('$_myScore : $_opponentScore', style: const TextStyle(fontSize: 20, color: Colors.grey)),
+        backgroundGradient: theme.backgroundGradient,
+        accentColor: theme.primary,
+        isWinner: isWinner,
+        isDraw: _isDraw,
+        extra: Text(
+          '$_myScore : $_opponentScore',
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
+            color: CandyColors.inkSoft,
+          ),
+        ),
       );
     }
 
@@ -1323,10 +1443,7 @@ class _TimingScreenState extends State<TimingScreen>
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            resultColor.withValues(alpha: 0.1),
-            Colors.white,
-          ],
+          colors: [resultColor.withValues(alpha: 0.18), CandyColors.cream],
         ),
       ),
       child: Center(
@@ -1341,9 +1458,7 @@ class _TimingScreenState extends State<TimingScreen>
                 title: resultText,
                 subtitle: _isDraw
                     ? '동점! 집중력이 비슷하네요.'
-                    : (isWinner
-                        ? '정확한 타이밍으로 승리했어요!'
-                        : '다음엔 더 정확하게 멈춰봐요.'),
+                    : (isWinner ? '정확한 타이밍으로 승리했어요!' : '다음엔 더 정확하게 멈춰봐요.'),
               ),
               const SizedBox(height: 22),
               GameResultMatchupRow(
@@ -1365,14 +1480,14 @@ class _TimingScreenState extends State<TimingScreen>
                 opponentLeft: _opponentLeft,
                 rematchWaiting: _rematchWaiting,
                 isInvitationGame: _isInvitationGame,
-                canSendFriendRequest: !_isInvitationGame &&
+                canSendFriendRequest:
+                    !_isInvitationGame &&
                     !_opponentLeft &&
                     _opponentUserId != null &&
-                    !context
-                        .read<FriendProvider>()
-                        .isFriend(_opponentUserId!),
-                onRematchPressed:
-                    _rematchWaiting ? _cancelRematch : _requestRematch,
+                    !context.read<FriendProvider>().isFriend(_opponentUserId!),
+                onRematchPressed: _rematchWaiting
+                    ? _cancelRematch
+                    : _requestRematch,
                 onSearchAgainPressed: () {
                   _leaveGame();
                   _findMatch();
@@ -1389,8 +1504,7 @@ class _TimingScreenState extends State<TimingScreen>
                             .sendFriendRequestByUserId(_opponentUserId!);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text(
-                                '$_opponentNickname님에게 친구 요청을 보냈습니다'),
+                            content: Text('$_opponentNickname님에게 친구 요청을 보냈습니다'),
                             duration: const Duration(seconds: 2),
                           ),
                         );
@@ -1404,85 +1518,140 @@ class _TimingScreenState extends State<TimingScreen>
   }
 }
 
+const Color _kPerfectColor = CandyColors.mint;
+const Color _kGreatColor = Color(0xFF9BE15D);
+const Color _kGoodColor = CandyColors.sun;
+const Color _kOkColor = CandyColors.tangerine;
+const Color _kMissColor = Color(0xFFFF6F7D);
+
+Color _zoneColorFor(double position) {
+  final distance = (position - 0.5).abs();
+  if (distance < 0.05) return _kPerfectColor;
+  if (distance < 0.12) return _kGreatColor;
+  if (distance < 0.20) return _kGoodColor;
+  if (distance < 0.30) return _kOkColor;
+  return _kMissColor;
+}
+
 class _GaugePainter extends CustomPainter {
   final double value;
   final double? stoppedValue;
 
-  _GaugePainter({required this.value, this.stoppedValue});
+  /// 정지 직후 터지는 링 이펙트 진행도(0~1). 0이면 그리지 않는다.
+  final double flash;
+
+  _GaugePainter({required this.value, this.stoppedValue, this.flash = 0});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final barHeight = 40.0;
+    const barHeight = 44.0;
     final barY = (size.height - barHeight) / 2;
     final barRect = Rect.fromLTWH(0, barY, size.width, barHeight);
+    final rrect = RRect.fromRectAndRadius(barRect, const Radius.circular(16));
+    final ink = CandyColors.ink;
+
+    // 하드 섀도우
+    canvas.drawRRect(rrect.shift(const Offset(0, 5)), Paint()..color = ink);
 
     // 구간별 색상 배경
     final zones = <_Zone>[
-      _Zone(0.0, 0.20, Colors.red),
-      _Zone(0.20, 0.30, Colors.orange),
-      _Zone(0.30, 0.38, Colors.amber),
-      _Zone(0.38, 0.45, const Color(0xFF7CB342)),
-      _Zone(0.45, 0.55, Colors.green),
-      _Zone(0.55, 0.62, const Color(0xFF7CB342)),
-      _Zone(0.62, 0.70, Colors.amber),
-      _Zone(0.70, 0.80, Colors.orange),
-      _Zone(0.80, 1.0, Colors.red),
+      const _Zone(0.0, 0.20, _kMissColor),
+      const _Zone(0.20, 0.30, _kOkColor),
+      const _Zone(0.30, 0.38, _kGoodColor),
+      const _Zone(0.38, 0.45, _kGreatColor),
+      const _Zone(0.45, 0.55, _kPerfectColor),
+      const _Zone(0.55, 0.62, _kGreatColor),
+      const _Zone(0.62, 0.70, _kGoodColor),
+      const _Zone(0.70, 0.80, _kOkColor),
+      const _Zone(0.80, 1.0, _kMissColor),
     ];
 
-    // 배경 (라운드 rect)
-    final bgRRect =
-        RRect.fromRectAndRadius(barRect, const Radius.circular(8));
-    canvas.clipRRect(bgRRect);
-
+    canvas.save();
+    canvas.clipRRect(rrect);
     for (final zone in zones) {
       final left = size.width * zone.start;
       final right = size.width * zone.end;
-      final paint = Paint()..color = zone.color.withValues(alpha: 0.25);
-      canvas.drawRect(Rect.fromLTWH(left, barY, right - left, barHeight), paint);
+      canvas.drawRect(
+        Rect.fromLTWH(left, barY, right - left, barHeight),
+        Paint()..color = zone.color,
+      );
+      if (zone.start > 0) {
+        canvas.drawLine(
+          Offset(left, barY),
+          Offset(left, barY + barHeight),
+          Paint()
+            ..color = ink.withValues(alpha: 0.25)
+            ..strokeWidth = 2,
+        );
+      }
     }
-
+    // 광택
+    canvas.drawRect(
+      Rect.fromLTWH(0, barY + 4, size.width, 5),
+      Paint()..color = Colors.white.withValues(alpha: 0.28),
+    );
     // 중심선
-    final centerPaint = Paint()
-      ..color = Colors.green
-      ..strokeWidth = 2;
     canvas.drawLine(
       Offset(size.width * 0.5, barY),
       Offset(size.width * 0.5, barY + barHeight),
-      centerPaint,
+      Paint()
+        ..color = Colors.white
+        ..strokeWidth = 3,
+    );
+    canvas.restore();
+
+    // 아웃라인
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..color = ink
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.5,
     );
 
+    // 중심 표시 삼각형(위)
+    final tri = Path()
+      ..moveTo(size.width * 0.5 - 7, barY - 10)
+      ..lineTo(size.width * 0.5 + 7, barY - 10)
+      ..lineTo(size.width * 0.5, barY - 1)
+      ..close();
+    canvas.drawPath(tri, Paint()..color = ink);
+
     // 마커
-    final markerX = size.width * value;
-    final markerPaint = Paint()
-      ..color = stoppedValue != null
-          ? _getColorForPosition(value)
-          : const Color(0xFFFF6B9D)
-      ..style = PaintingStyle.fill;
-    final markerShadow = Paint()
-      ..color = Colors.black.withValues(alpha: 0.2)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
+    final markerX = size.width * value.clamp(0.0, 1.0);
+    final markerCenter = Offset(markerX, barY + barHeight / 2);
+    final markerColor = stoppedValue != null
+        ? _zoneColorFor(value)
+        : CandyColors.pink;
 
-    canvas.drawCircle(Offset(markerX, barY + barHeight / 2), 14, markerShadow);
-    canvas.drawCircle(Offset(markerX, barY + barHeight / 2), 12, markerPaint);
+    canvas.drawCircle(markerCenter.translate(0, 3), 17, Paint()..color = ink);
+    canvas.drawCircle(markerCenter, 17, Paint()..color = ink);
+    canvas.drawCircle(markerCenter, 13.5, Paint()..color = markerColor);
+    canvas.drawCircle(markerCenter, 5, Paint()..color = Colors.white);
 
-    final innerPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(Offset(markerX, barY + barHeight / 2), 5, innerPaint);
-  }
-
-  Color _getColorForPosition(double pos) {
-    final dist = (pos - 0.5).abs();
-    if (dist < 0.05) return Colors.green;
-    if (dist < 0.12) return const Color(0xFF7CB342);
-    if (dist < 0.20) return Colors.amber;
-    if (dist < 0.30) return Colors.orange;
-    return Colors.red;
+    // 정지 직후 링 플래시
+    if (stoppedValue != null && flash > 0 && flash < 1) {
+      final ringColor = _zoneColorFor(value);
+      canvas.drawCircle(
+        markerCenter,
+        17 + 46 * flash,
+        Paint()
+          ..color = ringColor.withValues(alpha: (1 - flash) * 0.9)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 6 * (1 - flash) + 1,
+      );
+      canvas.drawRRect(
+        rrect,
+        Paint()..color = Colors.white.withValues(alpha: (1 - flash) * 0.45),
+      );
+    }
   }
 
   @override
   bool shouldRepaint(covariant _GaugePainter oldDelegate) =>
-      oldDelegate.value != value || oldDelegate.stoppedValue != stoppedValue;
+      oldDelegate.value != value ||
+      oldDelegate.stoppedValue != stoppedValue ||
+      oldDelegate.flash != flash;
 }
 
 class _Zone {
@@ -1490,4 +1659,112 @@ class _Zone {
   final double end;
   final Color color;
   const _Zone(this.start, this.end, this.color);
+}
+
+/// 캔디 스타일 매칭 대기/성사 화면.
+class _CandyStatusView extends StatelessWidget {
+  final Color accentColor;
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final bool spinner;
+  final VoidCallback? onCancel;
+
+  const _CandyStatusView({
+    required this.accentColor,
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    this.spinner = false,
+    this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [accentColor.withValues(alpha: 0.16), CandyColors.cream],
+        ),
+      ),
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: PopIn(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    if (spinner)
+                      SizedBox(
+                        width: 112,
+                        height: 112,
+                        child: CircularProgressIndicator(
+                          color: accentColor,
+                          strokeWidth: 6,
+                        ),
+                      ),
+                    Container(
+                      width: 84,
+                      height: 84,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: CandyColors.ink, width: 3),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: CandyColors.ink,
+                            offset: Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Icon(icon, size: 42, color: accentColor),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 22),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                    color: accentColor,
+                  ),
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    subtitle!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: CandyColors.inkSoft,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+                if (onCancel != null) ...[
+                  const SizedBox(height: 36),
+                  SizedBox(
+                    width: 180,
+                    child: ChunkyButton(
+                      label: '취소',
+                      color: Colors.white,
+                      textColor: CandyColors.ink,
+                      height: 48,
+                      onPressed: onCancel,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

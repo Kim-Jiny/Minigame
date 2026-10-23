@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
@@ -10,6 +12,10 @@ import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
+import '../../theme/candy_theme.dart';
+import '../../widgets/cartoon/cartoon_card.dart';
+import '../../widgets/cartoon/chunky_button.dart';
+import '../../widgets/cartoon/pop_in.dart';
 import '../common/game_rematch_preparing_view.dart';
 import '../common/game_intro_view.dart';
 import '../common/game_scaffold.dart';
@@ -23,13 +29,7 @@ import '../common/game_screen_transition.dart';
 import '../common/game_session_helper.dart';
 import '../common/game_waiting_view.dart';
 
-enum CardFlipGameStatus {
-  idle,
-  searching,
-  matched,
-  playing,
-  finished,
-}
+enum CardFlipGameStatus { idle, searching, matched, playing, finished }
 
 class CardFlipScreen extends StatefulWidget {
   final bool isRanked;
@@ -42,7 +42,9 @@ class CardFlipScreen extends StatefulWidget {
 
 class _CardFlipScreenState extends State<CardFlipScreen> {
   final SocketService _socketService = SocketService();
-  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(
+    _socketService,
+  );
   bool _hasScheduledPop = false;
   bool _isExitDialogOpen = false;
 
@@ -77,7 +79,8 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
   bool _isWaitingForReconnect = false;
   Timer? _reconnectTimer;
   Timer? _waitingReconnectTimer;
-  int _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+  int _reconnectSecondsRemaining =
+      GameReconnectHelper.reconnectGraceDuration.inSeconds;
 
   // 타이머
   Timer? _countdownTimer;
@@ -102,10 +105,12 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
   void _initFromGameProvider() {
     try {
       final game = context.read<GameProvider>();
-      final isActiveInvitation = game.isInvitationGame &&
+      final isActiveInvitation =
+          game.isInvitationGame &&
           game.roomId != null &&
           game.opponentNickname != null &&
-          (game.status == GameStatus.matched || game.status == GameStatus.playing);
+          (game.status == GameStatus.matched ||
+              game.status == GameStatus.playing);
       if (isActiveInvitation) {
         setState(() {
           _roomId = game.roomId;
@@ -143,7 +148,10 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
     _countdownTimer?.cancel();
     _remainingSeconds = seconds;
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) { timer.cancel(); return; }
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       if (_remainingSeconds > 0) {
         setState(() => _remainingSeconds--);
       } else {
@@ -179,7 +187,8 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
         onEnterWaiting: () => setState(() {
           _isReconnecting = true;
           _isWaitingForReconnect = false;
-          _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+          _reconnectSecondsRemaining =
+              GameReconnectHelper.reconnectGraceDuration.inSeconds;
         }),
         onTick: (seconds) {
           if (!mounted) return;
@@ -206,10 +215,17 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
 
     _socketListeners.on('match_found', (data) {
       final players = data['players'] as List;
-      final opponent = players.cast<Map<String, dynamic>?>().firstWhere((p) => p!['id'] != _myId, orElse: () => null);
+      final opponent = players.cast<Map<String, dynamic>?>().firstWhere(
+        (p) => p!['id'] != _myId,
+        orElse: () => null,
+      );
       if (opponent == null) return;
-      final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
-      _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
+      final me = players.firstWhere(
+        (p) => p['id'] == _myId,
+        orElse: () => null,
+      );
+      final foundIndex = players.indexWhere((p) => p['id'] == _myId);
+      if (foundIndex != -1) _myPlayerIndex = foundIndex;
 
       setState(() {
         _status = CardFlipGameStatus.matched;
@@ -219,10 +235,14 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
         _opponentUserId = opponent['userId'];
         _isInvitationGame = data['isInvitation'] == true;
         if (opponent['profileSettings'] != null) {
-          _opponentProfileSettings = UserProfileSettings.fromJson(opponent['profileSettings']);
+          _opponentProfileSettings = UserProfileSettings.fromJson(
+            opponent['profileSettings'],
+          );
         }
         if (me != null && me['profileSettings'] != null) {
-          _myProfileSettings = UserProfileSettings.fromJson(me['profileSettings']);
+          _myProfileSettings = UserProfileSettings.fromJson(
+            me['profileSettings'],
+          );
         }
       });
     });
@@ -393,7 +413,8 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
 
       setState(() {
         _roomId = data['roomId'] as String?;
-        _myPlayerIndex = (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
+        _myPlayerIndex =
+            (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
         _scores = scores;
         _currentTurn = currentTurn;
 
@@ -440,7 +461,8 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
       if (!_isGameActive) return;
       _stopCountdown();
       setState(() {
-        _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+        _reconnectSecondsRemaining =
+            GameReconnectHelper.reconnectGraceDuration.inSeconds;
         _isWaitingForReconnect = true;
         _isReconnecting = false;
       });
@@ -501,9 +523,9 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(widget.isRanked
-              ? '상대가 나가서 게임이 종료되었습니다. 승리!'
-              : '상대방이 나갔습니다.'),
+            content: Text(
+              widget.isRanked ? '상대가 나가서 게임이 종료되었습니다. 승리!' : '상대방이 나갔습니다.',
+            ),
             backgroundColor: Colors.orange,
           ),
         );
@@ -669,9 +691,18 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
 
   Widget _buildBody(GameTheme theme) {
     return switch (_status) {
-      CardFlipGameStatus.idle => widget.isRanked ? _buildRankedWaitingView(theme) : _buildIdleView(theme),
-      CardFlipGameStatus.searching => widget.isRanked ? _buildRankedWaitingView(theme) : _buildSearchingView(theme),
-      CardFlipGameStatus.matched => widget.isRanked ? _buildRankedWaitingView(theme) : _buildMatchedView(theme),
+      CardFlipGameStatus.idle =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildIdleView(theme),
+      CardFlipGameStatus.searching =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildSearchingView(theme),
+      CardFlipGameStatus.matched =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildMatchedView(theme),
       CardFlipGameStatus.playing => _buildPlayingView(theme),
       CardFlipGameStatus.finished => _buildFinishedView(theme),
     };
@@ -689,26 +720,33 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
       backgroundColor: Colors.transparent,
       builder: (dialogContext) => Consumer<FriendProvider>(
         builder: (context, friendProvider, child) {
-          final onlineFriends = friendProvider.friends.where((f) => f.isOnline).toList();
+          final onlineFriends = friendProvider.friends
+              .where((f) => f.isOnline)
+              .toList();
 
           return Container(
             constraints: BoxConstraints(
               maxHeight: MediaQuery.of(dialogContext).size.height * 0.6,
             ),
             decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              color: CandyColors.cream,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border(
+                top: BorderSide(color: CandyColors.ink, width: 3),
+                left: BorderSide(color: CandyColors.ink, width: 3),
+                right: BorderSide(color: CandyColors.ink, width: 3),
+              ),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
                   margin: const EdgeInsets.only(top: 12),
-                  width: 40,
-                  height: 4,
+                  width: 44,
+                  height: 6,
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
+                    color: CandyColors.ink,
+                    borderRadius: BorderRadius.circular(3),
                   ),
                 ),
                 Padding(
@@ -719,12 +757,16 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
                       const SizedBox(width: 12),
                       const Text(
                         '친구 초대',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          color: CandyColors.ink,
+                        ),
                       ),
                     ],
                   ),
                 ),
-                const Divider(height: 1),
+                const Divider(height: 3, thickness: 3, color: CandyColors.ink),
                 Flexible(
                   child: onlineFriends.isEmpty
                       ? Center(
@@ -733,11 +775,18 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.person_off, size: 48, color: Colors.grey.shade400),
+                                const Icon(
+                                  Icons.person_off,
+                                  size: 48,
+                                  color: CandyColors.inkSoft,
+                                ),
                                 const SizedBox(height: 16),
                                 Text(
                                   '온라인 친구가 없습니다',
-                                  style: TextStyle(color: Colors.grey.shade600),
+                                  style: TextStyle(
+                                    color: CandyColors.inkSoft,
+                                    fontWeight: FontWeight.w800,
+                                  ),
                                 ),
                               ],
                             ),
@@ -752,10 +801,17 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
                               leading: Stack(
                                 children: [
                                   CircleAvatar(
-                                    backgroundColor: theme.primary.withValues(alpha: 0.2),
+                                    backgroundColor: theme.primary.withValues(
+                                      alpha: 0.2,
+                                    ),
                                     child: Text(
-                                      friend.nickname.isNotEmpty ? friend.nickname[0].toUpperCase() : '?',
-                                      style: TextStyle(color: theme.primary),
+                                      friend.nickname.isNotEmpty
+                                          ? friend.nickname[0].toUpperCase()
+                                          : '?',
+                                      style: TextStyle(
+                                        color: theme.primary,
+                                        fontWeight: FontWeight.w900,
+                                      ),
                                     ),
                                   ),
                                   Positioned(
@@ -765,17 +821,32 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
                                       width: 12,
                                       height: 12,
                                       decoration: BoxDecoration(
-                                        color: Colors.green,
+                                        color: CandyColors.mint,
                                         shape: BoxShape.circle,
-                                        border: Border.all(color: Colors.white, width: 2),
+                                        border: Border.all(
+                                          color: CandyColors.ink,
+                                          width: 2,
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ],
                               ),
-                              title: Text(friend.nickname, style: const TextStyle(fontWeight: FontWeight.w600)),
-                              subtitle: friend.memo != null && friend.memo!.isNotEmpty
-                                  ? Text(friend.memo!, style: TextStyle(color: Colors.grey.shade600, fontSize: 12))
+                              title: Text(
+                                friend.nickname,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              subtitle:
+                                  friend.memo != null && friend.memo!.isNotEmpty
+                                  ? Text(
+                                      friend.memo!,
+                                      style: TextStyle(
+                                        color: Colors.grey.shade600,
+                                        fontSize: 12,
+                                      ),
+                                    )
                                   : null,
                               trailing: ElevatedButton(
                                 onPressed: () {
@@ -785,10 +856,14 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
                                     isHardcore: false,
                                   );
                                   Navigator.pop(dialogContext);
-                                  ScaffoldMessenger.of(context).clearSnackBars();
+                                  ScaffoldMessenger.of(
+                                    context,
+                                  ).clearSnackBars();
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                      content: Text('${friend.nickname}님에게 초대를 보냈습니다!'),
+                                      content: Text(
+                                        '${friend.nickname}님에게 초대를 보냈습니다!',
+                                      ),
                                       backgroundColor: Colors.green,
                                     ),
                                   );
@@ -806,7 +881,9 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
                           },
                         ),
                 ),
-                SizedBox(height: MediaQuery.of(dialogContext).padding.bottom + 16),
+                SizedBox(
+                  height: MediaQuery.of(dialogContext).padding.bottom + 16,
+                ),
               ],
             ),
           );
@@ -828,95 +905,21 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
   }
 
   Widget _buildSearchingView(GameTheme theme) {
-    final accentColor = theme.primary;
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            accentColor.withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(
-              color: accentColor,
-            ),
-            const SizedBox(height: 24),
-            Text(
-              '상대를 찾는 중...',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: accentColor,
-              ),
-            ),
-            const SizedBox(height: 48),
-            OutlinedButton(
-              onPressed: _cancelMatch,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.grey,
-                side: BorderSide(color: Colors.grey.shade400),
-              ),
-              child: const Text('취소'),
-            ),
-          ],
-        ),
-      ),
+    return _CandyStatusView(
+      accentColor: theme.primary,
+      icon: Icons.search_rounded,
+      title: '상대를 찾는 중...',
+      spinner: true,
+      onCancel: _cancelMatch,
     );
   }
 
   Widget _buildMatchedView(GameTheme theme) {
-    final accentColor = theme.primary;
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            accentColor.withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: accentColor.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.sports_esports,
-                size: 64,
-                color: accentColor,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '$_opponentNickname님과 매칭!',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: accentColor,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '게임이 곧 시작됩니다...',
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
-          ],
-        ),
-      ),
+    return _CandyStatusView(
+      accentColor: theme.primary,
+      icon: Icons.sports_esports_rounded,
+      title: '${_opponentNickname ?? '상대'}님과 매칭!',
+      subtitle: '게임이 곧 시작됩니다...',
     );
   }
 
@@ -925,176 +928,158 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
     final myScore = _scores[_myPlayerIndex];
     final opponentScore = _scores[1 - _myPlayerIndex];
 
-    return Column(
-      children: [
-        GameDuelHeader(
-          backgroundColors: [accentColor.withValues(alpha: 0.08), const Color(0xFFF5F3FF)],
-          accentColor: accentColor,
-          centerLabel: '$_remainingSeconds',
-          centerSubtitle: _isMyTurn ? '내 턴' : '상대 턴',
-          myName: _myNickname ?? '나',
-          opponentName: _opponentNickname ?? '상대',
-          myAvatarUrl: _myAvatarUrl,
-          opponentAvatarUrl: _opponentAvatarUrl,
-          myActive: _isMyTurn,
-          opponentActive: !_isMyTurn,
-          myProfileSettings: _myProfileSettings,
-          opponentProfileSettings: _opponentProfileSettings,
-          myExtraWidget: GameHeaderScorePill(
-            score: myScore,
-            color: accentColor,
-          ),
-          opponentExtraWidget: GameHeaderScorePill(
-            score: opponentScore,
-            color: Colors.grey,
-          ),
-        ),
-
-        // 턴 표시 바
-        Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(
-            color: _isMyTurn
-                ? accentColor.withValues(alpha: 0.1)
-                : Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: _isMyTurn
-                  ? accentColor.withValues(alpha: 0.3)
-                  : Colors.grey.shade300,
+    return Container(
+      color: CandyColors.cream,
+      child: Column(
+        children: [
+          GameDuelHeader(
+            backgroundColors: [
+              accentColor.withValues(alpha: 0.12),
+              CandyColors.cream,
+            ],
+            accentColor: accentColor,
+            centerLabel: '$_remainingSeconds',
+            centerSubtitle: _isMyTurn ? '내 턴' : '상대 턴',
+            myName: _myNickname ?? '나',
+            opponentName: _opponentNickname ?? '상대',
+            myAvatarUrl: _myAvatarUrl,
+            opponentAvatarUrl: _opponentAvatarUrl,
+            myActive: _isMyTurn,
+            opponentActive: !_isMyTurn,
+            myProfileSettings: _myProfileSettings,
+            opponentProfileSettings: _opponentProfileSettings,
+            myExtraWidget: GameHeaderScorePill(
+              score: myScore,
+              color: accentColor,
+            ),
+            opponentExtraWidget: GameHeaderScorePill(
+              score: opponentScore,
+              color: CandyColors.inkSoft,
             ),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                _isMyTurn ? Icons.touch_app : Icons.hourglass_top,
-                size: 18,
-                color: _isMyTurn ? accentColor : Colors.grey.shade600,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                _isMyTurn ? '카드 2장을 선택하세요!' : '상대가 카드를 고르는 중...',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: _isMyTurn ? accentColor : Colors.grey.shade600,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                '${myScore + opponentScore}/$_totalPairs',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade500,
-                ),
-              ),
-            ],
-          ),
-        ),
 
-        // 4x5 카드 그리드
-        Expanded(
-          child: _buildCardGrid(accentColor),
-        ),
-      ],
+          // 턴 표시 바 (턴이 바뀔 때마다 통통)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+            child: TweenAnimationBuilder<double>(
+              key: ValueKey(_isMyTurn),
+              tween: Tween(begin: 0.85, end: 1),
+              duration: const Duration(milliseconds: 520),
+              curve: Curves.elasticOut,
+              builder: (context, s, child) =>
+                  Transform.scale(scale: s, child: child),
+              child: CartoonCard(
+                color: _isMyTurn ? accentColor : Colors.white,
+                radius: 16,
+                shadow: 4,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 9,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _isMyTurn
+                          ? Icons.touch_app_rounded
+                          : Icons.hourglass_top_rounded,
+                      size: 20,
+                      color: _isMyTurn ? Colors.white : CandyColors.inkSoft,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _isMyTurn ? '카드 2장을 선택하세요!' : '상대가 카드를 고르는 중...',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                          color: _isMyTurn ? Colors.white : CandyColors.ink,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: CandyColors.ink, width: 2),
+                      ),
+                      child: Text(
+                        '${myScore + opponentScore}/$_totalPairs',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                          color: CandyColors.ink,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // 4x5 카드 그리드
+          Expanded(child: _buildCardGrid(accentColor)),
+        ],
+      ),
     );
   }
 
   Widget _buildCardGrid(Color accentColor) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final availableWidth = constraints.maxWidth - 32; // padding
-        final availableHeight = constraints.maxHeight - 16;
-        final cellWidth = (availableWidth - 3 * 6) / 5; // 5 cols, 4 gaps
-        final cellHeight = (availableHeight - 3 * 6) / 4; // 4 rows, 3 gaps
-        final cellSize = cellWidth < cellHeight ? cellWidth : cellHeight;
+        const gap = 8.0;
+        const pad = 14.0;
+        final availableWidth = constraints.maxWidth - pad * 2;
+        final availableHeight = constraints.maxHeight - pad * 2 - 4;
+        final cellWidth = (availableWidth - 4 * gap) / 5; // 5 cols, 4 gaps
+        final cellHeight = (availableHeight - 3 * gap) / 4; // 4 rows, 3 gaps
+        final cellSize = math.max(20.0, math.min(cellWidth, cellHeight));
 
         return Center(
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(pad),
             child: SizedBox(
-              width: cellSize * 5 + 4 * 6,
-              height: cellSize * 4 + 3 * 6,
+              width: cellSize * 5 + 4 * gap,
+              height: cellSize * 4 + 3 * gap,
               child: GridView.builder(
                 physics: const NeverScrollableScrollPhysics(),
+                padding: EdgeInsets.zero,
+                clipBehavior: Clip.none,
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 5,
-                  crossAxisSpacing: 6,
-                  mainAxisSpacing: 6,
+                  crossAxisSpacing: gap,
+                  mainAxisSpacing: gap,
                 ),
                 itemCount: 20,
                 itemBuilder: (context, index) {
                   final isMatched = _matchedPositions.contains(index);
                   final isRevealed = _revealedCards.containsKey(index);
                   final symbol = _revealedCards[index];
-                  final canTap = _isMyTurn && !isMatched && !isRevealed && !_isProcessingFlip;
+                  final canTap =
+                      _isMyTurn &&
+                      !isMatched &&
+                      !isRevealed &&
+                      !_isProcessingFlip;
 
-                  return GestureDetector(
-                    onTap: canTap ? () => _flipCard(index) : null,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      decoration: BoxDecoration(
-                        color: isMatched
-                            ? accentColor.withValues(alpha: 0.12)
-                            : isRevealed
-                                ? Colors.white
-                                : canTap
-                                    ? accentColor.withValues(alpha: 0.06)
-                                    : const Color(0xFFF3F4F6),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isMatched
-                              ? accentColor.withValues(alpha: 0.3)
-                              : isRevealed
-                                  ? accentColor
-                                  : canTap
-                                      ? accentColor.withValues(alpha: 0.3)
-                                      : Colors.grey.shade300,
-                          width: isRevealed ? 2 : 1,
-                        ),
-                        boxShadow: isRevealed && !isMatched
-                            ? [
-                                BoxShadow(
-                                  color: accentColor.withValues(alpha: 0.2),
-                                  blurRadius: 6,
-                                  spreadRadius: 1,
-                                ),
-                              ]
-                            : null,
-                      ),
-                      child: Center(
-                        child: isMatched
-                            ? Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    symbol ?? '',
-                                    style: TextStyle(fontSize: cellSize * 0.3),
-                                  ),
-                                  Icon(
-                                    Icons.check_circle,
-                                    size: 14,
-                                    color: accentColor.withValues(alpha: 0.5),
-                                  ),
-                                ],
-                              )
-                            : isRevealed
-                                ? Text(
-                                    symbol ?? '',
-                                    style: TextStyle(fontSize: cellSize * 0.4),
-                                  )
-                                : Icon(
-                                    Icons.question_mark_rounded,
-                                    size: cellSize * 0.3,
-                                    color: canTap
-                                        ? accentColor.withValues(alpha: 0.5)
-                                        : Colors.grey.shade400,
-                                  ),
-                      ),
-                    ),
+                  return _CardTile(
+                    symbol: symbol,
+                    revealed: isRevealed,
+                    matched: isMatched,
+                    canTap: canTap,
+                    myTurn: _isMyTurn,
+                    accent: accentColor,
+                    size: cellSize,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      _flipCard(index);
+                    },
                   );
                 },
               ),
@@ -1124,10 +1109,10 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
         markScheduledPop: () => _hasScheduledPop = true,
       );
       return GameRankedResultView(
-      backgroundGradient: theme.backgroundGradient,
-      accentColor: theme.primary,
-      isWinner: isWinner,
-      isDraw: _isDraw,
+        backgroundGradient: theme.backgroundGradient,
+        accentColor: theme.primary,
+        isWinner: isWinner,
+        isDraw: _isDraw,
       );
     }
 
@@ -1154,10 +1139,7 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            resultColor.withValues(alpha: 0.1),
-            Colors.white,
-          ],
+          colors: [resultColor.withValues(alpha: 0.18), CandyColors.cream],
         ),
       ),
       child: Center(
@@ -1172,7 +1154,9 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
                 title: resultText,
                 subtitle: _isDraw
                     ? '서로 같은 수의 쌍을 찾아 무승부입니다.'
-                    : (isWinner ? '더 많은 짝을 찾아 승리했어요!' : '다음엔 카드 위치를 더 잘 기억해봐요.'),
+                    : (isWinner
+                          ? '더 많은 짝을 찾아 승리했어요!'
+                          : '다음엔 카드 위치를 더 잘 기억해봐요.'),
               ),
               const SizedBox(height: 22),
               GameResultMatchupRow(
@@ -1194,11 +1178,14 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
                 opponentLeft: _opponentLeft,
                 rematchWaiting: _rematchWaiting,
                 isInvitationGame: _isInvitationGame,
-                canSendFriendRequest: !_isInvitationGame &&
+                canSendFriendRequest:
+                    !_isInvitationGame &&
                     !_opponentLeft &&
                     _opponentUserId != null &&
                     !context.read<FriendProvider>().isFriend(_opponentUserId!),
-                onRematchPressed: _rematchWaiting ? _cancelRematch : _requestRematch,
+                onRematchPressed: _rematchWaiting
+                    ? _cancelRematch
+                    : _requestRematch,
                 onSearchAgainPressed: () {
                   _leaveGame();
                   _findMatch();
@@ -1210,7 +1197,9 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
                 onFriendRequestPressed: _opponentUserId == null
                     ? null
                     : () {
-                        context.read<FriendProvider>().sendFriendRequestByUserId(_opponentUserId!);
+                        context
+                            .read<FriendProvider>()
+                            .sendFriendRequestByUserId(_opponentUserId!);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('$_opponentNickname님에게 친구 요청을 보냈습니다'),
@@ -1232,7 +1221,8 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
       return;
     }
 
-    final isRankedWaiting = widget.isRanked &&
+    final isRankedWaiting =
+        widget.isRanked &&
         (_status == CardFlipGameStatus.idle ||
             _status == CardFlipGameStatus.searching ||
             _status == CardFlipGameStatus.matched);
@@ -1257,4 +1247,354 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
       onExit: _leaveGame,
     ).then((_) => _isExitDialogOpen = false);
   }
+}
+
+/// 캔디 스타일 매칭 대기/성사 화면.
+class _CandyStatusView extends StatelessWidget {
+  final Color accentColor;
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final bool spinner;
+  final VoidCallback? onCancel;
+
+  const _CandyStatusView({
+    required this.accentColor,
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    this.spinner = false,
+    this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [accentColor.withValues(alpha: 0.16), CandyColors.cream],
+        ),
+      ),
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: PopIn(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    if (spinner)
+                      SizedBox(
+                        width: 112,
+                        height: 112,
+                        child: CircularProgressIndicator(
+                          color: accentColor,
+                          strokeWidth: 6,
+                        ),
+                      ),
+                    Container(
+                      width: 84,
+                      height: 84,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: CandyColors.ink, width: 3),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: CandyColors.ink,
+                            offset: Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Icon(icon, size: 42, color: accentColor),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 22),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                    color: accentColor,
+                  ),
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    subtitle!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: CandyColors.inkSoft,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+                if (onCancel != null) ...[
+                  const SizedBox(height: 36),
+                  SizedBox(
+                    width: 180,
+                    child: ChunkyButton(
+                      label: '취소',
+                      color: Colors.white,
+                      textColor: CandyColors.ink,
+                      height: 48,
+                      onPressed: onCancel,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 3D로 뒤집히는 카드. 매칭되면 통통 튀며 반짝이가 터진다.
+class _CardTile extends StatefulWidget {
+  final String? symbol;
+  final bool revealed;
+  final bool matched;
+  final bool canTap;
+  final bool myTurn;
+  final Color accent;
+  final double size;
+  final VoidCallback onTap;
+
+  const _CardTile({
+    required this.symbol,
+    required this.revealed,
+    required this.matched,
+    required this.canTap,
+    required this.myTurn,
+    required this.accent,
+    required this.size,
+    required this.onTap,
+  });
+
+  @override
+  State<_CardTile> createState() => _CardTileState();
+}
+
+class _CardTileState extends State<_CardTile> {
+  bool _down = false;
+  int _matchTick = 0;
+
+  @override
+  void didUpdateWidget(covariant _CardTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.matched && !oldWidget.matched) {
+      _matchTick++;
+    }
+  }
+
+  Widget _back() {
+    final active = widget.canTap;
+    final face = active
+        ? widget.accent
+        : Color.lerp(widget.accent, Colors.white, 0.6)!;
+    return AnimatedScale(
+      scale: _down && active ? 0.92 : 1,
+      duration: const Duration(milliseconds: 80),
+      child: Container(
+        decoration: BoxDecoration(
+          color: face,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: CandyColors.ink, width: 2.5),
+          boxShadow: [
+            BoxShadow(
+              color: CandyColors.ink,
+              offset: Offset(0, active && !_down ? 4 : 2),
+            ),
+          ],
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Positioned(
+              left: 8,
+              right: 8,
+              top: 5,
+              child: Container(
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+            Text(
+              '?',
+              style: TextStyle(
+                fontSize: math.max(14, widget.size * 0.5),
+                fontWeight: FontWeight.w900,
+                color: Colors.white.withValues(alpha: active ? 1 : 0.8),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _front() {
+    final matched = widget.matched;
+    return Container(
+      decoration: BoxDecoration(
+        color: matched ? const Color(0xFFC9F7E6) : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: CandyColors.ink, width: 2.5),
+        boxShadow: const [
+          BoxShadow(color: CandyColors.ink, offset: Offset(0, 3)),
+        ],
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(4),
+            child: FittedBox(
+              child: Text(
+                widget.symbol ?? '',
+                style: TextStyle(fontSize: math.max(14, widget.size * 0.5)),
+              ),
+            ),
+          ),
+          if (matched)
+            Positioned(
+              right: 3,
+              top: 3,
+              child: Container(
+                padding: const EdgeInsets.all(1),
+                decoration: BoxDecoration(
+                  color: CandyColors.mint,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: CandyColors.ink, width: 1.5),
+                ),
+                child: const Icon(
+                  Icons.check_rounded,
+                  size: 11,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final showFront = widget.revealed || widget.matched;
+    Widget card = TweenAnimationBuilder<double>(
+      tween: Tween<double>(end: showFront ? 1.0 : 0.0),
+      duration: const Duration(milliseconds: 460),
+      curve: Curves.easeInOutCubic,
+      builder: (context, t, _) {
+        final isFront = t >= 0.5;
+        final lift = 1 + 0.1 * math.sin(math.pi * t);
+        return Transform.scale(
+          scale: lift,
+          child: Transform(
+            alignment: Alignment.center,
+            transform: Matrix4.identity()
+              ..setEntry(3, 2, 0.0015)
+              ..rotateY(math.pi * t),
+            child: isFront
+                ? Transform(
+                    alignment: Alignment.center,
+                    transform: Matrix4.rotationY(math.pi),
+                    child: _front(),
+                  )
+                : _back(),
+          ),
+        );
+      },
+    );
+
+    if (_matchTick > 0) {
+      card = TweenAnimationBuilder<double>(
+        key: ValueKey('match$_matchTick'),
+        tween: Tween(begin: 0, end: 1),
+        duration: const Duration(milliseconds: 750),
+        child: card,
+        builder: (context, t, child) {
+          final bounce =
+              1 + 0.2 * math.sin(Curves.easeOut.transform(t) * math.pi);
+          return Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              Transform.scale(scale: bounce, child: child),
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(painter: _SparklePainter(t)),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    }
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: widget.canTap ? (_) => setState(() => _down = true) : null,
+      onTapUp: (_) {
+        if (_down) setState(() => _down = false);
+      },
+      onTapCancel: () {
+        if (_down) setState(() => _down = false);
+      },
+      onTap: widget.canTap ? widget.onTap : null,
+      child: card,
+    );
+  }
+}
+
+/// 매칭 성공 시 카드 주변으로 퍼지는 반짝이.
+class _SparklePainter extends CustomPainter {
+  final double t;
+  const _SparklePainter(this.t);
+
+  static const _colors = [
+    CandyColors.sun,
+    CandyColors.pink,
+    CandyColors.mint,
+    CandyColors.sky,
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (t <= 0 || t >= 1) return;
+    final c = size.center(Offset.zero);
+    final base = math.min(size.width, size.height);
+    final dist = base * (0.3 + 0.55 * Curves.easeOut.transform(t));
+    final alpha = (1 - t).clamp(0.0, 1.0);
+    for (int i = 0; i < 8; i++) {
+      final a = i * math.pi / 4 + 0.3;
+      final p = c + Offset(math.cos(a), math.sin(a)) * dist;
+      final r = (1 - t) * (i.isEven ? 6.0 : 4.0) + 1;
+      final paint = Paint()..color = _colors[i % 4].withValues(alpha: alpha);
+      // 네 갈래 별
+      final path = Path()
+        ..moveTo(p.dx, p.dy - r * 1.6)
+        ..quadraticBezierTo(p.dx, p.dy, p.dx + r * 1.6, p.dy)
+        ..quadraticBezierTo(p.dx, p.dy, p.dx, p.dy + r * 1.6)
+        ..quadraticBezierTo(p.dx, p.dy, p.dx - r * 1.6, p.dy)
+        ..quadraticBezierTo(p.dx, p.dy, p.dx, p.dy - r * 1.6)
+        ..close();
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SparklePainter old) => old.t != t;
 }

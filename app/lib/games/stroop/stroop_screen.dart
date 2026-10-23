@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
@@ -10,6 +12,10 @@ import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
 import '../../utils/game_theme.dart';
+import '../../theme/candy_theme.dart';
+import '../../widgets/cartoon/cartoon_card.dart';
+import '../../widgets/cartoon/chunky_button.dart';
+import '../../widgets/cartoon/pop_in.dart';
 import '../common/game_rematch_preparing_view.dart';
 import '../common/game_hardcore_toggle.dart';
 import '../common/game_intro_view.dart';
@@ -26,14 +32,7 @@ import '../common/game_stage_panel.dart';
 import '../common/game_timer_badge.dart';
 import '../common/game_waiting_view.dart';
 
-enum StroopGameStatus {
-  idle,
-  searching,
-  matched,
-  playing,
-  waiting,
-  finished,
-}
+enum StroopGameStatus { idle, searching, matched, playing, waiting, finished }
 
 class StroopScreen extends StatefulWidget {
   final bool isRanked;
@@ -48,11 +47,14 @@ class _StroopScreenState extends State<StroopScreen>
     with SingleTickerProviderStateMixin {
   final SocketService _socketService = SocketService();
   // 게임 고유색 대신 사용자 테마 컬러를 accent로 사용.
-  Color get _accent =>
-      GameTheme.fromProfileSettings(context.read<ShopProvider>().profileSettings).primary;
-  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
-  bool _hasScheduledPop = false;  // 중복 pop 방지
-  bool _isExitDialogOpen = false;  // 나가기 다이얼로그 열림 상태
+  Color get _accent => GameTheme.fromProfileSettings(
+    context.read<ShopProvider>().profileSettings,
+  ).primary;
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(
+    _socketService,
+  );
+  bool _hasScheduledPop = false; // 중복 pop 방지
+  bool _isExitDialogOpen = false; // 나가기 다이얼로그 열림 상태
 
   StroopGameStatus _status = StroopGameStatus.idle;
 
@@ -86,7 +88,13 @@ class _StroopScreenState extends State<StroopScreen>
   bool _isWaitingForReconnect = false;
   Timer? _reconnectTimer;
   Timer? _waitingReconnectTimer;
-  int _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+  int _reconnectSecondsRemaining =
+      GameReconnectHelper.reconnectGraceDuration.inSeconds;
+
+  // 라운드 결과 말풍선 (0=없음, 1=내 정답, 2=상대 오답, 3=내 오답, 4=상대 정답)
+  int _resultKind = 0;
+  String? _resultText;
+  int _resultTick = 0;
 
   // 연승 정보
   int _myStreak = 0;
@@ -98,12 +106,12 @@ class _StroopScreenState extends State<StroopScreen>
 
   // 색상 매핑
   static const Map<String, Color> colorValues = {
-    'red': Color(0xFFE74C3C),
-    'blue': Color(0xFF3498DB),
-    'green': Color(0xFF2ECC71),
-    'yellow': Color(0xFFF1C40F),
-    'orange': Color(0xFFE67E22),
-    'purple': Color(0xFF9B59B6),
+    'red': Color(0xFFFF4D5E),
+    'blue': Color(0xFF3FA9FF),
+    'green': Color(0xFF2FD36E),
+    'yellow': Color(0xFFFFD23F),
+    'orange': Color(0xFFFF9A3D),
+    'purple': Color(0xFF9B6BFF),
   };
 
   static const Map<String, String> colorNames = {
@@ -122,10 +130,10 @@ class _StroopScreenState extends State<StroopScreen>
   void initState() {
     super.initState();
     _animController = AnimationController(
-      duration: const Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 550),
       vsync: this,
     );
-    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+    _scaleAnimation = Tween<double>(begin: 0.4, end: 1.0).animate(
       CurvedAnimation(parent: _animController, curve: Curves.elasticOut),
     );
 
@@ -144,13 +152,17 @@ class _StroopScreenState extends State<StroopScreen>
   void _initFromGameProvider() {
     try {
       final game = context.read<GameProvider>();
-      debugPrint('🎮 StroopScreen _initFromGameProvider: isInvitation=${game.isInvitationGame}, roomId=${game.roomId}, opponentNickname=${game.opponentNickname}, status=${game.status}');
+      debugPrint(
+        '🎮 StroopScreen _initFromGameProvider: isInvitation=${game.isInvitationGame}, roomId=${game.roomId}, opponentNickname=${game.opponentNickname}, status=${game.status}',
+      );
       // GameProvider의 status가 matched 또는 playing일 때만 초대 게임으로 인식
       // (이전 게임 상태가 남아있는 경우 방지)
-      final isActiveInvitation = game.isInvitationGame &&
+      final isActiveInvitation =
+          game.isInvitationGame &&
           game.roomId != null &&
           game.opponentNickname != null &&
-          (game.status == GameStatus.matched || game.status == GameStatus.playing);
+          (game.status == GameStatus.matched ||
+              game.status == GameStatus.playing);
       if (isActiveInvitation) {
         debugPrint('🎮 StroopScreen: 초대 게임 초기화 from GameProvider');
         setState(() {
@@ -207,7 +219,8 @@ class _StroopScreenState extends State<StroopScreen>
         onEnterWaiting: () => setState(() {
           _isReconnecting = true;
           _isWaitingForReconnect = false;
-          _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+          _reconnectSecondsRemaining =
+              GameReconnectHelper.reconnectGraceDuration.inSeconds;
         }),
         onTick: (seconds) {
           if (!mounted) return;
@@ -234,10 +247,17 @@ class _StroopScreenState extends State<StroopScreen>
 
     _socketListeners.on('match_found', (data) {
       final players = data['players'] as List;
-      final opponent = players.cast<Map<String, dynamic>?>().firstWhere((p) => p!['id'] != _myId, orElse: () => null);
+      final opponent = players.cast<Map<String, dynamic>?>().firstWhere(
+        (p) => p!['id'] != _myId,
+        orElse: () => null,
+      );
       if (opponent == null) return;
-      final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
-      _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
+      final me = players.firstWhere(
+        (p) => p['id'] == _myId,
+        orElse: () => null,
+      );
+      final foundIndex = players.indexWhere((p) => p['id'] == _myId);
+      if (foundIndex != -1) _myPlayerIndex = foundIndex;
 
       setState(() {
         _status = StroopGameStatus.matched;
@@ -252,10 +272,14 @@ class _StroopScreenState extends State<StroopScreen>
         _opponentStreak = opponent['streak'] ?? 0;
         // 프로필 설정 파싱
         if (opponent['profileSettings'] != null) {
-          _opponentProfileSettings = UserProfileSettings.fromJson(opponent['profileSettings']);
+          _opponentProfileSettings = UserProfileSettings.fromJson(
+            opponent['profileSettings'],
+          );
         }
         if (me != null && me['profileSettings'] != null) {
-          _myProfileSettings = UserProfileSettings.fromJson(me['profileSettings']);
+          _myProfileSettings = UserProfileSettings.fromJson(
+            me['profileSettings'],
+          );
         }
       });
     });
@@ -281,9 +305,13 @@ class _StroopScreenState extends State<StroopScreen>
         }
         setState(() {
           _isHardcore = data['isHardcore'] ?? false;
-          _colors = List<String>.from(data['colors'] ?? ['red', 'blue', 'green', 'yellow']);
+          _colors = List<String>.from(
+            data['colors'] ?? ['red', 'blue', 'green', 'yellow'],
+          );
           _scores = [0, 0];
           _currentRound = 0;
+          _resultText = null;
+          _resultKind = 0;
           _rematchWaiting = false;
           _opponentWantsRematch = false;
           _opponentLeft = false;
@@ -310,6 +338,8 @@ class _StroopScreenState extends State<StroopScreen>
         }
         _status = StroopGameStatus.playing;
         _isWaitingForReconnect = false;
+        _resultText = null;
+        _resultKind = 0;
       });
 
       debugPrint('🎨 status changed to: $_status');
@@ -335,53 +365,45 @@ class _StroopScreenState extends State<StroopScreen>
       final pressedPlayerId = data['pressedPlayerId'];
       final isCorrect = data['correct'] as bool? ?? false;
 
+      final isMyWin = winnerId == _myId;
+      final iMadeAction = pressedPlayerId == _myId;
+      final correctAnswer = data['correctAnswer'] as String?;
+      final answerName = colorNames[correctAnswer] ?? correctAnswer ?? '';
+
+      int kind;
+      String message;
+      if (isMyWin) {
+        if (iMadeAction && isCorrect) {
+          kind = 1;
+          message = '정답! 점수 획득';
+        } else {
+          kind = 2;
+          message = '상대 오답! 점수 획득';
+        }
+      } else if (iMadeAction) {
+        kind = 3;
+        message = '오답... 정답: $answerName';
+      } else {
+        kind = 4;
+        message = '상대 정답! 정답: $answerName';
+      }
+
+      if (kind == 3) {
+        HapticFeedback.heavyImpact();
+      } else {
+        HapticFeedback.mediumImpact();
+      }
+
       setState(() {
         _scores = scores;
         _status = StroopGameStatus.waiting;
         _isWaitingForReconnect = false;
+        _resultKind = kind;
+        _resultText = message;
+        _resultTick++;
       });
 
       debugPrint('🎨 status changed to waiting, scores: $_scores');
-
-      // 결과 스낵바 표시
-      if (mounted) {
-        final isMyWin = winnerId == _myId;
-        final iMadeAction = pressedPlayerId == _myId;
-        final correctAnswer = data['correctAnswer'] as String;
-
-        String message;
-        Color bgColor;
-
-        if (isMyWin) {
-          if (iMadeAction && isCorrect) {
-            // 내가 정답을 맞춰서 점수 획득
-            message = '정답! 점수 획득';
-            bgColor = Colors.green;
-          } else {
-            // 상대가 틀려서 내가 점수 획득
-            message = '상대 오답! 점수 획득';
-            bgColor = Colors.teal;
-          }
-        } else {
-          if (iMadeAction) {
-            // 내가 틀림
-            message = '오답... 정답: ${colorNames[correctAnswer] ?? correctAnswer}';
-            bgColor = Colors.red;
-          } else {
-            // 상대가 정답을 맞춤
-            message = '상대 정답! 정답: ${colorNames[correctAnswer] ?? correctAnswer}';
-            bgColor = Colors.orange;
-          }
-        }
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message, textAlign: TextAlign.center),
-            backgroundColor: bgColor,
-            duration: const Duration(seconds: 1),
-          ),
-        );
-      }
     });
 
     _socketListeners.on('rejoin_game_state', (data) {
@@ -391,7 +413,8 @@ class _StroopScreenState extends State<StroopScreen>
       final roundState = data['roundState'] as String?;
       setState(() {
         _roomId = data['roomId'] as String?;
-        _myPlayerIndex = (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
+        _myPlayerIndex =
+            (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
         _currentRound = (data['round'] as num?)?.toInt() ?? _currentRound;
         _scores = List<int>.from(data['scores'] ?? _scores);
         _currentWord = data['word'] as String? ?? _currentWord;
@@ -434,7 +457,8 @@ class _StroopScreenState extends State<StroopScreen>
       if (!_isGameActive) return;
       _hardcoreTimer?.cancel();
       setState(() {
-        _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+        _reconnectSecondsRemaining =
+            GameReconnectHelper.reconnectGraceDuration.inSeconds;
         _isWaitingForReconnect = true;
         _isReconnecting = false;
       });
@@ -497,9 +521,9 @@ class _StroopScreenState extends State<StroopScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(widget.isRanked
-              ? '상대가 나가서 게임이 종료되었습니다. 승리!'
-              : '상대방이 나갔습니다.'),
+            content: Text(
+              widget.isRanked ? '상대가 나가서 게임이 종료되었습니다. 승리!' : '상대방이 나갔습니다.',
+            ),
             backgroundColor: Colors.orange,
           ),
         );
@@ -536,7 +560,10 @@ class _StroopScreenState extends State<StroopScreen>
     _hardcoreTimer?.cancel();
     _remainingTime = (remainingTimeMs / 1000).ceil();
     _hardcoreTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) { timer.cancel(); return; }
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       if (_remainingTime > 0) {
         setState(() => _remainingTime--);
       } else {
@@ -638,7 +665,8 @@ class _StroopScreenState extends State<StroopScreen>
             body: Stack(
               children: [
                 GameScreenTransition(
-                  transitionKey: '${_status.name}-$_currentRound-$_currentWord-$_currentColor-${_winnerId ?? 'none'}-$_isDraw',
+                  transitionKey:
+                      '${_status.name}-$_currentRound-$_currentWord-$_currentColor-${_winnerId ?? 'none'}-$_isDraw',
                   child: _buildBody(theme),
                 ),
                 ...GameReconnectHelper.buildStandardOverlays(
@@ -672,9 +700,18 @@ class _StroopScreenState extends State<StroopScreen>
 
   Widget _buildBody(GameTheme theme) {
     return switch (_status) {
-      StroopGameStatus.idle => widget.isRanked ? _buildRankedWaitingView(theme) : _buildIdleView(theme),
-      StroopGameStatus.searching => widget.isRanked ? _buildRankedWaitingView(theme) : _buildSearchingView(theme),
-      StroopGameStatus.matched => widget.isRanked ? _buildRankedWaitingView(theme) : _buildMatchedView(theme),
+      StroopGameStatus.idle =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildIdleView(theme),
+      StroopGameStatus.searching =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildSearchingView(theme),
+      StroopGameStatus.matched =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildMatchedView(theme),
       StroopGameStatus.playing => _buildPlayingView(theme),
       StroopGameStatus.waiting => _buildWaitingView(theme),
       StroopGameStatus.finished => _buildFinishedView(theme),
@@ -694,15 +731,22 @@ class _StroopScreenState extends State<StroopScreen>
       backgroundColor: Colors.transparent,
       builder: (dialogContext) => Consumer<FriendProvider>(
         builder: (context, friendProvider, child) {
-          final onlineFriends = friendProvider.friends.where((f) => f.isOnline).toList();
+          final onlineFriends = friendProvider.friends
+              .where((f) => f.isOnline)
+              .toList();
 
           return Container(
             constraints: BoxConstraints(
               maxHeight: MediaQuery.of(dialogContext).size.height * 0.6,
             ),
             decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              color: CandyColors.cream,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border(
+                top: BorderSide(color: CandyColors.ink, width: 3),
+                left: BorderSide(color: CandyColors.ink, width: 3),
+                right: BorderSide(color: CandyColors.ink, width: 3),
+              ),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -710,11 +754,11 @@ class _StroopScreenState extends State<StroopScreen>
                 // 핸들
                 Container(
                   margin: const EdgeInsets.only(top: 12),
-                  width: 40,
-                  height: 4,
+                  width: 44,
+                  height: 6,
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
+                    color: CandyColors.ink,
+                    borderRadius: BorderRadius.circular(3),
                   ),
                 ),
                 // 헤더
@@ -722,16 +766,25 @@ class _StroopScreenState extends State<StroopScreen>
                   padding: const EdgeInsets.all(20),
                   child: Row(
                     children: [
-                      Icon(Icons.person_add, color: _isHardcore ? Colors.red : theme.primary),
+                      Icon(
+                        Icons.person_add,
+                        color: _isHardcore ? Colors.red : theme.primary,
+                      ),
                       const SizedBox(width: 12),
                       const Text(
                         '친구 초대',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const Spacer(),
                       if (_isHardcore)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.red.shade50,
                             borderRadius: BorderRadius.circular(12),
@@ -739,16 +792,27 @@ class _StroopScreenState extends State<StroopScreen>
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.local_fire_department, size: 16, color: Colors.red.shade400),
+                              Icon(
+                                Icons.local_fire_department,
+                                size: 16,
+                                color: Colors.red.shade400,
+                              ),
                               const SizedBox(width: 4),
-                              Text('하드코어', style: TextStyle(fontSize: 12, color: Colors.red.shade400, fontWeight: FontWeight.bold)),
+                              Text(
+                                '하드코어',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.red.shade400,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ],
                           ),
                         ),
                     ],
                   ),
                 ),
-                const Divider(height: 1),
+                const Divider(height: 3, thickness: 3, color: CandyColors.ink),
                 // 친구 목록
                 Flexible(
                   child: onlineFriends.isEmpty
@@ -758,11 +822,18 @@ class _StroopScreenState extends State<StroopScreen>
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.person_off, size: 48, color: Colors.grey.shade400),
+                                Icon(
+                                  Icons.person_off,
+                                  size: 48,
+                                  color: Colors.grey.shade400,
+                                ),
                                 const SizedBox(height: 16),
                                 Text(
                                   '온라인 친구가 없습니다',
-                                  style: TextStyle(color: Colors.grey.shade600),
+                                  style: TextStyle(
+                                    color: CandyColors.inkSoft,
+                                    fontWeight: FontWeight.w800,
+                                  ),
                                 ),
                               ],
                             ),
@@ -777,10 +848,20 @@ class _StroopScreenState extends State<StroopScreen>
                               leading: Stack(
                                 children: [
                                   CircleAvatar(
-                                    backgroundColor: (_isHardcore ? Colors.red : theme.primary).withValues(alpha: 0.2),
+                                    backgroundColor:
+                                        (_isHardcore
+                                                ? Colors.red
+                                                : theme.primary)
+                                            .withValues(alpha: 0.2),
                                     child: Text(
-                                      friend.nickname.isNotEmpty ? friend.nickname[0].toUpperCase() : '?',
-                                      style: TextStyle(color: _isHardcore ? Colors.red : theme.primary),
+                                      friend.nickname.isNotEmpty
+                                          ? friend.nickname[0].toUpperCase()
+                                          : '?',
+                                      style: TextStyle(
+                                        color: _isHardcore
+                                            ? Colors.red
+                                            : theme.primary,
+                                      ),
                                     ),
                                   ),
                                   Positioned(
@@ -792,15 +873,30 @@ class _StroopScreenState extends State<StroopScreen>
                                       decoration: BoxDecoration(
                                         color: Colors.green,
                                         shape: BoxShape.circle,
-                                        border: Border.all(color: Colors.white, width: 2),
+                                        border: Border.all(
+                                          color: Colors.white,
+                                          width: 2,
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ],
                               ),
-                              title: Text(friend.nickname, style: const TextStyle(fontWeight: FontWeight.w600)),
-                              subtitle: friend.memo != null && friend.memo!.isNotEmpty
-                                  ? Text(friend.memo!, style: TextStyle(color: Colors.grey.shade600, fontSize: 12))
+                              title: Text(
+                                friend.nickname,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              subtitle:
+                                  friend.memo != null && friend.memo!.isNotEmpty
+                                  ? Text(
+                                      friend.memo!,
+                                      style: TextStyle(
+                                        color: Colors.grey.shade600,
+                                        fontSize: 12,
+                                      ),
+                                    )
                                   : null,
                               trailing: ElevatedButton(
                                 onPressed: () {
@@ -811,16 +907,22 @@ class _StroopScreenState extends State<StroopScreen>
                                   );
                                   Navigator.pop(dialogContext);
                                   // 기존 SnackBar 제거 후 새 알림 표시 (중복 방지)
-                                  ScaffoldMessenger.of(context).clearSnackBars();
+                                  ScaffoldMessenger.of(
+                                    context,
+                                  ).clearSnackBars();
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                      content: Text('${friend.nickname}님에게 초대를 보냈습니다!'),
+                                      content: Text(
+                                        '${friend.nickname}님에게 초대를 보냈습니다!',
+                                      ),
                                       backgroundColor: Colors.green,
                                     ),
                                   );
                                 },
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: _isHardcore ? Colors.red : theme.primary,
+                                  backgroundColor: _isHardcore
+                                      ? Colors.red
+                                      : theme.primary,
                                   foregroundColor: Colors.white,
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(20),
@@ -832,7 +934,9 @@ class _StroopScreenState extends State<StroopScreen>
                           },
                         ),
                 ),
-                SizedBox(height: MediaQuery.of(dialogContext).padding.bottom + 16),
+                SizedBox(
+                  height: MediaQuery.of(dialogContext).padding.bottom + 16,
+                ),
               ],
             ),
           );
@@ -855,17 +959,27 @@ class _StroopScreenState extends State<StroopScreen>
       extra: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(12),
-            ),
+          CartoonCard(
+            radius: 18,
+            shadow: 4,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text('빨강', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: colorValues['blue'])),
+                _OutlinedText(
+                  '빨강',
+                  fontSize: 30,
+                  color: colorValues['blue'] ?? CandyColors.sky,
+                ),
                 const SizedBox(height: 4),
-                Text('정답: 파랑 (글자색)', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                const Text(
+                  '정답: 파랑 (글자색)',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: CandyColors.inkSoft,
+                  ),
+                ),
               ],
             ),
           ),
@@ -881,243 +995,176 @@ class _StroopScreenState extends State<StroopScreen>
   }
 
   Widget _buildSearchingView(GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            _accent.withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(
-              color: _accent,
-            ),
-            const SizedBox(height: 24),
-            Text(
-              '상대를 찾는 중...',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: _accent,
-              ),
-            ),
-            const SizedBox(height: 48),
-            OutlinedButton(
-              onPressed: _cancelMatch,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.grey,
-                side: BorderSide(color: Colors.grey.shade400),
-              ),
-              child: const Text('취소'),
-            ),
-          ],
-        ),
-      ),
+    return _CandyStatusView(
+      accentColor: _accent,
+      icon: Icons.search_rounded,
+      title: '상대를 찾는 중...',
+      spinner: true,
+      onCancel: _cancelMatch,
     );
   }
 
   Widget _buildMatchedView(GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            _accent.withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: const BoxDecoration(
-                color: Color(0xFFE0F7FA),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.sports_esports,
-                size: 64,
-                color: _accent,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '$_opponentNickname님과 매칭!',
+    return _CandyStatusView(
+      accentColor: _accent,
+      icon: Icons.sports_esports_rounded,
+      title: '${_opponentNickname ?? '상대'}님과 매칭!',
+      subtitle: '게임이 곧 시작됩니다...',
+      extra: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Flexible(child: _buildStreakBadge('나', _myStreak, true)),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'VS',
               style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: _accent,
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+                color: CandyColors.inkSoft,
               ),
             ),
-            const SizedBox(height: 16),
-            // 연승 정보 표시
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _buildStreakBadge('나', _myStreak, true),
-                const SizedBox(width: 24),
-                const Text(
-                  'VS',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.grey,
-                  ),
-                ),
-                const SizedBox(width: 24),
-                _buildStreakBadge(_opponentNickname ?? '상대', _opponentStreak, false),
-              ],
+          ),
+          Flexible(
+            child: _buildStreakBadge(
+              _opponentNickname ?? '상대',
+              _opponentStreak,
+              false,
             ),
-            const SizedBox(height: 16),
-            Text(
-              '게임이 곧 시작됩니다...',
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildStreakBadge(String name, int streak, bool isMe) {
-    final color = isMe ? _accent : Colors.orange;
+    final color = isMe ? _accent : CandyColors.tangerine;
     return Column(
       children: [
-        Text(
-          name.length > 6 ? '${name.substring(0, 6)}...' : name,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: Colors.grey.shade700,
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 110),
+          child: Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
+              color: CandyColors.ink,
+            ),
           ),
         ),
-        const SizedBox(height: 4),
-        if (streak > 0)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: color),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.local_fire_department, size: 16, color: color),
-                const SizedBox(width: 4),
-                Text(
-                  '$streak연승 중',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
-                ),
-              ],
-            ),
-          )
-        else
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              '연승 없음',
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey.shade500,
-              ),
-            ),
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: streak > 0 ? color : Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: CandyColors.ink, width: 2.5),
+            boxShadow: const [
+              BoxShadow(color: CandyColors.ink, offset: Offset(0, 3)),
+            ],
           ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (streak > 0) ...[
+                const Icon(
+                  Icons.local_fire_department_rounded,
+                  size: 16,
+                  color: Colors.white,
+                ),
+                const SizedBox(width: 4),
+              ],
+              Text(
+                streak > 0 ? '$streak연승 중' : '연승 없음',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                  color: streak > 0 ? Colors.white : CandyColors.inkSoft,
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
 
+  BoxDecoration get _stageBackground => BoxDecoration(
+    gradient: LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [_accent.withValues(alpha: 0.14), CandyColors.cream],
+    ),
+  );
+
   Widget _buildPlayingView(GameTheme theme) {
     final wordKorean = colorNames[_currentWord] ?? _currentWord;
-    final displayColor = colorValues[_currentColor] ?? Colors.black;
+    final displayColor = colorValues[_currentColor] ?? CandyColors.ink;
 
     return Column(
       children: [
         _buildHeader(),
         Expanded(
           child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  _accent.withValues(alpha: 0.1),
-                  Colors.white,
-                ],
-              ),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // 하드코어 타이머
-                if (_isHardcore)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: GameTimerBadge(
-                      seconds: _remainingTime,
-                      label: '정답 입력 시간',
-                      accentColor: _accent,
-                      compact: true,
-                      warningThreshold: 1,
-                    ),
-                  ),
-                // 색상 단어 표시
-                ScaleTransition(
-                  scale: _scaleAnimation,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 24),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: displayColor.withValues(alpha: 0.3),
-                          blurRadius: 20,
-                          spreadRadius: 2,
+            decoration: _stageBackground,
+            child: LayoutBuilder(
+              builder: (context, box) => SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: box.maxHeight),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // 하드코어 타이머
+                      if (_isHardcore)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: GameTimerBadge(
+                            seconds: _remainingTime,
+                            label: '정답 입력 시간',
+                            accentColor: _accent,
+                            compact: true,
+                            warningThreshold: 1,
+                          ),
                         ),
-                      ],
-                    ),
-                    child: Text(
-                      wordKorean,
-                      style: TextStyle(
-                        fontSize: 48,
-                        fontWeight: FontWeight.bold,
-                        color: displayColor,
+                      // 색상 단어 표시 (새 단어가 통통 튀며 등장)
+                      ScaleTransition(
+                        scale: _scaleAnimation,
+                        child: CartoonCard(
+                          radius: 28,
+                          shadow: 7,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 40,
+                            vertical: 22,
+                          ),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: _OutlinedText(
+                              wordKorean,
+                              fontSize: 56,
+                              color: displayColor,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 18),
+                      const Text(
+                        '글자의 색깔을 선택하세요!',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                          color: CandyColors.inkSoft,
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+                      // 색상 버튼들
+                      _buildColorButtons(),
+                      const SizedBox(height: 12),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  '글자의 색깔을 선택하세요!',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey.shade600,
-                  ),
-                ),
-                const SizedBox(height: 32),
-                // 색상 버튼들
-                _buildColorButtons(),
-              ],
+              ),
             ),
           ),
         ),
@@ -1128,53 +1175,48 @@ class _StroopScreenState extends State<StroopScreen>
   Widget _buildColorButtons() {
     final buttonColors = _colors;
     final crossAxisCount = _isHardcore ? 3 : 2;
-    final horizontalPadding = _isHardcore ? 16.0 : 32.0;
-    final aspectRatio = _isHardcore ? 1.8 : 2.5;
+    final horizontalPadding = _isHardcore ? 16.0 : 28.0;
+    final aspectRatio = _isHardcore ? 1.7 : 2.3;
 
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
       child: GridView.count(
         shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
         crossAxisCount: crossAxisCount,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 4,
         childAspectRatio: aspectRatio,
-        children: buttonColors.map((color) {
-          return _buildColorButton(color, isHardcore: _isHardcore);
-        }).toList(),
+        children: [
+          for (int i = 0; i < buttonColors.length; i++)
+            PopIn(
+              key: ValueKey('btn$_currentRound-${buttonColors[i]}'),
+              delay: Duration(milliseconds: 40 * i),
+              duration: const Duration(milliseconds: 420),
+              child: _buildColorButton(
+                buttonColors[i],
+                isHardcore: _isHardcore,
+              ),
+            ),
+        ],
       ),
     );
   }
 
   Widget _buildColorButton(String color, {bool isHardcore = false}) {
-    final buttonColor = colorValues[color] ?? Colors.grey;
+    final buttonColor = colorValues[color] ?? CandyColors.inkSoft;
     final buttonName = colorNames[color] ?? color;
-    final fontSize = isHardcore ? 14.0 : 18.0;
+    final fontSize = isHardcore ? 16.0 : 20.0;
 
-    return ElevatedButton(
-      onPressed: () => _selectColor(color),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: buttonColor,
-        foregroundColor: Colors.white,
-        padding: EdgeInsets.symmetric(
-          horizontal: isHardcore ? 4 : 8,
-          vertical: isHardcore ? 4 : 8,
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        elevation: 4,
-        shadowColor: buttonColor.withValues(alpha: 0.5),
-      ),
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: Text(
-          buttonName,
-          style: TextStyle(
-            fontSize: fontSize,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+    return Align(
+      child: ChunkyButton(
+        label: buttonName,
+        color: buttonColor,
+        textColor: color == 'yellow' ? CandyColors.ink : Colors.white,
+        height: isHardcore ? 44 : 54,
+        radius: 16,
+        fontSize: fontSize,
+        onPressed: () => _selectColor(color),
       ),
     );
   }
@@ -1185,29 +1227,33 @@ class _StroopScreenState extends State<StroopScreen>
         _buildHeader(),
         Expanded(
           child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  _accent.withValues(alpha: 0.1),
-                  Colors.white,
-                ],
-              ),
-            ),
+            decoration: _stageBackground,
             child: Center(
-              child: GameStagePanel(
-                icon: Icons.palette_outlined,
-                title: '다음 라운드 대기 중...',
-                subtitle: '상대 입력과 결과를 정리한 뒤 바로 이어서 시작합니다.',
-                accentColor: _accent,
-                content: SizedBox(
-                  width: 30,
-                  height: 30,
-                  child: CircularProgressIndicator(
-                    color: _accent,
-                    strokeWidth: 3,
-                  ),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_resultText != null) ...[
+                      _buildResultBanner(),
+                      const SizedBox(height: 20),
+                    ],
+                    GameStagePanel(
+                      icon: Icons.palette_outlined,
+                      title: '다음 라운드 대기 중...',
+                      subtitle: '상대 입력과 결과를 정리한 뒤 바로 이어서 시작합니다.',
+                      accentColor: _accent,
+                      compact: _resultText != null,
+                      content: SizedBox(
+                        width: 30,
+                        height: 30,
+                        child: CircularProgressIndicator(
+                          color: _accent,
+                          strokeWidth: 3,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -1217,9 +1263,69 @@ class _StroopScreenState extends State<StroopScreen>
     );
   }
 
+  /// 라운드 결과 말풍선: 정답이면 초록 팝, 오답이면 빨강 + 흔들림.
+  Widget _buildResultBanner() {
+    final kind = _resultKind;
+    final Color bg = switch (kind) {
+      1 || 2 => CandyColors.mint,
+      3 => const Color(0xFFFF5A5F),
+      _ => CandyColors.tangerine,
+    };
+    final IconData icon = switch (kind) {
+      1 || 2 => Icons.check_circle_rounded,
+      3 => Icons.cancel_rounded,
+      _ => Icons.flash_on_rounded,
+    };
+    return TweenAnimationBuilder<double>(
+      key: ValueKey('res$_resultTick'),
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 650),
+      builder: (context, t, child) {
+        final pop = Curves.elasticOut.transform(t.clamp(0.0, 1.0));
+        final shake = kind == 3
+            ? math.sin(t * math.pi * 7) * (1 - t) * 10
+            : 0.0;
+        return Transform.translate(
+          offset: Offset(shake, 0),
+          child: Transform.scale(scale: 0.5 + 0.5 * pop, child: child),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 24),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: CandyColors.ink, width: 3),
+          boxShadow: const [
+            BoxShadow(color: CandyColors.ink, offset: Offset(0, 5)),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: Colors.white, size: 28),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Text(
+                _resultText ?? '',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildHeader() {
     return GameDuelHeader(
-      backgroundColors: const [Color(0xFFE0F7FA), Color(0xFFB2EBF2)],
+      backgroundColors: [_accent.withValues(alpha: 0.12), CandyColors.cream],
       accentColor: _accent,
       centerLabel: 'R$_currentRound',
       centerSubtitle: _isHardcore ? '하드코어' : '색깔 대결',
@@ -1231,15 +1337,21 @@ class _StroopScreenState extends State<StroopScreen>
       opponentActive: false,
       myProfileSettings: _myProfileSettings,
       opponentProfileSettings: _opponentProfileSettings,
-      myExtraWidget: _buildScoreWidget(_scores.isNotEmpty ? _scores[_myPlayerIndex] : 0, true),
-      opponentExtraWidget: _buildScoreWidget(_scores.length > 1 ? _scores[1 - _myPlayerIndex] : 0, false),
+      myExtraWidget: _buildScoreWidget(
+        _scores.isNotEmpty ? _scores[_myPlayerIndex] : 0,
+        true,
+      ),
+      opponentExtraWidget: _buildScoreWidget(
+        _scores.length > 1 ? _scores[1 - _myPlayerIndex] : 0,
+        false,
+      ),
     );
   }
 
   Widget _buildScoreWidget(int score, bool isMe) {
     return GameHeaderScorePill(
       score: score,
-      color: isMe ? _accent : Colors.grey,
+      color: isMe ? _accent : CandyColors.inkSoft,
       margin: const EdgeInsets.only(top: 4),
     );
   }
@@ -1263,10 +1375,10 @@ class _StroopScreenState extends State<StroopScreen>
         markScheduledPop: () => _hasScheduledPop = true,
       );
       return GameRankedResultView(
-      backgroundGradient: theme.backgroundGradient,
-      accentColor: theme.primary,
-      isWinner: isWinner,
-      isDraw: _isDraw,
+        backgroundGradient: theme.backgroundGradient,
+        accentColor: theme.primary,
+        isWinner: isWinner,
+        isDraw: _isDraw,
       );
     }
 
@@ -1293,10 +1405,7 @@ class _StroopScreenState extends State<StroopScreen>
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            resultColor.withValues(alpha: 0.1),
-            Colors.white,
-          ],
+          colors: [resultColor.withValues(alpha: 0.1), Colors.white],
         ),
       ),
       child: Center(
@@ -1305,67 +1414,76 @@ class _StroopScreenState extends State<StroopScreen>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-            GameResultHero(
-              icon: resultIcon,
-              color: resultColor,
-              title: resultText,
-              subtitle: _isDraw
-                  ? '색과 단어를 끝까지 집중해서 맞붙었어요.'
-                  : (isWinner ? '빠른 판단과 집중력이 잘 이어졌어요.' : '다음 판은 색상 전환 타이밍에 더 집중해봐요.'),
-            ),
-            const SizedBox(height: 22),
-            GameResultMatchupRow(
-              leftLabel: '나',
-              leftValue: '${_scores.isNotEmpty ? _scores[_myPlayerIndex] : 0}',
-              rightLabel: _opponentNickname ?? '상대',
-              rightValue: '${_scores.length > 1 ? _scores[1 - _myPlayerIndex] : 0}',
-              accentColor: resultColor,
-            ),
-            const SizedBox(height: 24),
-            if (_opponentWantsRematch && !_opponentLeft)
-              GameResultStatusPill(
-                icon: Icons.hourglass_top_rounded,
-                text: '$_opponentNickname님이 재경기 대기 중',
-                color: const Color(0xFF15803D),
+              GameResultHero(
+                icon: resultIcon,
+                color: resultColor,
+                title: resultText,
+                subtitle: _isDraw
+                    ? '색과 단어를 끝까지 집중해서 맞붙었어요.'
+                    : (isWinner
+                          ? '빠른 판단과 집중력이 잘 이어졌어요.'
+                          : '다음 판은 색상 전환 타이밍에 더 집중해봐요.'),
               ),
-            GameResultActionButtons(
-              accentColor: _accent,
-              opponentLeft: _opponentLeft,
-              rematchWaiting: _rematchWaiting,
-              isInvitationGame: _isInvitationGame,
-              canSendFriendRequest: !_isInvitationGame &&
-                  !_opponentLeft &&
-                  _opponentUserId != null &&
-                  !context.read<FriendProvider>().isFriend(_opponentUserId!),
-              onRematchPressed: _rematchWaiting ? _cancelRematch : _requestRematch,
-              onSearchAgainPressed: () {
-                _leaveGame();
-                _findMatch();
-              },
-              onLobbyPressed: () {
-                GameSessionHelper.leaveGameAndReturnToLobby(
-                  context: context,
-                  socketService: _socketService,
-                  roomId: _roomId,
-                  isRanked: widget.isRanked,
-                  resetState: _reset,
-                );
-              },
-              onFriendRequestPressed: _opponentUserId == null
-                  ? null
-                  : () {
-                      context.read<FriendProvider>().sendFriendRequestByUserId(_opponentUserId!);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('$_opponentNickname님에게 친구 요청을 보냈습니다'),
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
-                    },
-            ),
-          ],
+              const SizedBox(height: 22),
+              GameResultMatchupRow(
+                leftLabel: '나',
+                leftValue:
+                    '${_scores.isNotEmpty ? _scores[_myPlayerIndex] : 0}',
+                rightLabel: _opponentNickname ?? '상대',
+                rightValue:
+                    '${_scores.length > 1 ? _scores[1 - _myPlayerIndex] : 0}',
+                accentColor: resultColor,
+              ),
+              const SizedBox(height: 24),
+              if (_opponentWantsRematch && !_opponentLeft)
+                GameResultStatusPill(
+                  icon: Icons.hourglass_top_rounded,
+                  text: '$_opponentNickname님이 재경기 대기 중',
+                  color: const Color(0xFF15803D),
+                ),
+              GameResultActionButtons(
+                accentColor: _accent,
+                opponentLeft: _opponentLeft,
+                rematchWaiting: _rematchWaiting,
+                isInvitationGame: _isInvitationGame,
+                canSendFriendRequest:
+                    !_isInvitationGame &&
+                    !_opponentLeft &&
+                    _opponentUserId != null &&
+                    !context.read<FriendProvider>().isFriend(_opponentUserId!),
+                onRematchPressed: _rematchWaiting
+                    ? _cancelRematch
+                    : _requestRematch,
+                onSearchAgainPressed: () {
+                  _leaveGame();
+                  _findMatch();
+                },
+                onLobbyPressed: () {
+                  GameSessionHelper.leaveGameAndReturnToLobby(
+                    context: context,
+                    socketService: _socketService,
+                    roomId: _roomId,
+                    isRanked: widget.isRanked,
+                    resetState: _reset,
+                  );
+                },
+                onFriendRequestPressed: _opponentUserId == null
+                    ? null
+                    : () {
+                        context
+                            .read<FriendProvider>()
+                            .sendFriendRequestByUserId(_opponentUserId!);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('$_opponentNickname님에게 친구 요청을 보냈습니다'),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      },
+              ),
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -1378,7 +1496,8 @@ class _StroopScreenState extends State<StroopScreen>
     }
 
     // 랭크 게임에서 대기 중인 상태인지 확인
-    final isRankedWaiting = widget.isRanked &&
+    final isRankedWaiting =
+        widget.isRanked &&
         (_status == StroopGameStatus.idle ||
             _status == StroopGameStatus.searching ||
             _status == StroopGameStatus.matched);
@@ -1406,5 +1525,156 @@ class _StroopScreenState extends State<StroopScreen>
           : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
       onExit: _leaveGame,
     ).then((_) => _isExitDialogOpen = false);
+  }
+}
+
+/// 캔디 스타일 매칭 대기/성사 화면.
+class _CandyStatusView extends StatelessWidget {
+  final Color accentColor;
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final bool spinner;
+  final VoidCallback? onCancel;
+  final Widget? extra;
+
+  const _CandyStatusView({
+    required this.accentColor,
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    this.spinner = false,
+    this.onCancel,
+    this.extra,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [accentColor.withValues(alpha: 0.16), CandyColors.cream],
+        ),
+      ),
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: PopIn(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    if (spinner)
+                      SizedBox(
+                        width: 112,
+                        height: 112,
+                        child: CircularProgressIndicator(
+                          color: accentColor,
+                          strokeWidth: 6,
+                        ),
+                      ),
+                    Container(
+                      width: 84,
+                      height: 84,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: CandyColors.ink, width: 3),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: CandyColors.ink,
+                            offset: Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Icon(icon, size: 42, color: accentColor),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 22),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                    color: accentColor,
+                  ),
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    subtitle!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: CandyColors.inkSoft,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+                if (extra != null) ...[const SizedBox(height: 20), extra!],
+                if (onCancel != null) ...[
+                  const SizedBox(height: 36),
+                  SizedBox(
+                    width: 180,
+                    child: ChunkyButton(
+                      label: '취소',
+                      color: Colors.white,
+                      textColor: CandyColors.ink,
+                      height: 48,
+                      onPressed: onCancel,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 잉크색 외곽선이 둘린 큰 글자(밝은 색도 또렷하게 보이도록).
+class _OutlinedText extends StatelessWidget {
+  final String text;
+  final double fontSize;
+  final Color color;
+
+  const _OutlinedText(this.text, {required this.fontSize, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Text(
+          text,
+          maxLines: 1,
+          style: TextStyle(
+            fontSize: fontSize,
+            fontWeight: FontWeight.w900,
+            foreground: Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = fontSize * 0.16
+              ..strokeJoin = StrokeJoin.round
+              ..color = CandyColors.ink,
+          ),
+        ),
+        Text(
+          text,
+          maxLines: 1,
+          style: TextStyle(
+            fontSize: fontSize,
+            fontWeight: FontWeight.w900,
+            color: color,
+          ),
+        ),
+      ],
+    );
   }
 }
