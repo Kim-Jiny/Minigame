@@ -1,0 +1,179 @@
+/* [MFA] 성인의 수학 관리자 화면 스타일 — #mfaDashboard 범위 안에서만 적용한다.
+   공용 테마 변수(--brand, --border, --muted …)는 index.html 의 :root 를 그대로 쓴다. */
+
+#mfaDashboard { --mfa-ok: #34b27f; --mfa-warn: #ff9a3d; --mfa-bad: #ef6f7b; --mfa-info: #4da8e8; padding: 0; }
+
+/* ── 탭: 알약 + 도톰한 그림자 ───────────────────── */
+#mfaDashboard .mfa-tabs { display: flex; flex-wrap: wrap; gap: 10px; padding: 18px 24px 6px; background: transparent; border-bottom: none; }
+#mfaDashboard .mfa-tab {
+  position: relative; display: inline-flex; align-items: center; gap: 7px; flex-shrink: 0; margin: 0;
+  padding: 10px 20px; cursor: pointer; white-space: nowrap;
+  font-family: var(--font-cute, inherit); font-weight: 400; font-size: 16px; color: var(--muted, #7a7391);
+  background: var(--surface, #fff); border: 2px solid var(--border, #f0e3d0); border-radius: 999px;
+  box-shadow: 0 3px 0 var(--lip, #e7d6bc); transition: transform .06s, box-shadow .06s, background .12s, color .12s;
+}
+#mfaDashboard .mfa-tab:hover { color: var(--brand, #7c6cf2); background: #fffdf9; }
+#mfaDashboard .mfa-tab.active { color: #fff; background: var(--brand, #7c6cf2); border-color: var(--brand, #7c6cf2); box-shadow: 0 3px 0 var(--brand-lip, #5a4bc8); }
+#mfaDashboard .mfa-tab:active { transform: translateY(3px); box-shadow: none; }
+#mfaDashboard .mfa-count { min-width: 20px; padding: 1px 7px; border-radius: 999px; font-family: inherit; font-size: 11px; font-weight: 800; color: #fff; background: var(--mfa-bad); text-align: center; }
+#mfaDashboard .mfa-tab.active .mfa-count { background: #fff; color: var(--brand, #7c6cf2); }
+
+#mfaDashboard .mfa-pane { display: none; padding: 24px; }
+#mfaDashboard .mfa-pane.active { display: block; }
+
+/* ── 상단 도구줄 ──────────────────────────────────── */
+#mfaDashboard .mfa-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 16px; }
+#mfaDashboard .mfa-bar .grow { flex: 1; }
+#mfaDashboard .mfa-note { font-size: 12px; color: var(--muted, #7a7391); }
+#mfaDashboard .mfa-seg { display: inline-flex; padding: 4px; border-radius: 999px; background: var(--cream-3, #f6ecdd); gap: 2px; border: 2px solid var(--border, #f0e3d0); }
+#mfaDashboard .mfa-seg button { padding: 6px 16px; border: none; border-radius: 999px; background: none; cursor: pointer; font-family: var(--font-cute, inherit); font-weight: 400; font-size: 14px; color: var(--muted, #7a7391); }
+#mfaDashboard .mfa-seg button.active { background: var(--brand, #7c6cf2); color: #fff; box-shadow: 0 2px 0 var(--brand-lip, #5a4bc8); }
+
+#mfaDashboard .mfa-input, #mfaDashboard .mfa-select, #mfaDashboard .mfa-textarea {
+  padding: 9px 14px; border: 2px solid var(--border, #f0e3d0); border-radius: 14px; background: #fffdf9;
+  font-size: 14px; color: var(--text, #2e2a45); font-family: inherit;
+}
+#mfaDashboard .mfa-input:focus, #mfaDashboard .mfa-select:focus, #mfaDashboard .mfa-textarea:focus,
+.mfa-modal .mfa-input:focus, .mfa-modal .mfa-textarea:focus {
+  outline: none; border-color: var(--brand, #7c6cf2); box-shadow: 0 0 0 4px var(--brand-weak, #f0edff);
+}
+#mfaDashboard .mfa-input.search { min-width: 240px; flex: 1; max-width: 360px; }
+#mfaDashboard .mfa-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted, #7a7391); cursor: pointer; user-select: none; }
+
+#mfaDashboard .mfa-btn, .mfa-modal .mfa-btn {
+  padding: 8px 18px; border: 2px solid var(--border, #f0e3d0); border-radius: 14px; background: var(--surface, #fff);
+  font-family: var(--font-cute, inherit); font-weight: 400; font-size: 14px; color: var(--text, #2e2a45); cursor: pointer;
+  box-shadow: 0 3px 0 var(--lip, #e7d6bc); transition: transform .06s, box-shadow .06s, background .12s;
+}
+#mfaDashboard .mfa-btn:hover, .mfa-modal .mfa-btn:hover { background: #fffdf9; }
+#mfaDashboard .mfa-btn:active, .mfa-modal .mfa-btn:active { transform: translateY(3px); box-shadow: none; }
+#mfaDashboard .mfa-btn:disabled, .mfa-modal .mfa-btn:disabled { opacity: .45; cursor: default; transform: none; box-shadow: none; }
+#mfaDashboard .mfa-btn.primary, .mfa-modal .mfa-btn.primary { background: var(--brand, #7c6cf2); border-color: var(--brand, #7c6cf2); color: #fff; box-shadow: 0 3px 0 var(--brand-lip, #5a4bc8); }
+#mfaDashboard .mfa-btn.primary:hover, .mfa-modal .mfa-btn.primary:hover { background: var(--brand-dark, #6455db); }
+#mfaDashboard .mfa-btn.danger, .mfa-modal .mfa-btn.danger { color: var(--mfa-bad); border-color: #f6c6cb; box-shadow: 0 3px 0 #f6c6cb; }
+#mfaDashboard .mfa-btn.danger:hover, .mfa-modal .mfa-btn.danger:hover { background: #fff1f2; }
+
+/* ── KPI 카드 ─────────────────────────────────────── */
+#mfaDashboard .mfa-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; margin-bottom: 18px; }
+#mfaDashboard .mfa-kpi {
+  padding: 16px 18px; background: var(--surface, #fff); border: 2px solid var(--border, #f0e3d0);
+  border-radius: var(--radius, 20px); box-shadow: var(--shadow, 0 4px 0 #e7d6bc);
+}
+#mfaDashboard .mfa-kpi .label { font-size: 12px; font-weight: 600; color: var(--muted, #7a7391); }
+#mfaDashboard .mfa-kpi .value { margin-top: 6px; font-family: var(--font-cute, inherit); font-size: 30px; font-weight: 400; color: var(--text, #2e2a45); }
+#mfaDashboard .mfa-kpi .sub { margin-top: 4px; font-size: 12px; color: var(--muted, #7a7391); min-height: 16px; }
+#mfaDashboard .mfa-kpi.accent .value { color: var(--brand, #7c6cf2); }
+#mfaDashboard .mfa-kpi.ok .value { color: var(--mfa-ok); }
+#mfaDashboard .mfa-kpi.warn .value { color: var(--mfa-warn); }
+#mfaDashboard .mfa-up { color: var(--mfa-ok); font-weight: 700; }
+#mfaDashboard .mfa-down { color: var(--mfa-bad); font-weight: 700; }
+
+/* ── 패널(차트·표 감싸기) ──────────────────────────── */
+#mfaDashboard .mfa-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin-bottom: 16px; }
+#mfaDashboard .mfa-panel {
+  padding: 18px 20px; background: var(--surface, #fff); border: 2px solid var(--border, #f0e3d0);
+  border-radius: var(--radius, 20px); box-shadow: var(--shadow, 0 4px 0 #e7d6bc); margin-bottom: 16px; min-width: 0;
+}
+#mfaDashboard .mfa-grid2 .mfa-panel { margin-bottom: 0; }
+#mfaDashboard .mfa-panel h3 { margin: 0 0 12px; font-family: var(--font-cute, inherit); font-size: 18px; font-weight: 400; flex-wrap: wrap; color: var(--text, #2e2a45); display: flex; align-items: center; gap: 8px; }
+#mfaDashboard .mfa-panel h3 small { font-family: -apple-system, 'Apple SD Gothic Neo', sans-serif; font-size: 12px; font-weight: 500; color: var(--muted, #7a7391); }
+#mfaDashboard .mfa-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 8px; font-size: 12px; color: var(--muted, #7a7391); }
+#mfaDashboard .mfa-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+#mfaDashboard .mfa-chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+#mfaDashboard .mfa-chart text { font-size: 10px; fill: #b2a58f; font-family: inherit; }
+#mfaDashboard .mfa-chart .grid { stroke: var(--cream-3, #f6ecdd); stroke-width: 1; }
+#mfaDashboard .mfa-chart circle:hover { r: 5; }
+
+/* ── 표 ───────────────────────────────────────────── */
+#mfaDashboard .mfa-table-wrap { overflow-x: auto; border: 2px solid var(--border, #f0e3d0); border-radius: var(--radius, 20px); background: #fff; box-shadow: var(--shadow, 0 4px 0 #e7d6bc); }
+#mfaDashboard .mfa-table { width: 100%; border-collapse: collapse; }
+#mfaDashboard .mfa-table th {
+  padding: 11px 14px; text-align: left; white-space: nowrap; background: var(--cream-2, #fff3e2); color: var(--muted, #7a7391);
+  font-size: 12px; font-weight: 700; border-bottom: 2px solid var(--border, #f0e3d0);
+}
+#mfaDashboard .mfa-table td { padding: 11px 14px; font-size: 13px; border-bottom: 1px solid var(--border, #f0e3d0); color: var(--text, #2e2a45); vertical-align: middle; }
+#mfaDashboard .mfa-table tr:last-child td { border-bottom: none; }
+#mfaDashboard .mfa-table tbody tr.click { cursor: pointer; }
+#mfaDashboard .mfa-table tbody tr.click:hover td { background: #fffbf4; }
+#mfaDashboard .mfa-table td.num, #mfaDashboard .mfa-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+#mfaDashboard .mfa-table td.muted { color: var(--muted, #7a7391); }
+#mfaDashboard .mfa-table tr.hot td { background: #fff0e1; }
+#mfaDashboard .mfa-empty::before { content: '🌱'; display: block; font-size: 34px; margin-bottom: 6px; }
+#mfaDashboard .mfa-empty { padding: 48px 16px; text-align: center; color: var(--muted, #7a7391); font-size: 14px; line-height: 1.7; }
+#mfaDashboard .mfa-pager { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 14px; font-size: 13px; color: var(--muted, #7a7391); }
+
+/* ── 뱃지·막대 ────────────────────────────────────── */
+#mfaDashboard .mfa-badge, .mfa-modal .mfa-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; background: var(--cream-3, #f6ecdd); color: var(--muted, #7a7391); }
+.mfa-badge.ok { background: #dff6ea; color: #1b7a52; }
+.mfa-badge.warn { background: #fff1d6; color: #a86500; }
+.mfa-badge.bad { background: #ffe5e8; color: #c23a4a; }
+.mfa-badge.info { background: #e3f1fd; color: #1d6ea6; }
+.mfa-badge.brand { background: var(--brand-weak, #f0edff); color: var(--brand, #7c6cf2); }
+#mfaDashboard .mfa-meter { display: flex; align-items: center; gap: 8px; min-width: 110px; }
+#mfaDashboard .mfa-meter .track { flex: 1; height: 8px; border-radius: 999px; background: var(--cream-3, #f6ecdd); overflow: hidden; }
+#mfaDashboard .mfa-meter .fill { height: 100%; border-radius: 999px; background: var(--brand, #7c6cf2); }
+#mfaDashboard .mfa-meter .fill.bad { background: var(--mfa-bad); }
+#mfaDashboard .mfa-meter .fill.warn { background: var(--mfa-warn); }
+#mfaDashboard .mfa-meter .fill.ok { background: var(--mfa-ok); }
+#mfaDashboard .mfa-meter b { width: 44px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+#mfaDashboard .mfa-heat { display: inline-block; min-width: 54px; padding: 3px 8px; border-radius: 8px; text-align: center; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+#mfaDashboard .mfa-rowline { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; font-size: 13px; color: #5d577a; border-bottom: 1px dashed var(--border, #f0e3d0); }
+#mfaDashboard .mfa-rowline:last-child { border-bottom: none; }
+#mfaDashboard .mfa-rowline b { color: var(--text, #2e2a45); font-variant-numeric: tabular-nums; }
+
+/* ── 로딩 스켈레톤 ─────────────────────────────────── */
+#mfaDashboard .mfa-skel { height: 72px; border-radius: 12px; background: linear-gradient(90deg, #f0f1f6 25%, #f7f8fb 37%, #f0f1f6 63%); background-size: 400% 100%; animation: mfa-shimmer 1.3s infinite; }
+@keyframes mfa-shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+/* ── 모달 ─────────────────────────────────────────── */
+.mfa-modal { display: none; position: fixed; inset: 0; z-index: 120; overflow-y: auto; padding: 40px 16px; background: rgba(46,42,69,.45); backdrop-filter: blur(2px); justify-content: center; align-items: flex-start; }
+.mfa-modal.show { display: flex; }
+.mfa-modal .box { width: 100%; max-width: 760px; margin: auto; background: #fff; border: 2px solid var(--border, #f0e3d0); border-radius: 28px; box-shadow: 0 6px 0 var(--lip, #e7d6bc), 0 30px 60px rgba(46,42,69,.25); overflow: hidden; }
+.mfa-modal .head { display: flex; justify-content: space-between; align-items: center; padding: 18px 24px; border-bottom: 2px dashed var(--border, #f0e3d0); position: sticky; top: 0; background: #fffdf9; z-index: 1; }
+.mfa-modal .head h2 { margin: 0; font-family: var(--font-cute, inherit); font-size: 21px; font-weight: 400; }
+.mfa-modal .head .x { border: none; background: none; font-size: 26px; line-height: 1; color: #b2a58f; cursor: pointer; }
+.mfa-modal .body { padding: 20px 24px 24px; }
+.mfa-modal .foot { display: flex; gap: 10px; justify-content: space-between; align-items: center; padding: 14px 24px; border-top: 2px dashed var(--border, #f0e3d0); background: #fffdf9; }
+.mfa-modal .sec { margin-top: 20px; }
+.mfa-modal .sec:first-child { margin-top: 0; }
+.mfa-modal .sec h4 { margin: 0 0 8px; font-family: var(--font-cute, inherit); font-size: 15px; font-weight: 400; color: var(--text, #2e2a45); }
+.mfa-modal .kv { display: grid; grid-template-columns: 110px 1fr; font-size: 13px; border: 2px solid var(--border, #f0e3d0); border-radius: 16px; overflow: hidden; }
+.mfa-modal .kv > div { padding: 9px 12px; border-bottom: 1px solid var(--border, #f0e3d0); }
+.mfa-modal .kv > div:nth-last-child(-n+2) { border-bottom: none; }
+.mfa-modal .kv > div:nth-child(odd) { background: var(--cream-2, #fff3e2); color: var(--muted, #7a7391); font-weight: 600; }
+.mfa-modal .msg { padding: 14px; border-radius: 16px; background: var(--cream-2, #fff3e2); white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.6; }
+.mfa-modal .mini { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.mfa-modal .mini th { text-align: left; padding: 7px 8px; color: var(--muted, #7a7391); font-weight: 700; border-bottom: 1px solid var(--border, #f0e3d0); }
+.mfa-modal .mini td { padding: 7px 8px; border-bottom: 1px solid var(--border, #f0e3d0); }
+.mfa-modal .mini tr:last-child td { border-bottom: none; }
+.mfa-modal .adjust { padding: 14px; border: 2px dashed var(--border, #f0e3d0); border-radius: 16px; background: #fffdf9; }
+.mfa-modal .adjust .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+.mfa-modal .mfa-input, .mfa-modal .mfa-textarea { padding: 9px 14px; border: 2px solid var(--border, #f0e3d0); border-radius: 14px; font-size: 14px; font-family: inherit; background: #fff; }
+.mfa-modal .mfa-textarea { width: 100%; min-height: 120px; resize: vertical; line-height: 1.6; }
+.mfa-modal .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.mfa-modal .chip { padding: 5px 12px; font-weight: 600; border: 2px solid var(--border, #f0e3d0); border-radius: 999px; background: #fff; font-size: 12px; cursor: pointer; color: #5d577a; }
+.mfa-modal .chip:hover { border-color: var(--brand, #7c6cf2); color: var(--brand, #7c6cf2); }
+.mfa-modal .hint { font-size: 12px; color: var(--muted, #7a7391); }
+
+/* ── 토스트 ───────────────────────────────────────── */
+#mfaToasts { position: fixed; right: 20px; bottom: 20px; z-index: 300; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+#mfaToasts .t { padding: 12px 18px; border-radius: 16px; background: var(--text, #2e2a45); color: #fff; font-family: var(--font-cute, inherit); font-size: 15px; font-weight: 400; box-shadow: 0 4px 0 rgba(0,0,0,.18), 0 12px 28px rgba(46,42,69,.25); animation: mfa-toast-in .18s ease-out; }
+#mfaToasts .t.ok { background: #2a9b6c; }
+#mfaToasts .t.bad { background: #d9535f; }
+@keyframes mfa-toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 768px) {
+  #mfaDashboard .mfa-tabs { padding: 4px 8px 0; }
+  #mfaDashboard .mfa-pane { padding: 16px 12px; }
+  #mfaDashboard .mfa-kpis { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  #mfaDashboard .mfa-kpi { padding: 12px 14px; }
+  #mfaDashboard .mfa-kpi .value { font-size: 21px; }
+  #mfaDashboard .mfa-grid2 { grid-template-columns: 1fr; }
+  #mfaDashboard .mfa-input.search { min-width: 0; max-width: none; width: 100%; }
+  #mfaDashboard .mfa-table td, #mfaDashboard .mfa-table th { padding: 9px 10px; font-size: 12px; white-space: nowrap; }
+  .mfa-modal { padding: 12px 8px; }
+  .mfa-modal .body { padding: 16px; }
+  .mfa-modal .kv { grid-template-columns: 90px 1fr; }
+  #mfaToasts { left: 12px; right: 12px; bottom: 12px; }
+}

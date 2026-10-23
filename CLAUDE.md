@@ -82,16 +82,18 @@
 
 | 파일 | 용도 |
 |------|------|
-| `server/src/routes/mathforadults.ts` | 앱용 공개 API — 문의 등록/조회(`inquiries`), 답변 읽음 처리(`inquiries/read`). 로그인 없이 deviceId 기반. |
+| `server/src/routes/mathforadults.ts` | 앱용 공개 API — 문의 등록/조회(`inquiries`), 답변 읽음 처리(`inquiries/read`), 접속 ping(`device-ping`), 익명 사용 이벤트(`events` — 소코반·광고 지표), 소셜 로그인·진도·IAP·힌트쿠폰. |
+| `server/public/admin/mfa.js` | 관리자 화면 전체(통계·소코반/광고·유저·결제·문의). `index.html` 의 `#mfaDashboard` 껍데기를 채운다. 전역은 `mfaEnter` 하나, 클릭은 `data-act` 위임. |
+| `server/public/admin/mfa.css` | 관리자 mfa 화면 스타일(`#mfaDashboard`·`.mfa-*`·`.mfa-modal` 범위만). |
 
 ### 공용 파일 안의 MFA 구역 (해당 줄/블록만 성인의 수학 소유)
 
 | 파일 | MFA 구역 |
 |------|----------|
 | `server/src/index.ts` | `import mathForAdultsRouter`, `app.use('/api/mathforadults', ...)`, `app.use('/mfa', static ...)` |
-| `server/src/config/database.ts` | `mfa_inquiries` 등 `mfa_` 테이블 생성 블록 |
-| `server/src/routes/admin.ts` | `/api/admin/mfa/*` 엔드포인트(문의 목록·답변·삭제) |
-| `server/public/admin/index.html` | `GAMES` 배열의 `{ id: 'mfa', ... }` 카드 + `#mfaDashboard` 섹션 + `#mfaInquiryModal` 모달 + `loadMfaInquiries`/`replyMfaInquiry` 등 `mfa*` JS 함수 |
+| `server/src/config/database.ts` | `mfa_inquiries`·`mfa_users`·`mfa_purchases`·`mfa_coupon_log`(+`note`)·`mfa_events`(익명 사용 이벤트) 등 `mfa_` 테이블 생성 블록 |
+| `server/src/routes/admin.ts` | `/api/admin/mfa/*` 엔드포인트 — 문의(목록·답변·삭제), 유저(목록·필터·상세·`users/:id/coupons` 쿠폰 수동 조정), 결제(필터·페이지), 통계(`stats`·`stats/daily`·`stats/retention`·`stats/sokoban`·`stats/ads`) |
+| `server/public/admin/index.html` | `GAMES` 배열의 `{ id: 'mfa', ... }` 카드 + `#mfaDashboard` 빈 껍데기 + `mfa.css`/`mfa.js` 로드 태그 + `showGame` 의 `mfaEnter()` 호출 (화면·동작 본체는 `mfa.js`) |
 | `server/public/mfa/` | 약관·개인정보·고객지원 정적 페이지(`/mfa/privacy`, `/mfa/support`). 성인의 수학 소유. |
 
 각 위치에는 `[MFA]` 마커 주석이 달려 있다. `git grep -n "\[MFA\]"` 로 전체를 확인할 수 있다.

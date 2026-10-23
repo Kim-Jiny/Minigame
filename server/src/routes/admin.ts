@@ -62,6 +62,12 @@ function resolveAdminJwtSecret(): string {
 const ADMIN_JWT_SECRET = resolveAdminJwtSecret();
 
 // 관리자 토큰 검증 미들웨어
+// 관리자 로그인 유지 기간. 접속(refresh)할 때마다 연장되므로 한 달 안에 한 번만 열면 계속 유지된다.
+const ADMIN_TOKEN_TTL = '30d';
+function signAdminToken(adminId: number, username: string): string {
+  return jwt.sign({ adminId, username }, ADMIN_JWT_SECRET, { expiresIn: ADMIN_TOKEN_TTL });
+}
+
 async function verifyAdminToken(req: Request, res: Response, next: Function) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -133,17 +139,18 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const token = jwt.sign(
-      { adminId: admin.id, username: admin.username },
-      ADMIN_JWT_SECRET,
-      { expiresIn: '24h' }
-    );
-
-    res.json({ success: true, token, username: admin.username });
+    res.json({ success: true, token: signAdminToken(admin.id, admin.username), username: admin.username });
   } catch (error) {
     console.error('Admin login error:', error);
     res.status(500).json({ error: 'Login failed' });
   }
+});
+
+// POST /api/admin/refresh - 유효한 토큰으로 새 토큰 발급(접속할 때마다 로그인 유지 기간이 연장된다).
+//   관리자 페이지가 열릴 때 토큰이 아직 유효한지 먼저 확인하는 용도로도 쓴다(만료면 401).
+router.post('/refresh', verifyAdminToken, (req: Request, res: Response): void => {
+  const admin = (req as any).admin as { adminId: number; username: string };
+  res.json({ success: true, token: signAdminToken(admin.adminId, admin.username), username: admin.username });
 });
 
 // ============================================================
@@ -901,24 +908,38 @@ router.get('/mfa/inquiries', verifyAdminToken, async (req: Request, res: Respons
     const params: unknown[] = [];
     if (status === 'pending' || status === 'replied') {
       params.push(status);
-      conditions.push(`status = $${params.length}`);
+      conditions.push(`i.status = $${params.length}`);
     }
     if (q) {
       params.push(`%${q}%`);
       const idx = params.length;
-      conditions.push(`(nickname ILIKE $${idx} OR content ILIKE $${idx} OR device_id ILIKE $${idx})`);
+      conditions.push(`(i.nickname ILIKE $${idx} OR i.content ILIKE $${idx} OR i.device_id ILIKE $${idx})`);
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
+    // 문의자 기기 정보(플랫폼·첫 실행·최근 실행·실행 횟수)를 붙여 CS가 상황을 바로 보게 한다.
     const result = await pool.query(
-      `SELECT id, device_id, nickname, content, status, reply, replied_at, is_read, created_at
-       FROM mfa_inquiries ${where}
-       ORDER BY (status = 'pending') DESC, created_at DESC
+      `SELECT i.id, i.device_id, i.nickname, i.content, i.status, i.reply, i.replied_at, i.is_read, i.created_at,
+              d.platform AS device_platform, d.first_seen AS device_first_seen,
+              d.last_seen AS device_last_seen, d.launch_count AS device_launch_count
+       FROM mfa_inquiries i
+       LEFT JOIN mfa_devices d ON d.device_id = i.device_id
+       ${where}
+       ORDER BY (i.status = 'pending') DESC, i.created_at DESC
        LIMIT 300`,
       params
     );
-    const pending = await pool.query(`SELECT COUNT(*) FROM mfa_inquiries WHERE status = 'pending'`);
-    res.json({ inquiries: result.rows, pendingCount: parseInt(pending.rows[0].count, 10) });
+    const counts = await pool.query(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
+              COUNT(*) FILTER (WHERE status = 'replied')::int AS replied
+       FROM mfa_inquiries`
+    );
+    res.json({
+      inquiries: result.rows,
+      pendingCount: counts.rows[0].pending,
+      counts: counts.rows[0],
+    });
   } catch (error) {
     console.error('MFA admin list inquiries error:', error);
     res.status(500).json({ error: 'Failed to load inquiries' });
@@ -1025,6 +1046,7 @@ router.get('/mfa/stats', verifyAdminToken, async (_req: Request, res: Response):
       coupons: {
         granted: (couponByReason['checkin'] || 0) + (couponByReason['purchase'] || 0),
         spent: Math.abs(couponByReason['spend'] || 0),
+        adminNet: couponByReason['admin'] || 0, // 관리자 수동 조정 순증감
       },
     });
   } catch (error) {
@@ -1033,7 +1055,8 @@ router.get('/mfa/stats', verifyAdminToken, async (_req: Request, res: Response):
   }
 });
 
-// GET /api/admin/mfa/users?q=검색어&page=1 - MFA 가입 유저 목록(검색/페이지네이션)
+// GET /api/admin/mfa/users?q=&page=1&provider=&hasBalance=1&adsRemoved=1&sort=recent|login|balance
+//   - MFA 가입 유저 목록(검색·필터·정렬·페이지네이션)
 router.get('/mfa/users', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
   try {
     const pool = getPool();
@@ -1042,25 +1065,47 @@ router.get('/mfa/users', verifyAdminToken, async (req: Request, res: Response): 
       return;
     }
     const q = ((req.query.q as string) || '').trim();
+    const provider = typeof req.query.provider === 'string' ? req.query.provider : '';
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 20));
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
     const offset = (page - 1) * limit;
 
+    const conditions: string[] = [];
     const params: unknown[] = [];
-    let where = '';
     if (q) {
       params.push(`%${q}%`);
-      where = `WHERE nickname ILIKE $1 OR email ILIKE $1 OR CAST(id AS TEXT) = $${params.length + 1}`;
+      const like = params.length;
       params.push(q);
+      conditions.push(`(u.nickname ILIKE $${like} OR u.email ILIKE $${like} OR CAST(u.id AS TEXT) = $${params.length})`);
     }
+    if (provider && /^[a-z]{1,10}$/.test(provider)) {
+      params.push(provider);
+      conditions.push(`u.provider = $${params.length}`);
+    }
+    if (req.query.hasBalance === '1') conditions.push('u.hint_coupon_balance > 0');
+    if (req.query.adsRemoved === '1') {
+      conditions.push(
+        `EXISTS (SELECT 1 FROM mfa_purchases p WHERE p.user_id = u.id AND p.kind = 'remove_ads' AND p.verified = TRUE)`
+      );
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const order =
+      req.query.sort === 'login'
+        ? 'u.last_login DESC NULLS LAST, u.id DESC'
+        : req.query.sort === 'balance'
+          ? 'u.hint_coupon_balance DESC, u.id DESC'
+          : 'u.id DESC';
 
-    const countResult = await pool.query(`SELECT COUNT(*) FROM mfa_users ${where}`, params);
+    const countResult = await pool.query(`SELECT COUNT(*) FROM mfa_users u ${where}`, params);
     const total = parseInt(countResult.rows[0].count, 10);
 
     const usersResult = await pool.query(
-      `SELECT id, nickname, email, provider, created_at, last_login, hint_coupon_balance
-       FROM mfa_users ${where}
-       ORDER BY id DESC
+      `SELECT u.id, u.nickname, u.email, u.provider, u.created_at, u.last_login, u.hint_coupon_balance,
+              EXISTS (SELECT 1 FROM mfa_purchases p
+                      WHERE p.user_id = u.id AND p.kind = 'remove_ads' AND p.verified = TRUE) AS ads_removed,
+              (SELECT COUNT(*)::int FROM mfa_purchases p WHERE p.user_id = u.id AND p.verified = TRUE) AS purchase_count
+       FROM mfa_users u ${where}
+       ORDER BY ${order}
        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, limit, offset]
     );
@@ -1069,6 +1114,58 @@ router.get('/mfa/users', verifyAdminToken, async (req: Request, res: Response): 
   } catch (error) {
     console.error('MFA admin list users error:', error);
     res.status(500).json({ error: 'Failed to get users' });
+  }
+});
+
+// POST /api/admin/mfa/users/:id/coupons { delta, note } - 힌트쿠폰 수동 지급/회수(CS 보상·오지급 정정)
+//   잔액이 음수가 되는 회수는 거절한다. 같은 트랜잭션에서 mfa_coupon_log 에 사유(admin)와 메모를 남긴다.
+router.post('/mfa/users/:id/coupons', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  const pool = getPool();
+  if (!pool) {
+    res.status(500).json({ error: 'Database not available' });
+    return;
+  }
+  const userId = parseInt(String(req.params.id), 10);
+  const delta = Number(req.body?.delta);
+  const note = typeof req.body?.note === 'string' ? req.body.note.trim() : '';
+  if (!Number.isInteger(userId) || !Number.isInteger(delta) || delta === 0 || Math.abs(delta) > 100) {
+    res.status(400).json({ error: 'delta must be a non-zero integer within ±100' });
+    return;
+  }
+  if (note.length < 2) {
+    res.status(400).json({ error: 'note is required (사유를 2자 이상 입력)' });
+    return;
+  }
+  const adminName = String((req as any).admin?.username || 'admin');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const cur = await client.query('SELECT hint_coupon_balance FROM mfa_users WHERE id = $1 FOR UPDATE', [userId]);
+    if (cur.rows.length === 0) {
+      await client.query('ROLLBACK');
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+    const next = cur.rows[0].hint_coupon_balance + delta;
+    if (next < 0) {
+      await client.query('ROLLBACK');
+      res.status(400).json({ error: `잔액이 부족해요 (현재 ${cur.rows[0].hint_coupon_balance}개)` });
+      return;
+    }
+    await client.query('UPDATE mfa_users SET hint_coupon_balance = $1 WHERE id = $2', [next, userId]);
+    await client.query(
+      `INSERT INTO mfa_coupon_log (user_id, delta, reason, balance_after, note)
+       VALUES ($1, $2, 'admin', $3, $4)`,
+      [userId, delta, next, `[${adminName}] ${note}`.slice(0, 200)]
+    );
+    await client.query('COMMIT');
+    res.json({ success: true, balance: next });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    console.error('MFA admin coupon adjust error:', error);
+    res.status(500).json({ error: 'Failed to adjust coupons' });
+  } finally {
+    client.release();
   }
 });
 
@@ -1098,7 +1195,7 @@ router.get('/mfa/users/:id', verifyAdminToken, async (req: Request, res: Respons
         [id]
       ),
       pool.query(
-        `SELECT delta, reason, balance_after, created_at
+        `SELECT delta, reason, balance_after, note, created_at
          FROM mfa_coupon_log WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`,
         [id]
       ),
@@ -1129,7 +1226,8 @@ router.get('/mfa/users/:id', verifyAdminToken, async (req: Request, res: Respons
   }
 });
 
-// GET /api/admin/mfa/purchases?status=verified|failed|all&q=닉네임검색 - MFA 인앱결제 검증 내역
+// GET /api/admin/mfa/purchases?status=verified|failed|all&q=&kind=&platform=&from=YYYY-MM-DD&to=YYYY-MM-DD&page=1
+//   - MFA 인앱결제 검증 내역(필터·기간·페이지네이션). summary 는 필터와 무관한 전체 집계.
 router.get('/mfa/purchases', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
   try {
     const pool = getPool();
@@ -1139,6 +1237,13 @@ router.get('/mfa/purchases', verifyAdminToken, async (req: Request, res: Respons
     }
     const status = typeof req.query.status === 'string' ? req.query.status : 'all';
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const kind = typeof req.query.kind === 'string' ? req.query.kind : '';
+    const platform = typeof req.query.platform === 'string' ? req.query.platform : '';
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    const from = typeof req.query.from === 'string' && dateRe.test(req.query.from) ? req.query.from : '';
+    const to = typeof req.query.to === 'string' && dateRe.test(req.query.to) ? req.query.to : '';
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 30));
 
     const conditions: string[] = [];
     const params: unknown[] = [];
@@ -1150,8 +1255,29 @@ router.get('/mfa/purchases', verifyAdminToken, async (req: Request, res: Respons
       params.push(`%${q}%`);
       conditions.push(`(u.nickname ILIKE $${params.length} OR u.email ILIKE $${params.length})`);
     }
+    if (kind === 'remove_ads' || kind === 'hint_coupons') {
+      params.push(kind);
+      conditions.push(`p.kind = $${params.length}`);
+    }
+    if (platform === 'ios' || platform === 'android') {
+      params.push(platform);
+      conditions.push(`p.platform = $${params.length}`);
+    }
+    if (from) {
+      params.push(from);
+      conditions.push(`p.created_at >= $${params.length}::date`);
+    }
+    if (to) {
+      params.push(to);
+      conditions.push(`p.created_at < ($${params.length}::date + 1)`);
+    }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
+    const totalRes = await pool.query(
+      `SELECT COUNT(*)::int AS c FROM mfa_purchases p LEFT JOIN mfa_users u ON p.user_id = u.id ${where}`,
+      params
+    );
+    const total = totalRes.rows[0].c;
     const result = await pool.query(
       `SELECT p.id, p.user_id, u.nickname, u.email, p.platform, p.product_id, p.transaction_id,
               p.kind, p.verified, p.status, p.environment, p.created_at
@@ -1159,20 +1285,186 @@ router.get('/mfa/purchases', verifyAdminToken, async (req: Request, res: Respons
        LEFT JOIN mfa_users u ON p.user_id = u.id
        ${where}
        ORDER BY p.created_at DESC
-       LIMIT 500`,
-      params
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, (page - 1) * limit]
     );
     const agg = await pool.query(
       `SELECT
          COUNT(*)::int AS total,
          COUNT(*) FILTER (WHERE verified)::int AS verified,
-         COUNT(*) FILTER (WHERE NOT verified)::int AS failed
+         COUNT(*) FILTER (WHERE NOT verified)::int AS failed,
+         COUNT(*) FILTER (WHERE verified AND kind = 'hint_coupons')::int AS hint_coupons,
+         COUNT(*) FILTER (WHERE verified AND kind = 'remove_ads')::int AS remove_ads,
+         COUNT(*) FILTER (WHERE verified AND created_at >= CURRENT_DATE - 29)::int AS verified_30d
        FROM mfa_purchases`
     );
-    res.json({ purchases: result.rows, summary: agg.rows[0] });
+    res.json({
+      purchases: result.rows,
+      summary: agg.rows[0],
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    });
   } catch (error) {
     console.error('MFA admin list purchases error:', error);
     res.status(500).json({ error: 'Failed to load purchases' });
+  }
+});
+
+// GET /api/admin/mfa/stats/daily?days=30 - 일별 추이(DAU·신규 기기·가입·출석·결제)
+router.get('/mfa/stats/daily', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const days = Math.min(90, Math.max(7, parseInt(req.query.days as string) || 30));
+    const result = await pool.query(
+      `WITH d AS (SELECT generate_series(CURRENT_DATE - ($1::int - 1), CURRENT_DATE, '1 day')::date AS day)
+       SELECT to_char(d.day, 'YYYY-MM-DD') AS day,
+         (SELECT COUNT(*) FROM mfa_device_daily x WHERE x.day = d.day)::int AS dau,
+         (SELECT COUNT(*) FROM mfa_devices x WHERE x.first_seen::date = d.day)::int AS new_devices,
+         (SELECT COUNT(*) FROM mfa_users x WHERE x.created_at::date = d.day)::int AS signups,
+         (SELECT COUNT(*) FROM mfa_checkins x WHERE x.day = d.day)::int AS checkins,
+         (SELECT COUNT(*) FROM mfa_purchases x WHERE x.created_at::date = d.day AND x.verified)::int AS purchases
+       FROM d ORDER BY d.day`,
+      [days]
+    );
+    res.json({ days, rows: result.rows });
+  } catch (error) {
+    console.error('MFA admin daily stats error:', error);
+    res.status(500).json({ error: 'Failed to load daily stats' });
+  }
+});
+
+// GET /api/admin/mfa/stats/retention?days=14 - 신규 기기 코호트별 D1/D7 재방문율
+router.get('/mfa/stats/retention', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const days = Math.min(60, Math.max(7, parseInt(req.query.days as string) || 14));
+    const result = await pool.query(
+      `SELECT to_char(c.cohort, 'YYYY-MM-DD') AS day,
+              (CURRENT_DATE - c.cohort)::int AS age,
+              COUNT(*)::int AS size,
+              COUNT(*) FILTER (WHERE EXISTS (
+                SELECT 1 FROM mfa_device_daily x WHERE x.device_id = c.device_id AND x.day = c.cohort + 1))::int AS d1,
+              COUNT(*) FILTER (WHERE EXISTS (
+                SELECT 1 FROM mfa_device_daily x WHERE x.device_id = c.device_id AND x.day = c.cohort + 7))::int AS d7
+       FROM (SELECT device_id, first_seen::date AS cohort FROM mfa_devices
+             WHERE first_seen::date >= CURRENT_DATE - ($1::int - 1)) c
+       GROUP BY c.cohort ORDER BY c.cohort DESC`,
+      [days]
+    );
+    res.json({ days, rows: result.rows });
+  } catch (error) {
+    console.error('MFA admin retention error:', error);
+    res.status(500).json({ error: 'Failed to load retention' });
+  }
+});
+
+// GET /api/admin/mfa/stats/sokoban?days=30 - 소코반 단계별 도전·클리어·이탈 지표(앱이 보낸 mfa_events 기반)
+router.get('/mfa/stats/sokoban', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const days = Math.min(90, Math.max(1, parseInt(req.query.days as string) || 30));
+    const [levels, daily, summary] = await Promise.all([
+      pool.query(
+        `SELECT level,
+                COUNT(*) FILTER (WHERE event = 'sk_start')::int AS starts,
+                COUNT(DISTINCT device_id) FILTER (WHERE event = 'sk_start')::int AS start_devices,
+                COUNT(*) FILTER (WHERE event = 'sk_clear')::int AS clears,
+                COUNT(DISTINCT device_id) FILTER (WHERE event = 'sk_clear')::int AS clear_devices,
+                COUNT(*) FILTER (WHERE event = 'sk_fail')::int AS fails,
+                COUNT(*) FILTER (WHERE event = 'sk_restart')::int AS restarts,
+                COUNT(*) FILTER (WHERE event = 'sk_resume')::int AS resumes,
+                ROUND(AVG(value) FILTER (WHERE event = 'sk_clear'))::int AS avg_moves,
+                ROUND(AVG(extra::numeric) FILTER (WHERE event = 'sk_clear' AND extra ~ '^[0-9]+$'), 1)::float AS avg_stars
+         FROM mfa_events
+         WHERE event LIKE 'sk\_%' AND level IS NOT NULL AND created_at >= CURRENT_DATE - ($1::int - 1)
+         GROUP BY level ORDER BY level`,
+        [days]
+      ),
+      pool.query(
+        `WITH d AS (SELECT generate_series(CURRENT_DATE - ($1::int - 1), CURRENT_DATE, '1 day')::date AS day)
+         SELECT to_char(d.day, 'YYYY-MM-DD') AS day,
+           (SELECT COUNT(DISTINCT device_id) FROM mfa_events e
+              WHERE e.event IN ('sk_start','sk_resume') AND e.created_at::date = d.day)::int AS players,
+           (SELECT COUNT(*) FROM mfa_events e WHERE e.event = 'sk_start' AND e.created_at::date = d.day)::int AS starts,
+           (SELECT COUNT(*) FROM mfa_events e WHERE e.event = 'sk_clear' AND e.created_at::date = d.day)::int AS clears
+         FROM d ORDER BY d.day`,
+        [days]
+      ),
+      pool.query(
+        `SELECT COUNT(DISTINCT device_id)::int AS players,
+                COUNT(*) FILTER (WHERE event = 'sk_start')::int AS starts,
+                COUNT(*) FILTER (WHERE event = 'sk_clear')::int AS clears,
+                COUNT(*) FILTER (WHERE event = 'sk_restart')::int AS restarts,
+                COUNT(*) FILTER (WHERE event = 'sk_fail')::int AS fails,
+                MAX(level) FILTER (WHERE event = 'sk_clear')::int AS best_level
+         FROM mfa_events
+         WHERE event LIKE 'sk\_%' AND created_at >= CURRENT_DATE - ($1::int - 1)`,
+        [days]
+      ),
+    ]);
+    res.json({ days, summary: summary.rows[0], levels: levels.rows, daily: daily.rows });
+  } catch (error) {
+    console.error('MFA admin sokoban stats error:', error);
+    res.status(500).json({ error: 'Failed to load sokoban stats' });
+  }
+});
+
+// GET /api/admin/mfa/stats/ads?days=30 - 전면 광고 노출/닫힘 지표(앱이 보낸 mfa_events 기반)
+router.get('/mfa/stats/ads', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const days = Math.min(90, Math.max(1, parseInt(req.query.days as string) || 30));
+    const [daily, byPlacement, summary] = await Promise.all([
+      pool.query(
+        `WITH d AS (SELECT generate_series(CURRENT_DATE - ($1::int - 1), CURRENT_DATE, '1 day')::date AS day)
+         SELECT to_char(d.day, 'YYYY-MM-DD') AS day,
+           (SELECT COUNT(*) FROM mfa_events e WHERE e.event = 'ad_shown' AND e.created_at::date = d.day)::int AS shown,
+           (SELECT COUNT(*) FROM mfa_events e WHERE e.event = 'ad_dismissed' AND e.created_at::date = d.day)::int AS dismissed,
+           (SELECT COUNT(DISTINCT device_id) FROM mfa_events e
+              WHERE e.event = 'ad_shown' AND e.created_at::date = d.day)::int AS devices,
+           (SELECT COUNT(*) FROM mfa_device_daily x WHERE x.day = d.day)::int AS dau
+         FROM d ORDER BY d.day`,
+        [days]
+      ),
+      pool.query(
+        `SELECT COALESCE(extra, '-') AS placement,
+                COUNT(*) FILTER (WHERE event = 'ad_shown')::int AS shown,
+                COUNT(*) FILTER (WHERE event = 'ad_dismissed')::int AS dismissed
+         FROM mfa_events
+         WHERE event IN ('ad_shown','ad_dismissed') AND created_at >= CURRENT_DATE - ($1::int - 1)
+         GROUP BY COALESCE(extra, '-') ORDER BY shown DESC`,
+        [days]
+      ),
+      pool.query(
+        `SELECT COUNT(*) FILTER (WHERE event = 'ad_shown')::int AS shown,
+                COUNT(*) FILTER (WHERE event = 'ad_dismissed')::int AS dismissed,
+                COUNT(DISTINCT device_id) FILTER (WHERE event = 'ad_shown')::int AS devices
+         FROM mfa_events
+         WHERE event IN ('ad_shown','ad_dismissed') AND created_at >= CURRENT_DATE - ($1::int - 1)`,
+        [days]
+      ),
+    ]);
+    res.json({ days, summary: summary.rows[0], byPlacement: byPlacement.rows, daily: daily.rows });
+  } catch (error) {
+    console.error('MFA admin ads stats error:', error);
+    res.status(500).json({ error: 'Failed to load ads stats' });
   }
 });
 
