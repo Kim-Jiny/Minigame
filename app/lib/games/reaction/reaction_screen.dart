@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
@@ -9,7 +11,9 @@ import '../../services/socket_service.dart';
 import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
+import '../../theme/candy_theme.dart';
 import '../../utils/game_theme.dart';
+import '../../widgets/cartoon/cartoon_card.dart';
 import '../common/game_rematch_preparing_view.dart';
 import '../common/game_intro_view.dart';
 import '../common/game_scaffold.dart';
@@ -22,20 +26,17 @@ import '../common/game_result_summary.dart';
 import '../common/game_screen_transition.dart';
 import '../common/game_session_helper.dart';
 import '../common/game_waiting_view.dart';
+import '../common/match_status_views.dart';
+import '../tictactoe/tictactoe_screen.dart'
+    show CandyPulse, showGameInviteSheet;
 
-enum ReactionGameStatus {
-  idle,
-  searching,
-  matched,
-  playing,
-  finished,
-}
+enum ReactionGameStatus { idle, searching, matched, playing, finished }
 
 enum RoundState {
-  waiting,  // 라운드 대기
-  ready,    // 빨간불 (누르면 안됨)
-  go,       // 초록불 (빨리 눌러!)
-  result,   // 결과 표시
+  waiting, // 라운드 대기
+  ready, // 빨간불 (누르면 안됨)
+  go, // 초록불 (빨리 눌러!)
+  result, // 결과 표시
 }
 
 class ReactionScreen extends StatefulWidget {
@@ -49,9 +50,11 @@ class ReactionScreen extends StatefulWidget {
 
 class _ReactionScreenState extends State<ReactionScreen> {
   final SocketService _socketService = SocketService();
-  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
-  bool _hasScheduledPop = false;  // 중복 pop 방지
-  bool _isExitDialogOpen = false;  // 나가기 다이얼로그 열림 상태
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(
+    _socketService,
+  );
+  bool _hasScheduledPop = false; // 중복 pop 방지
+  bool _isExitDialogOpen = false; // 나가기 다이얼로그 열림 상태
 
   ReactionGameStatus _status = ReactionGameStatus.idle;
   RoundState _roundState = RoundState.waiting;
@@ -88,12 +91,14 @@ class _ReactionScreenState extends State<ReactionScreen> {
   bool _isWaitingForReconnect = false;
   Timer? _reconnectTimer;
   Timer? _waitingReconnectTimer;
-  int _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+  int _reconnectSecondsRemaining =
+      GameReconnectHelper.reconnectGraceDuration.inSeconds;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       final auth = context.read<AuthProvider>();
       _myId = auth.socketId;
       _myNickname = auth.nickname;
@@ -108,14 +113,18 @@ class _ReactionScreenState extends State<ReactionScreen> {
   void _initFromGameProvider() {
     try {
       final game = context.read<GameProvider>();
-      debugPrint('🎮 ReactionScreen _initFromGameProvider: isInvitation=${game.isInvitationGame}, roomId=${game.roomId}, opponentNickname=${game.opponentNickname}, status=${game.status}');
-      final isActiveInvitation = game.isInvitationGame &&
+      debugPrint(
+        '🎮 ReactionScreen _initFromGameProvider: isInvitation=${game.isInvitationGame}, roomId=${game.roomId}, opponentNickname=${game.opponentNickname}, status=${game.status}',
+      );
+      final isActiveInvitation =
+          game.isInvitationGame &&
           game.roomId != null &&
           game.opponentNickname != null &&
-          (game.status == GameStatus.matched || game.status == GameStatus.playing);
+          (game.status == GameStatus.matched ||
+              game.status == GameStatus.playing);
       if (isActiveInvitation) {
         debugPrint('🎮 ReactionScreen: 초대 게임 초기화 from GameProvider');
-        setState(() {
+        _set(() {
           _roomId = game.roomId;
           _opponentNickname = game.opponentNickname;
           _opponentAvatarUrl = game.opponentAvatarUrl;
@@ -139,6 +148,12 @@ class _ReactionScreenState extends State<ReactionScreen> {
     super.dispose();
   }
 
+  /// 소켓 콜백 등 비동기 경로에서 안전하게 쓰는 setState (dispose 이후 호출 방지).
+  void _set(VoidCallback fn) {
+    if (!mounted) return;
+    setState(fn);
+  }
+
   bool get _isGameActive =>
       _status != ReactionGameStatus.idle &&
       _status != ReactionGameStatus.searching &&
@@ -147,23 +162,24 @@ class _ReactionScreenState extends State<ReactionScreen> {
   void _startReconnectFlow() {
     if (!_isGameActive || _roomId == null) return;
     _reconnectTimer?.cancel();
-      _waitingReconnectTimer?.cancel();
-      _reconnectTimer = GameReconnectHelper.startReconnectTimeout(
-        context: context,
-        showFailureSnackBar: false,
-        onEnterWaiting: () {
-          if (!mounted) return;
-          setState(() {
-            _isReconnecting = true;
-            _isWaitingForReconnect = false;
-            _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
-          });
-        },
-        onTick: (seconds) {
-          if (!mounted) return;
-          setState(() => _reconnectSecondsRemaining = seconds);
-        },
-        onTimeout: () {
+    _waitingReconnectTimer?.cancel();
+    _reconnectTimer = GameReconnectHelper.startReconnectTimeout(
+      context: context,
+      showFailureSnackBar: false,
+      onEnterWaiting: () {
+        if (!mounted) return;
+        _set(() {
+          _isReconnecting = true;
+          _isWaitingForReconnect = false;
+          _reconnectSecondsRemaining =
+              GameReconnectHelper.reconnectGraceDuration.inSeconds;
+        });
+      },
+      onTick: (seconds) {
+        if (!mounted) return;
+        _set(() => _reconnectSecondsRemaining = seconds);
+      },
+      onTimeout: () {
         GameSessionHelper.handleReconnectTimeout(
           context: context,
           mounted: mounted,
@@ -180,8 +196,9 @@ class _ReactionScreenState extends State<ReactionScreen> {
       _waitingReconnectTimer?.cancel();
     }
     if (!mounted) return;
-    setState(() {
-      _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+    _set(() {
+      _reconnectSecondsRemaining =
+          GameReconnectHelper.reconnectGraceDuration.inSeconds;
       _isReconnecting = reconnecting;
       _isWaitingForReconnect = !reconnecting;
     });
@@ -192,7 +209,7 @@ class _ReactionScreenState extends State<ReactionScreen> {
     _waitingReconnectTimer = GameReconnectHelper.startVisualCountdown(
       onTick: (seconds) {
         if (!mounted || !_isWaitingForReconnect) return;
-        setState(() => _reconnectSecondsRemaining = seconds);
+        _set(() => _reconnectSecondsRemaining = seconds);
       },
     );
   }
@@ -207,20 +224,26 @@ class _ReactionScreenState extends State<ReactionScreen> {
 
     _socketListeners.on('waiting_for_match', (_) {
       debugPrint('🎮 [ReactionScreen] waiting_for_match received');
-      setState(() => _status = ReactionGameStatus.searching);
+      _set(() => _status = ReactionGameStatus.searching);
     });
 
     _socketListeners.on('match_found', (data) {
       debugPrint('🎮 [ReactionScreen] match_found received: $data');
       debugPrint('🎮 [ReactionScreen] Current _myId=$_myId');
       final players = data['players'] as List;
-      final opponent = players.cast<Map<String, dynamic>?>().firstWhere((p) => p!['id'] != _myId, orElse: () => null);
+      final opponent = players.cast<Map<String, dynamic>?>().firstWhere(
+        (p) => p!['id'] != _myId,
+        orElse: () => null,
+      );
       if (opponent == null) return;
-      final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
+      final me = players.firstWhere(
+        (p) => p['id'] == _myId,
+        orElse: () => null,
+      );
       _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
       debugPrint('🎮 [ReactionScreen] myPlayerIndex=$_myPlayerIndex, me=$me');
 
-      setState(() {
+      _set(() {
         _status = ReactionGameStatus.matched;
         _roomId = data['roomId'];
         _opponentNickname = opponent['nickname'];
@@ -229,10 +252,14 @@ class _ReactionScreenState extends State<ReactionScreen> {
         _isInvitationGame = data['isInvitation'] == true;
         // 프로필 설정
         if (me != null && me['profileSettings'] != null) {
-          _myProfileSettings = UserProfileSettings.fromJson(me['profileSettings']);
+          _myProfileSettings = UserProfileSettings.fromJson(
+            me['profileSettings'],
+          );
         }
         if (opponent['profileSettings'] != null) {
-          _opponentProfileSettings = UserProfileSettings.fromJson(opponent['profileSettings']);
+          _opponentProfileSettings = UserProfileSettings.fromJson(
+            opponent['profileSettings'],
+          );
         }
       });
       debugPrint('🎮 [ReactionScreen] Status changed to matched');
@@ -240,7 +267,9 @@ class _ReactionScreenState extends State<ReactionScreen> {
 
     _socketListeners.on('game_start', (data) {
       debugPrint('🎮 [ReactionScreen] game_start received: $data');
-      debugPrint('🎮 [ReactionScreen] Current status=$_status, rematchWaiting=$_rematchWaiting');
+      debugPrint(
+        '🎮 [ReactionScreen] Current status=$_status, rematchWaiting=$_rematchWaiting',
+      );
       if (data['gameType'] == 'reaction') {
         if (data['players'] != null) {
           final players = data['players'] as List;
@@ -251,7 +280,9 @@ class _ReactionScreenState extends State<ReactionScreen> {
         }
         // finished 상태에서 재경기 요청 안 했으면 무시
         if (_status == ReactionGameStatus.finished && !_rematchWaiting) {
-          debugPrint('🎮 [ReactionScreen] ❌ game_start ignored: not waiting for rematch');
+          debugPrint(
+            '🎮 [ReactionScreen] ❌ game_start ignored: not waiting for rematch',
+          );
           return;
         }
         // 게임 시작 시 모든 SnackBar 제거 (중복 알림 방지)
@@ -259,7 +290,7 @@ class _ReactionScreenState extends State<ReactionScreen> {
           ScaffoldMessenger.of(context).clearSnackBars();
         }
         debugPrint('🎮 [ReactionScreen] ✅ Processing game_start for reaction');
-        setState(() {
+        _set(() {
           _status = ReactionGameStatus.playing;
           _currentRound = 0;
           _scores = [0, 0];
@@ -278,12 +309,14 @@ class _ReactionScreenState extends State<ReactionScreen> {
         });
         debugPrint('🎮 [ReactionScreen] Status changed to playing');
       } else {
-        debugPrint('🎮 [ReactionScreen] game_start ignored: gameType is ${data['gameType']}, not reaction');
+        debugPrint(
+          '🎮 [ReactionScreen] game_start ignored: gameType is ${data['gameType']}, not reaction',
+        );
       }
     });
 
     _socketListeners.on('reaction_round_ready', (data) {
-      setState(() {
+      _set(() {
         _currentRound = data['round'];
         _scores = List<int>.from(data['scores']);
         _roundState = RoundState.ready;
@@ -295,13 +328,19 @@ class _ReactionScreenState extends State<ReactionScreen> {
     });
 
     _socketListeners.on('reaction_round_go', (data) {
-      setState(() {
+      HapticFeedback.mediumImpact();
+      _set(() {
         _roundState = RoundState.go;
       });
     });
 
     _socketListeners.on('reaction_round_result', (data) {
-      setState(() {
+      // 내가 부정출발이면 묵직한 진동
+      if (data['falseStart'] == true &&
+          data['pressedPlayerNickname'] != _opponentNickname) {
+        HapticFeedback.heavyImpact();
+      }
+      _set(() {
         _roundState = RoundState.result;
         _lastRoundFalseStart = data['falseStart'];
         _lastRoundWinnerNickname = data['winnerNickname'];
@@ -312,7 +351,7 @@ class _ReactionScreenState extends State<ReactionScreen> {
     });
 
     _socketListeners.on('reaction_round_timeout', (data) {
-      setState(() {
+      _set(() {
         _roundState = RoundState.result;
         _lastRoundFalseStart = false;
         _lastRoundWinnerNickname = null; // 무승부
@@ -325,9 +364,10 @@ class _ReactionScreenState extends State<ReactionScreen> {
       if (data['gameType'] != 'reaction') return;
       _reconnectTimer?.cancel();
       _myId = _socketService.socket?.id;
-      setState(() {
+      _set(() {
         _roomId = data['roomId'] as String?;
-        _myPlayerIndex = (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
+        _myPlayerIndex =
+            (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
         _currentRound = (data['round'] as num?)?.toInt() ?? _currentRound;
         if (data['scores'] != null) {
           _scores = List<int>.from(data['scores']);
@@ -343,10 +383,11 @@ class _ReactionScreenState extends State<ReactionScreen> {
       });
       GameReconnectHelper.completeReconnect(
         context: context,
-        onRecovered: () => setState(() {
+        onRecovered: () => _set(() {
           _isReconnecting = false;
           _isWaitingForReconnect = false;
-          _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+          _reconnectSecondsRemaining =
+              GameReconnectHelper.reconnectGraceDuration.inSeconds;
         }),
       );
     });
@@ -372,13 +413,13 @@ class _ReactionScreenState extends State<ReactionScreen> {
     _socketListeners.on('opponent_reconnected', (_) {
       if (!_isGameActive) return;
       _waitingReconnectTimer?.cancel();
-      setState(() => _isWaitingForReconnect = false);
+      _set(() => _isWaitingForReconnect = false);
       GameReconnectHelper.showOpponentReconnected(context);
     });
 
     _socketListeners.on('game_end', (data) {
       if (_status == ReactionGameStatus.finished) return;
-      setState(() {
+      _set(() {
         _status = ReactionGameStatus.finished;
         _winnerId = data['winner'];
         _isDraw = data['isDraw'] ?? false;
@@ -398,7 +439,7 @@ class _ReactionScreenState extends State<ReactionScreen> {
       }
       // 결과 화면에서 상대가 나간 경우: 결과는 유지하고 재대결만 불가 처리
       if (_status == ReactionGameStatus.finished) {
-        setState(() {
+        _set(() {
           _opponentLeft = true;
           _rematchWaiting = false;
           _opponentWantsRematch = false;
@@ -410,9 +451,9 @@ class _ReactionScreenState extends State<ReactionScreen> {
         Navigator.of(context).pop();
         _isExitDialogOpen = false;
       }
-      setState(() {
+      _set(() {
         _status = ReactionGameStatus.finished;
-      _winnerId = _myId;
+        _winnerId = _myId;
         _opponentLeft = true;
         _rematchWaiting = false;
         _opponentWantsRematch = false;
@@ -423,9 +464,9 @@ class _ReactionScreenState extends State<ReactionScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(widget.isRanked
-              ? '상대가 나가서 게임이 종료되었습니다. 승리!'
-              : '상대방이 나갔습니다.'),
+            content: Text(
+              widget.isRanked ? '상대가 나가서 게임이 종료되었습니다. 승리!' : '상대방이 나갔습니다.',
+            ),
             backgroundColor: Colors.orange,
           ),
         );
@@ -435,10 +476,10 @@ class _ReactionScreenState extends State<ReactionScreen> {
     GameEventHelper.registerRematchHandlers(
       registry: _socketListeners,
       onRematchWaiting: (waiting) {
-        setState(() => _rematchWaiting = waiting);
+        _set(() => _rematchWaiting = waiting);
       },
       onOpponentRematchChanged: (wantsRematch) {
-        setState(() => _opponentWantsRematch = wantsRematch);
+        _set(() => _opponentWantsRematch = wantsRematch);
       },
     );
 
@@ -469,11 +510,13 @@ class _ReactionScreenState extends State<ReactionScreen> {
       'gameType': AppConfig.gameTypeReaction,
       'isHardcore': _isHardcore,
     });
-    setState(() => _status = ReactionGameStatus.idle);
+    _set(() => _status = ReactionGameStatus.idle);
   }
 
   void _pressButton() {
     if (_roundState != RoundState.ready && _roundState != RoundState.go) return;
+    if (_roomId == null) return;
+    HapticFeedback.lightImpact();
 
     _socketService.emit('game_action', {
       'roomId': _roomId,
@@ -487,7 +530,7 @@ class _ReactionScreenState extends State<ReactionScreen> {
 
   void _cancelRematch() {
     _socketService.emit('rematch_cancel', {'roomId': _roomId});
-    setState(() => _rematchWaiting = false);
+    _set(() => _rematchWaiting = false);
   }
 
   void _leaveGame() {
@@ -502,7 +545,7 @@ class _ReactionScreenState extends State<ReactionScreen> {
 
   void _reset() {
     _waitingReconnectTimer?.cancel();
-    setState(() {
+    _set(() {
       _status = ReactionGameStatus.idle;
       _roundState = RoundState.waiting;
       _roomId = null;
@@ -542,7 +585,8 @@ class _ReactionScreenState extends State<ReactionScreen> {
         body: Stack(
           children: [
             GameScreenTransition(
-              transitionKey: '${_status.name}-${_roundState.name}-$_currentRound-${_lastReactionTime ?? -1}-${_lastRoundFalseStart ?? false}',
+              transitionKey:
+                  '${_status.name}-${_roundState.name}-$_currentRound-${_lastReactionTime ?? -1}-${_lastRoundFalseStart ?? false}',
               child: _buildBody(theme),
             ),
             ...GameReconnectHelper.buildStandardOverlays(
@@ -574,154 +618,32 @@ class _ReactionScreenState extends State<ReactionScreen> {
 
   Widget _buildBody(GameTheme theme) {
     return switch (_status) {
-      ReactionGameStatus.idle => widget.isRanked ? _buildRankedWaitingView(theme) : _buildIdleView(theme),
-      ReactionGameStatus.searching => widget.isRanked ? _buildRankedWaitingView(theme) : _buildSearchingView(theme),
-      ReactionGameStatus.matched => widget.isRanked ? _buildRankedWaitingView(theme) : _buildMatchedView(theme),
+      ReactionGameStatus.idle =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildIdleView(theme),
+      ReactionGameStatus.searching =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildSearchingView(theme),
+      ReactionGameStatus.matched =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildMatchedView(theme),
       ReactionGameStatus.playing => _buildPlayingView(theme),
       ReactionGameStatus.finished => _buildFinishedView(theme),
     };
   }
 
   void _showFriendInviteDialog(BuildContext context) {
-    // 친구 목록 새로고침
-    context.read<FriendProvider>().getFriends();
-
-    final shop = context.read<ShopProvider>();
-    final theme = GameTheme.fromProfileSettings(shop.profileSettings);
-
-    showModalBottomSheet(
+    final theme = GameTheme.fromProfileSettings(
+      context.read<ShopProvider>().profileSettings,
+    );
+    showGameInviteSheet(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (dialogContext) => Consumer<FriendProvider>(
-        builder: (context, friendProvider, child) {
-          final onlineFriends = friendProvider.friends.where((f) => f.isOnline).toList();
-
-          return Container(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(dialogContext).size.height * 0.6,
-            ),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // 핸들
-                Container(
-                  margin: const EdgeInsets.only(top: 12),
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                // 헤더
-                Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Row(
-                    children: [
-                      Icon(Icons.person_add, color: theme.primary),
-                      const SizedBox(width: 12),
-                      const Text(
-                        '친구 초대',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1),
-                // 친구 목록
-                Flexible(
-                  child: onlineFriends.isEmpty
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(40),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.person_off, size: 48, color: Colors.grey.shade400),
-                                const SizedBox(height: 16),
-                                Text(
-                                  '온라인 친구가 없습니다',
-                                  style: TextStyle(color: Colors.grey.shade600),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                      : ListView.builder(
-                          shrinkWrap: true,
-                          itemCount: onlineFriends.length,
-                          itemBuilder: (context, index) {
-                            final friend = onlineFriends[index];
-                            return ListTile(
-                              leading: Stack(
-                                children: [
-                                  CircleAvatar(
-                                    backgroundColor: theme.primary.withValues(alpha: 0.2),
-                                    child: Text(
-                                      friend.nickname.isNotEmpty ? friend.nickname[0].toUpperCase() : '?',
-                                      style: TextStyle(color: theme.primary),
-                                    ),
-                                  ),
-                                  Positioned(
-                                    right: 0,
-                                    bottom: 0,
-                                    child: Container(
-                                      width: 12,
-                                      height: 12,
-                                      decoration: BoxDecoration(
-                                        color: Colors.green,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(color: Colors.white, width: 2),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              title: Text(friend.nickname, style: const TextStyle(fontWeight: FontWeight.w600)),
-                              subtitle: friend.memo != null && friend.memo!.isNotEmpty
-                                  ? Text(friend.memo!, style: TextStyle(color: Colors.grey.shade600, fontSize: 12))
-                                  : null,
-                              trailing: ElevatedButton(
-                                onPressed: () {
-                                  friendProvider.inviteToGame(
-                                    friend.id,
-                                    AppConfig.gameTypeReaction,
-                                    isHardcore: false,
-                                  );
-                                  Navigator.pop(dialogContext);
-                                  // 기존 SnackBar 제거 후 새 알림 표시 (중복 방지)
-                                  ScaffoldMessenger.of(context).clearSnackBars();
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text('${friend.nickname}님에게 초대를 보냈습니다!'),
-                                      backgroundColor: Colors.green,
-                                    ),
-                                  );
-                                },
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: theme.primary,
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                ),
-                                child: const Text('초대'),
-                              ),
-                            );
-                          },
-                        ),
-                ),
-                SizedBox(height: MediaQuery.of(dialogContext).padding.bottom + 16),
-              ],
-            ),
-          );
-        },
-      ),
+      accent: theme.primary,
+      gameType: AppConfig.gameTypeReaction,
+      refresh: true, // 친구 목록 새로고침
     );
   }
 
@@ -738,156 +660,127 @@ class _ReactionScreenState extends State<ReactionScreen> {
   }
 
   Widget _buildSearchingView(GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: 60,
-              height: 60,
-              child: CircularProgressIndicator(
-                color: theme.primary,
-                strokeWidth: 4,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              '상대를 찾는 중...',
-              style: TextStyle(
-                fontSize: 18,
-                color: Colors.grey.shade700,
-              ),
-            ),
-            const SizedBox(height: 48),
-            OutlinedButton(
-              onPressed: _cancelMatch,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: theme.primary,
-                side: BorderSide(color: theme.primary),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                ),
-              ),
-              child: const Text('취소'),
-            ),
-          ],
-        ),
-      ),
+    return GameSearchingView(
+      theme: theme,
+      isHardcore: false,
+      onCancel: _cancelMatch,
     );
   }
 
   Widget _buildMatchedView(GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: theme.background1,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.sports_esports,
-                size: 64,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '$_opponentNickname님과 매칭!',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: theme.primary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '게임이 곧 시작됩니다...',
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
-          ],
-        ),
-      ),
-    );
+    return GameMatchedView(theme: theme, opponentNickname: _opponentNickname);
   }
 
-  Widget _buildPlayingView(GameTheme theme) {
-    return Column(
-      children: [
-        // 프로필 & 점수판
-        GameDuelHeader(
-          backgroundColors: const [Color(0xFFFADADA), Color(0xFFFFF0F0)],
-          accentColor: theme.primary,
-          centerLabel: 'R$_currentRound/5',
-          centerSubtitle: '반응속도',
-          myName: _myNickname ?? '나',
-          opponentName: _opponentNickname ?? '상대',
-          myAvatarUrl: _myAvatarUrl,
-          opponentAvatarUrl: _opponentAvatarUrl,
-          myActive: true,
-          opponentActive: true,
-          myProfileSettings: _myProfileSettings ?? context.read<ShopProvider>().profileSettings,
-          opponentProfileSettings: _opponentProfileSettings,
-          myExtraWidget: _buildScoreWidget(_scores[_myPlayerIndex]),
-          opponentExtraWidget: _buildScoreWidget(_scores[1 - _myPlayerIndex]),
-        ),
+  int _scoreOf(int index) =>
+      (index >= 0 && index < _scores.length) ? _scores[index] : 0;
 
-        // 게임 영역
-        Expanded(
-          child: GestureDetector(
-            onTap: _pressButton,
-            child: Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                gradient: _getBackgroundGradient(),
-              ),
-              child: GameScreenTransition(
-                transitionKey: '${_roundState.name}-${_lastReactionTime ?? -1}-${_lastRoundFalseStart ?? false}-${_lastRoundWinnerNickname ?? 'none'}',
-                beginOffset: const Offset(0, 0.02),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _buildRoundContent(),
-                  ],
+  Widget _buildPlayingView(GameTheme theme) {
+    return Container(
+      decoration: BoxDecoration(gradient: theme.backgroundGradient),
+      child: Column(
+        children: [
+          // 프로필 & 점수판
+          GameDuelHeader(
+            backgroundColors: [
+              theme.cardGradient.colors.first,
+              theme.cardGradient.colors.last,
+            ],
+            accentColor: theme.primary,
+            centerLabel: 'R$_currentRound/5',
+            centerSubtitle: '반응속도',
+            myName: _myNickname ?? '나',
+            opponentName: _opponentNickname ?? '상대',
+            myAvatarUrl: _myAvatarUrl,
+            opponentAvatarUrl: _opponentAvatarUrl,
+            myActive: true,
+            opponentActive: true,
+            myProfileSettings:
+                _myProfileSettings ??
+                context.read<ShopProvider>().profileSettings,
+            opponentProfileSettings: _opponentProfileSettings,
+            myExtraWidget: _buildScoreWidget(_scoreOf(_myPlayerIndex), true),
+            opponentExtraWidget: _buildScoreWidget(
+              _scoreOf(1 - _myPlayerIndex),
+              false,
+            ),
+          ),
+
+          // 게임 영역: 큰 카툰 패드 전체가 터치 영역
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _pressButton,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 140),
+                  curve: Curves.easeOut,
+                  width: double.infinity,
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    color: _padColor(),
+                    borderRadius: BorderRadius.circular(32),
+                    border: Border.all(color: CandyColors.ink, width: 3),
+                    boxShadow: const [
+                      BoxShadow(color: CandyColors.ink, offset: Offset(0, 6)),
+                    ],
+                  ),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      GameScreenTransition(
+                        transitionKey:
+                            '${_roundState.name}-${_lastReactionTime ?? -1}-${_lastRoundFalseStart ?? false}-${_lastRoundWinnerNickname ?? 'none'}',
+                        beginOffset: const Offset(0, 0.02),
+                        child: Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: _buildRoundContent(),
+                            ),
+                          ),
+                        ),
+                      ),
+                      // GO! 순간 번쩍이는 플래시
+                      if (_roundState == RoundState.go)
+                        IgnorePointer(
+                          child: TweenAnimationBuilder<double>(
+                            key: ValueKey('flash-$_currentRound'),
+                            tween: Tween(begin: 0.85, end: 0.0),
+                            duration: const Duration(milliseconds: 380),
+                            curve: Curves.easeOut,
+                            builder: (_, v, _) => ColoredBox(
+                              color: Colors.white.withValues(alpha: v),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  Widget _buildScoreWidget(int score) {
+  Widget _buildScoreWidget(int score, bool isMe) {
     return GameHeaderScorePill(
       score: score,
-      color: const Color(0xFFE74C3C),
+      color: isMe ? CandyColors.pink : CandyColors.sky,
       margin: const EdgeInsets.only(top: 4),
     );
   }
 
-  LinearGradient _getBackgroundGradient() {
-    final colors = switch (_roundState) {
-      RoundState.waiting => const [Color(0xFFF3F4F6), Color(0xFFE7EAEF)],
-      RoundState.ready => const [Color(0xFFFF6B6B), Color(0xFFE53935)], // 빨강
-      RoundState.go => const [Color(0xFF34D399), Color(0xFF1FA85A)], // 초록
-      RoundState.result => const [Color(0xFFFAFBFC), Color(0xFFEFF1F4)],
+  Color _padColor() {
+    return switch (_roundState) {
+      RoundState.waiting => const Color(0xFFEDE7FF),
+      RoundState.ready => CandyColors.pink,
+      RoundState.go => CandyColors.mint,
+      RoundState.result => Colors.white,
     };
-    return LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: colors,
-    );
   }
 
   /// 상태 메시지(원형 아이콘 칩 + 제목 + 보조문구) 공통 레이아웃.
@@ -896,71 +789,120 @@ class _ReactionScreenState extends State<ReactionScreen> {
     required String title,
     String? subtitle,
     required Color fg,
+    Color? chipIconColor,
     bool onColor = false,
     double titleSize = 34,
+    Widget? badge,
   }) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          width: 116,
-          height: 116,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: onColor
-                ? Colors.white.withValues(alpha: 0.18)
-                : fg.withValues(alpha: 0.10),
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.55, end: 1.0),
+      duration: const Duration(milliseconds: 520),
+      curve: Curves.elasticOut,
+      builder: (_, scale, child) => Transform.scale(scale: scale, child: child),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (badge != null) ...[badge, const SizedBox(height: 12)],
+          Container(
+            width: 116,
+            height: 116,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white,
+              border: Border.all(color: CandyColors.ink, width: 3),
+              boxShadow: const [
+                BoxShadow(color: CandyColors.ink, offset: Offset(0, 5)),
+              ],
+            ),
+            child: Icon(icon, size: 58, color: chipIconColor ?? fg),
           ),
-          child: Icon(icon, size: 58, color: fg),
-        ),
-        const SizedBox(height: 24),
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: titleSize,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.5,
-            color: fg,
-          ),
-        ),
-        if (subtitle != null) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: 22),
           Text(
-            subtitle,
+            title,
+            textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-              color: onColor ? Colors.white.withValues(alpha: 0.85) : Colors.grey.shade600,
+              fontSize: titleSize,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.5,
+              color: fg,
+              shadows: onColor
+                  ? const [Shadow(color: CandyColors.ink, offset: Offset(0, 3))]
+                  : null,
             ),
           ),
+          if (subtitle != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: onColor ? Colors.white : CandyColors.inkSoft,
+                shadows: onColor
+                    ? const [
+                        Shadow(color: CandyColors.ink, offset: Offset(0, 2)),
+                      ]
+                    : null,
+              ),
+            ),
+          ],
         ],
-      ],
+      ),
     );
   }
 
   Widget _buildRoundContent() {
     return switch (_roundState) {
       RoundState.waiting => _stateMessage(
-          icon: Icons.hourglass_bottom_rounded,
-          title: '준비...',
-          fg: const Color(0xFF6B7280),
-          titleSize: 30,
-        ),
-      RoundState.ready => _stateMessage(
+        icon: Icons.hourglass_bottom_rounded,
+        title: '준비...',
+        fg: CandyColors.inkSoft,
+        chipIconColor: CandyColors.grape,
+        titleSize: 30,
+      ),
+      RoundState.ready => CandyPulse(
+        duration: const Duration(milliseconds: 520),
+        builder: (_, t, child) =>
+            Transform.rotate(angle: (t - 0.5) * 0.08, child: child),
+        child: _stateMessage(
           icon: Icons.pan_tool_rounded,
           title: '기다려!',
           subtitle: '초록불이 켜지면 터치',
           fg: Colors.white,
+          chipIconColor: CandyColors.pinkDeep,
           onColor: true,
           titleSize: 38,
         ),
+      ),
       RoundState.go => _stateMessage(
-          icon: Icons.touch_app_rounded,
-          title: '터치!',
-          fg: Colors.white,
-          onColor: true,
-          titleSize: 56,
+        icon: Icons.touch_app_rounded,
+        title: '터치!',
+        fg: Colors.white,
+        chipIconColor: CandyColors.mintDeep,
+        onColor: true,
+        titleSize: 56,
+        badge: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+          decoration: BoxDecoration(
+            color: CandyColors.sun,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: CandyColors.ink, width: 3),
+            boxShadow: const [
+              BoxShadow(color: CandyColors.ink, offset: Offset(0, 3)),
+            ],
+          ),
+          child: const Text(
+            'GO!',
+            style: TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.w900,
+              color: CandyColors.ink,
+            ),
+          ),
         ),
+      ),
       RoundState.result => _buildResultContent(),
     };
   }
@@ -968,68 +910,83 @@ class _ReactionScreenState extends State<ReactionScreen> {
   Widget _buildResultContent() {
     if (_lastRoundFalseStart == true) {
       final isMeFalseStart = _pressedPlayerNickname != _opponentNickname;
-      final c = isMeFalseStart ? const Color(0xFFE53935) : const Color(0xFF1FA85A);
-      return _stateMessage(
+      final c = isMeFalseStart ? CandyColors.pinkDeep : CandyColors.mintDeep;
+      final message = _stateMessage(
         icon: Icons.warning_amber_rounded,
         title: isMeFalseStart ? '부정출발!' : '상대 부정출발!',
         subtitle: isMeFalseStart ? '상대방 +1점' : '나 +1점',
         fg: c,
         titleSize: 30,
       );
+      // 내가 부정출발하면 화면이 좌우로 부르르 흔들린다.
+      if (!isMeFalseStart) return message;
+      return TweenAnimationBuilder<double>(
+        key: ValueKey('shake-$_currentRound'),
+        tween: Tween(begin: 0.0, end: 1.0),
+        duration: const Duration(milliseconds: 550),
+        builder: (_, t, child) => Transform.translate(
+          offset: Offset(math.sin(t * math.pi * 7) * 14 * (1 - t), 0),
+          child: child,
+        ),
+        child: message,
+      );
     }
 
     if (_lastReactionTime != null) {
       final isMyWin = _lastRoundWinnerNickname != _opponentNickname;
-      final c = isMyWin ? const Color(0xFFF5A623) : Colors.grey.shade500;
+      final c = isMyWin ? CandyColors.sunDeep : CandyColors.inkSoft;
+      final ms = _lastReactionTime!;
       return Column(
+        mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           _stateMessage(
-            icon: isMyWin ? Icons.emoji_events_rounded : Icons.sentiment_dissatisfied_rounded,
+            icon: isMyWin
+                ? Icons.emoji_events_rounded
+                : Icons.sentiment_dissatisfied_rounded,
             title: isMyWin ? '승리!' : '아쉬워요',
             fg: c,
             titleSize: 30,
           ),
           const SizedBox(height: 20),
-          // 반응속도 히어로 표시
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: const Color(0xFFECEDF1)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 14,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
+          // 반응속도 히어로 표시 (숫자가 카운트업)
+          CartoonCard(
+            radius: 20,
+            color: CandyColors.sun.withValues(alpha: 0.35),
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Icon(Icons.bolt_rounded, size: 24, color: Colors.amber.shade600),
+                const Icon(
+                  Icons.bolt_rounded,
+                  size: 26,
+                  color: CandyColors.tangerine,
+                ),
                 const SizedBox(width: 6),
-                Text(
-                  '$_lastReactionTime',
-                  style: const TextStyle(
-                    fontSize: 40,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFF1A1D23),
-                    letterSpacing: -1,
+                TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: ms.toDouble()),
+                  duration: const Duration(milliseconds: 550),
+                  curve: Curves.easeOutCubic,
+                  builder: (_, v, _) => Text(
+                    '${v.round()}',
+                    style: const TextStyle(
+                      fontSize: 40,
+                      fontWeight: FontWeight.w900,
+                      color: CandyColors.ink,
+                      letterSpacing: -1,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 4),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 4),
                   child: Text(
                     'ms',
                     style: TextStyle(
                       fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.grey.shade500,
+                      fontWeight: FontWeight.w900,
+                      color: CandyColors.inkSoft,
                     ),
                   ),
                 ),
@@ -1043,7 +1000,8 @@ class _ReactionScreenState extends State<ReactionScreen> {
     return _stateMessage(
       icon: Icons.timer_off_rounded,
       title: '시간 초과',
-      fg: const Color(0xFF6B7280),
+      fg: CandyColors.inkSoft,
+      chipIconColor: CandyColors.grape,
       titleSize: 30,
     );
   }
@@ -1067,10 +1025,10 @@ class _ReactionScreenState extends State<ReactionScreen> {
         markScheduledPop: () => _hasScheduledPop = true,
       );
       return GameRankedResultView(
-      backgroundGradient: theme.backgroundGradient,
-      accentColor: theme.primary,
-      isWinner: isWinner,
-      isDraw: _isDraw,
+        backgroundGradient: theme.backgroundGradient,
+        accentColor: theme.primary,
+        isWinner: isWinner,
+        isDraw: _isDraw,
       );
     }
 
@@ -1080,29 +1038,20 @@ class _ReactionScreenState extends State<ReactionScreen> {
 
     if (_isDraw) {
       resultText = '무승부!';
-      resultColor = Colors.orange;
+      resultColor = CandyColors.tangerine;
       resultIcon = Icons.handshake;
     } else if (isWinner) {
       resultText = '승리!';
-      resultColor = const Color(0xFFE74C3C);
+      resultColor = theme.primary;
       resultIcon = Icons.emoji_events;
     } else {
       resultText = '아쉬워요...';
-      resultColor = Colors.grey;
+      resultColor = CandyColors.inkSoft;
       resultIcon = Icons.sentiment_dissatisfied;
     }
 
     return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            resultColor.withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
-      ),
+      decoration: BoxDecoration(gradient: theme.backgroundGradient),
       child: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
@@ -1115,61 +1064,68 @@ class _ReactionScreenState extends State<ReactionScreen> {
                 title: resultText,
                 subtitle: _isDraw
                     ? '끝까지 팽팽한 승부였어요.'
-                    : (isWinner ? '좋은 흐름으로 라운드를 가져갔어요.' : '다음 판에서 바로 뒤집을 수 있어요.'),
+                    : (isWinner
+                          ? '좋은 흐름으로 라운드를 가져갔어요.'
+                          : '다음 판에서 바로 뒤집을 수 있어요.'),
               ),
               const SizedBox(height: 22),
               GameResultMatchupRow(
                 leftLabel: '나',
-                leftValue: '${_scores[_myPlayerIndex]}',
+                leftValue: '${_scoreOf(_myPlayerIndex)}',
                 rightLabel: _opponentNickname ?? '상대',
-                rightValue: '${_scores[1 - _myPlayerIndex]}',
+                rightValue: '${_scoreOf(1 - _myPlayerIndex)}',
                 accentColor: resultColor,
               ),
               const SizedBox(height: 24),
-            if (_opponentWantsRematch && !_opponentLeft)
-              GameResultStatusPill(
-                icon: Icons.hourglass_top_rounded,
-                text: '$_opponentNickname님이 재경기 대기 중',
-                color: const Color(0xFF15803D),
+              if (_opponentWantsRematch && !_opponentLeft)
+                GameResultStatusPill(
+                  icon: Icons.hourglass_top_rounded,
+                  text: '$_opponentNickname님이 재경기 대기 중',
+                  color: const Color(0xFF15803D),
+                ),
+              GameResultActionButtons(
+                accentColor: theme.primary,
+                opponentLeft: _opponentLeft,
+                rematchWaiting: _rematchWaiting,
+                isInvitationGame: _isInvitationGame,
+                canSendFriendRequest:
+                    !_isInvitationGame &&
+                    !_opponentLeft &&
+                    _opponentUserId != null &&
+                    !context.read<FriendProvider>().isFriend(_opponentUserId!),
+                onRematchPressed: _rematchWaiting
+                    ? _cancelRematch
+                    : _requestRematch,
+                onSearchAgainPressed: () {
+                  _leaveGame();
+                  _findMatch();
+                },
+                onLobbyPressed: () {
+                  GameSessionHelper.leaveGameAndReturnToLobby(
+                    context: context,
+                    socketService: _socketService,
+                    roomId: _roomId,
+                    isRanked: widget.isRanked,
+                    resetState: _reset,
+                  );
+                },
+                onFriendRequestPressed: _opponentUserId == null
+                    ? null
+                    : () {
+                        context
+                            .read<FriendProvider>()
+                            .sendFriendRequestByUserId(_opponentUserId!);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('$_opponentNickname님에게 친구 요청을 보냈습니다'),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      },
               ),
-            GameResultActionButtons(
-              accentColor: theme.primary,
-              opponentLeft: _opponentLeft,
-              rematchWaiting: _rematchWaiting,
-              isInvitationGame: _isInvitationGame,
-              canSendFriendRequest: !_isInvitationGame &&
-                  !_opponentLeft &&
-                  _opponentUserId != null &&
-                  !context.read<FriendProvider>().isFriend(_opponentUserId!),
-              onRematchPressed: _rematchWaiting ? _cancelRematch : _requestRematch,
-              onSearchAgainPressed: () {
-                _leaveGame();
-                _findMatch();
-              },
-              onLobbyPressed: () {
-                GameSessionHelper.leaveGameAndReturnToLobby(
-                  context: context,
-                  socketService: _socketService,
-                  roomId: _roomId,
-                  isRanked: widget.isRanked,
-                  resetState: _reset,
-                );
-              },
-              onFriendRequestPressed: _opponentUserId == null
-                  ? null
-                  : () {
-                      context.read<FriendProvider>().sendFriendRequestByUserId(_opponentUserId!);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('$_opponentNickname님에게 친구 요청을 보냈습니다'),
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
-                    },
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -1182,7 +1138,8 @@ class _ReactionScreenState extends State<ReactionScreen> {
     }
 
     // 랭크 게임에서 대기 중인 상태인지 확인
-    final isRankedWaiting = widget.isRanked &&
+    final isRankedWaiting =
+        widget.isRanked &&
         (_status == ReactionGameStatus.idle ||
             _status == ReactionGameStatus.searching ||
             _status == ReactionGameStatus.matched);
@@ -1205,8 +1162,8 @@ class _ReactionScreenState extends State<ReactionScreen> {
     showGameExitDialog(
       context: context,
       accentColor: GameTheme.fromProfileSettings(
-              context.read<ShopProvider>().profileSettings)
-          .primary,
+        context.read<ShopProvider>().profileSettings,
+      ).primary,
       message: isRankedWaiting
           ? '랭크전 진행 중입니다.\n나가시겠습니까?'
           : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',

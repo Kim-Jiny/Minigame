@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -8,15 +9,27 @@ import '../../providers/shop_provider.dart';
 import '../../providers/ranked_provider.dart';
 import '../../services/socket_service.dart';
 import '../../config/app_config.dart';
+import '../../theme/candy_theme.dart';
 import '../../utils/game_theme.dart';
+import '../../widgets/cartoon/cartoon_card.dart';
+import '../../widgets/cartoon/chunky_button.dart';
 import '../common/game_hardcore_toggle.dart';
 import '../common/game_intro_view.dart';
 import '../common/game_scaffold.dart';
 import '../common/game_result_summary.dart';
+import '../common/game_timer_badge.dart';
 import '../common/match_status_views.dart';
 import '../common/game_duel_header.dart';
 import '../common/game_result_action_buttons.dart';
 import '../common/game_session_helper.dart';
+import '../tictactoe/tictactoe_screen.dart'
+    show
+        CandyPulse,
+        CandyTurnChip,
+        CandyNoticeBar,
+        BoardFinishedLayout,
+        BoardResultPanel,
+        showGameInviteSheet;
 
 class GomokuScreen extends StatefulWidget {
   final bool isRanked;
@@ -29,8 +42,9 @@ class GomokuScreen extends StatefulWidget {
 
 class _GomokuScreenState extends State<GomokuScreen> {
   // 게임 고유색 대신 사용자 테마 컬러를 accent로 사용.
-  Color get _accent =>
-      GameTheme.fromProfileSettings(context.read<ShopProvider>().profileSettings).primary;
+  Color get _accent => GameTheme.fromProfileSettings(
+    context.read<ShopProvider>().profileSettings,
+  ).primary;
   // 보드 크기
   static const int boardSize = 15;
   static const int totalCells = boardSize * boardSize;
@@ -39,7 +53,7 @@ class _GomokuScreenState extends State<GomokuScreen> {
   final TransformationController _transformationController =
       TransformationController();
 
-  bool _hasScheduledPop = false;  // 중복 pop 방지
+  bool _hasScheduledPop = false; // 중복 pop 방지
   int? _previewPosition; // 미리보기 중인 셀 인덱스
   bool _wasMyTurn = false; // 내 턴 변경 감지용
 
@@ -101,9 +115,18 @@ class _GomokuScreenState extends State<GomokuScreen> {
               onBack: () => _showExitDialog(context),
             ),
             body: switch (game.status) {
-              GameStatus.idle => widget.isRanked ? _buildRankedWaitingView(theme) : _buildIdleView(game, theme),
-              GameStatus.searching => widget.isRanked ? _buildRankedWaitingView(theme) : _buildSearchingView(game, theme),
-              GameStatus.matched => widget.isRanked ? _buildRankedWaitingView(theme) : _buildMatchedView(game, theme),
+              GameStatus.idle =>
+                widget.isRanked
+                    ? _buildRankedWaitingView(theme)
+                    : _buildIdleView(game, theme),
+              GameStatus.searching =>
+                widget.isRanked
+                    ? _buildRankedWaitingView(theme)
+                    : _buildSearchingView(game, theme),
+              GameStatus.matched =>
+                widget.isRanked
+                    ? _buildRankedWaitingView(theme)
+                    : _buildMatchedView(game, theme),
               GameStatus.playing => _buildPlayingView(game, theme),
               GameStatus.finished => _buildFinishedView(game, theme),
             },
@@ -114,158 +137,16 @@ class _GomokuScreenState extends State<GomokuScreen> {
   }
 
   void _showFriendInviteDialog(BuildContext context, GameProvider game) {
-    final friendProvider = context.read<FriendProvider>();
-    final onlineFriends = friendProvider.friends.where((f) => f.isOnline).toList();
-    final shop = context.read<ShopProvider>();
-    final theme = GameTheme.fromProfileSettings(shop.profileSettings);
-
-    showModalBottomSheet(
+    showGameInviteSheet(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.6,
-        ),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // 핸들
-            Container(
-              margin: const EdgeInsets.only(top: 12),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            // 헤더
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Row(
-                children: [
-                  Icon(Icons.person_add, color: theme.primary),
-                  const SizedBox(width: 12),
-                  const Text(
-                    '친구 초대',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const Spacer(),
-                  if (game.isHardcore)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.red.shade50,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.local_fire_department, size: 16, color: Colors.red.shade400),
-                          const SizedBox(width: 4),
-                          Text('하드코어', style: TextStyle(fontSize: 12, color: Colors.red.shade400, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            // 친구 목록
-            Flexible(
-              child: onlineFriends.isEmpty
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(40),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.person_off, size: 48, color: Colors.grey.shade400),
-                            const SizedBox(height: 16),
-                            Text(
-                              '온라인 친구가 없습니다',
-                              style: TextStyle(color: Colors.grey.shade600),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  : ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: onlineFriends.length,
-                      itemBuilder: (context, index) {
-                        final friend = onlineFriends[index];
-                        return ListTile(
-                          leading: Stack(
-                            children: [
-                              CircleAvatar(
-                                backgroundColor: theme.primary.withValues(alpha: 0.2),
-                                child: Text(
-                                  friend.nickname.isNotEmpty ? friend.nickname[0].toUpperCase() : '?',
-                                  style: TextStyle(color: theme.primary),
-                                ),
-                              ),
-                              Positioned(
-                                right: 0,
-                                bottom: 0,
-                                child: Container(
-                                  width: 12,
-                                  height: 12,
-                                  decoration: BoxDecoration(
-                                    color: Colors.green,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: Colors.white, width: 2),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          title: Text(friend.nickname, style: const TextStyle(fontWeight: FontWeight.w600)),
-                          subtitle: friend.memo != null && friend.memo!.isNotEmpty
-                              ? Text(friend.memo!, style: TextStyle(color: Colors.grey.shade600, fontSize: 12))
-                              : null,
-                          trailing: ElevatedButton(
-                            onPressed: () {
-                              friendProvider.inviteToGame(
-                                friend.id,
-                                AppConfig.gameTypeGomoku,
-                                isHardcore: game.isHardcore,
-                              );
-                              Navigator.pop(context);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('${friend.nickname}님에게 초대를 보냈습니다!'),
-                                  backgroundColor: Colors.green,
-                                ),
-                              );
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: game.isHardcore ? Colors.red : theme.primary,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                            ),
-                            child: const Text('초대'),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-            SizedBox(height: MediaQuery.of(context).padding.bottom + 16),
-          ],
-        ),
-      ),
+      accent: game.isHardcore ? CandyColors.tangerine : _accent,
+      gameType: AppConfig.gameTypeGomoku,
+      isHardcore: game.isHardcore,
     );
   }
 
   Widget _buildIdleView(GameProvider game, GameTheme theme) {
-    final accent = game.isHardcore ? Colors.red : theme.primary;
+    final accent = game.isHardcore ? CandyColors.tangerine : theme.primary;
     return GameIntroView(
       backgroundGradient: theme.backgroundGradient,
       accentColor: accent,
@@ -292,7 +173,10 @@ class _GomokuScreenState extends State<GomokuScreen> {
   }
 
   Widget _buildMatchedView(GameProvider game, GameTheme theme) {
-    return GameMatchedView(theme: theme, opponentNickname: game.opponentNickname);
+    return GameMatchedView(
+      theme: theme,
+      opponentNickname: game.opponentNickname,
+    );
   }
 
   Widget _buildPlayingView(GameProvider game, GameTheme theme) {
@@ -304,29 +188,15 @@ class _GomokuScreenState extends State<GomokuScreen> {
     }
 
     return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            _accent.withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
-      ),
+      decoration: BoxDecoration(gradient: theme.backgroundGradient),
       child: Column(
         children: [
           // 프로필 & 턴 표시
           GameDuelHeader(
-            backgroundColors: game.isMyTurn
-                ? [
-                    _accent.withValues(alpha: 0.12),
-                    _accent.withValues(alpha: 0.04),
-                  ]
-                : const [
-                    Color(0xFFDFE6E9),
-                    Color(0xFFF0F0F0),
-                  ],
+            backgroundColors: [
+              theme.cardGradient.colors.first,
+              theme.cardGradient.colors.last,
+            ],
             accentColor: _accent,
             centerLabel: '',
             myName: auth.nickname ?? '나',
@@ -335,29 +205,18 @@ class _GomokuScreenState extends State<GomokuScreen> {
             opponentAvatarUrl: game.opponentAvatarUrl,
             myActive: game.isMyTurn,
             opponentActive: !game.isMyTurn,
-            myProfileSettings: game.myProfileSettings ?? context.read<ShopProvider>().profileSettings,
+            myProfileSettings:
+                game.myProfileSettings ??
+                context.read<ShopProvider>().profileSettings,
             opponentProfileSettings: game.opponentProfileSettings,
             centerWidget: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   _buildTimer(game),
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: game.isMyTurn ? _accent : Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      game.isMyTurn ? '내 차례' : '상대 차례',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: game.isMyTurn ? Colors.white : Colors.grey.shade600,
-                      ),
-                    ),
-                  ),
+                  const SizedBox(height: 6),
+                  CandyTurnChip(isMine: game.isMyTurn, accent: _accent),
                 ],
               ),
             ),
@@ -365,18 +224,8 @@ class _GomokuScreenState extends State<GomokuScreen> {
 
           // 타임아웃 알림
           if (game.timeoutPlayerNickname != null)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              color: Colors.orange.shade100,
-              child: Text(
-                '${game.timeoutPlayerNickname}님 시간 초과! 랜덤 위치에 배치됨',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.orange.shade800,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
+            CandyNoticeBar(
+              text: '${game.timeoutPlayerNickname}님 시간 초과! 랜덤 위치에 배치됨',
             ),
 
           // 게임 보드
@@ -390,12 +239,19 @@ class _GomokuScreenState extends State<GomokuScreen> {
                   child: SafeArea(
                     top: false,
                     left: false,
-                    child: FloatingActionButton.small(
-                      heroTag: 'gomoku-reset-zoom',
-                      onPressed: _resetBoardZoom,
-                      backgroundColor: Colors.white,
-                      foregroundColor: theme.primary,
-                      child: const Icon(Icons.center_focus_strong),
+                    child: Semantics(
+                      button: true,
+                      label: '보드 위치 초기화',
+                      child: CartoonCard(
+                        radius: 14,
+                        shadow: 4,
+                        padding: const EdgeInsets.all(9),
+                        onTap: _resetBoardZoom,
+                        child: Icon(
+                          Icons.center_focus_strong_rounded,
+                          color: theme.primary,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -404,122 +260,129 @@ class _GomokuScreenState extends State<GomokuScreen> {
           ),
 
           // 착수 확인/취소 버튼
-          if (_previewPosition != null && game.isMyTurn)
-            _buildConfirmBar(game),
+          if (_previewPosition != null && game.isMyTurn) _buildConfirmBar(game),
         ],
       ),
     );
   }
 
   Widget _buildTimer(GameProvider game) {
-    return GameBoardTimer(remaining: game.remainingTime);
+    return GameTimerBadge(
+      seconds: game.remainingTime,
+      label: '',
+      accentColor: _accent,
+      compact: true,
+      showLabel: false,
+      warningThreshold: 5,
+    );
   }
 
   Widget _buildBoard(GameProvider game) {
     final screenWidth = MediaQuery.of(context).size.width;
-    final cellSize = screenWidth / boardSize;
+    const pad = 12.0;
+    final cellSize = math.max(8.0, (screenWidth - pad * 2) / boardSize);
+    final boardPx = cellSize * boardSize;
+    final stoneSize = cellSize * 0.82;
+    final finished = game.status == GameStatus.finished;
+    final winCells = finished && !game.isDraw
+        ? _gomokuWinCells(game.board)
+        : const <int>{};
+    final canPreview = game.status == GameStatus.playing && game.isMyTurn;
 
     return InteractiveViewer(
       transformationController: _transformationController,
       minScale: 0.5,
       maxScale: 3.0,
       constrained: false,
-      child: Container(
-        width: cellSize * boardSize,
-        height: cellSize * boardSize,
-        decoration: BoxDecoration(
-          color: const Color(0xFFDEB887), // 바둑판 색상
-          border: Border.all(color: Colors.brown.shade700, width: 2),
-        ),
-        child: CustomPaint(
-          painter: GomokuBoardPainter(
-            boardSize: boardSize,
-            cellSize: cellSize,
+      child: Padding(
+        padding: const EdgeInsets.all(pad),
+        child: Container(
+          width: boardPx,
+          height: boardPx,
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFE2A8), // 캔디 우드
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: const [
+              BoxShadow(color: CandyColors.ink, offset: Offset(0, 5)),
+            ],
           ),
-          child: GridView.builder(
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: boardSize,
-            ),
-            itemCount: totalCells,
-            itemBuilder: (context, index) {
-              final cell = game.board.length > index ? game.board[index] : null;
-              final isLastMove = game.lastMovePosition == index;
-
-              final isPreview = _previewPosition == index;
-
-              return GestureDetector(
-                onTap: () {
-                  if (cell == null && game.isMyTurn) {
-                    setState(() => _previewPosition = index);
-                  }
-                },
-                child: Container(
-                  decoration: BoxDecoration(
-                    border: isLastMove
-                        ? Border.all(color: Colors.red, width: 2)
-                        : isPreview
-                            ? Border.all(color: Colors.blue, width: 2)
-                            : null,
-                  ),
-                  child: Center(
-                    child: isPreview
-                        ? _buildPreviewStone(game)
-                        : _buildStone(cell),
-                  ),
+          // 테두리는 레이아웃에 영향을 주지 않도록 foreground 로 그린다
+          // (그리드와 선 위치가 어긋나지 않게).
+          foregroundDecoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: CandyColors.ink, width: 3),
+          ),
+          child: RepaintBoundary(
+            child: CustomPaint(
+              painter: GomokuBoardPainter(
+                boardSize: boardSize,
+                cellSize: cellSize,
+              ),
+              child: GridView.builder(
+                padding: EdgeInsets.zero,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: boardSize,
                 ),
-              );
-            },
+                itemCount: totalCells,
+                itemBuilder: (context, index) {
+                  final cell = game.board.length > index
+                      ? game.board[index]
+                      : null;
+                  final isLastMove = game.lastMovePosition == index;
+                  final isPreview =
+                      canPreview && cell == null && _previewPosition == index;
+
+                  Widget? child;
+                  if (isPreview) {
+                    child = _buildPreviewStone(game, stoneSize);
+                  } else if (cell != null) {
+                    child = _GomokuStone(
+                      key: ValueKey('stone-$index-$cell'),
+                      size: stoneSize,
+                      isBlack: cell == 0,
+                      isLast: isLastMove,
+                      isWin: winCells.contains(index),
+                    );
+                  }
+
+                  return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      if (cell == null && game.isMyTurn) {
+                        HapticFeedback.selectionClick();
+                        setState(() => _previewPosition = index);
+                      }
+                    },
+                    child: Center(child: child),
+                  );
+                },
+              ),
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildStone(int? cell) {
-    if (cell == null) {
-      return const SizedBox.shrink();
-    }
-
-    // 0 = 흑돌 (첫 번째 플레이어), 1 = 백돌 (두 번째 플레이어)
-    final screenWidth = MediaQuery.of(context).size.width;
-    final stoneSize = (screenWidth / boardSize) * 0.8;
-
-    return Container(
-      width: stoneSize,
-      height: stoneSize,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: cell == 0 ? Colors.black : Colors.white,
-        border: Border.all(
-          color: cell == 0 ? Colors.grey.shade800 : Colors.grey.shade400,
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 2,
-            offset: const Offset(1, 1),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPreviewStone(GameProvider game) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final stoneSize = (screenWidth / boardSize) * 0.8;
+  Widget _buildPreviewStone(GameProvider game, double stoneSize) {
     final isBlack = game.myPlayerIndex == 0;
 
-    return Container(
-      width: stoneSize,
-      height: stoneSize,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: (isBlack ? Colors.black : Colors.white).withValues(alpha: 0.4),
-        border: Border.all(
-          color: (isBlack ? Colors.grey.shade800 : Colors.grey.shade400).withValues(alpha: 0.4),
-          width: 1,
+    return CandyPulse(
+      duration: const Duration(milliseconds: 600),
+      builder: (_, t, child) =>
+          Transform.scale(scale: 0.9 + 0.12 * t, child: child),
+      child: SizedBox(
+        width: stoneSize,
+        height: stoneSize,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: (isBlack ? CandyColors.ink : Colors.white).withValues(
+              alpha: 0.55,
+            ),
+            border: Border.all(color: CandyColors.sky, width: 3),
+          ),
         ),
       ),
     );
@@ -530,58 +393,57 @@ class _GomokuScreenState extends State<GomokuScreen> {
     final col = _previewPosition! % boardSize + 1;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+      decoration: const BoxDecoration(
         color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 8,
-            offset: const Offset(0, -2),
-          ),
-        ],
+        border: Border(top: BorderSide(color: CandyColors.ink, width: 3)),
       ),
       child: SafeArea(
         top: false,
         child: Row(
           children: [
-            OutlinedButton(
-              onPressed: () => setState(() => _previewPosition = null),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.grey.shade700,
-                side: BorderSide(color: Colors.grey.shade400),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
+            SizedBox(
+              width: 92,
+              child: ChunkyButton(
+                label: '취소',
+                color: Colors.white,
+                textColor: CandyColors.ink,
+                height: 46,
+                radius: 16,
+                fontSize: 15,
+                onPressed: () => setState(() => _previewPosition = null),
               ),
-              child: const Text('취소'),
             ),
             Expanded(
               child: Center(
-                child: Text(
-                  '($row, $col)',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w500,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    '($row, $col)',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      color: CandyColors.inkSoft,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
               ),
             ),
-            ElevatedButton.icon(
-              onPressed: () {
-                final pos = _previewPosition!;
-                setState(() => _previewPosition = null);
-                game.makeMove(pos);
-              },
-              icon: const Icon(Icons.check, size: 18),
-              label: const Text('착수 확인'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _accent,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
+            SizedBox(
+              width: 156,
+              child: ChunkyButton(
+                label: '착수 확인',
+                icon: Icons.check_rounded,
+                color: _accent,
+                height: 46,
+                radius: 16,
+                fontSize: 15,
+                onPressed: () {
+                  final pos = _previewPosition;
+                  if (pos == null) return;
+                  setState(() => _previewPosition = null);
+                  game.makeMove(pos);
+                },
               ),
             ),
           ],
@@ -606,168 +468,72 @@ class _GomokuScreenState extends State<GomokuScreen> {
       final isWinner = game.isWinner;
       final isDraw = game.isDraw;
       return GameRankedResultView(
-      backgroundGradient: theme.backgroundGradient,
-      accentColor: theme.primary,
-      isWinner: isWinner,
-      isDraw: isDraw,
+        backgroundGradient: theme.backgroundGradient,
+        accentColor: theme.primary,
+        isWinner: isWinner,
+        isDraw: isDraw,
       );
     }
 
-    String resultText;
-    Color resultColor;
-    IconData resultIcon;
-
-    if (game.isDraw) {
-      resultText = '무승부!';
-      resultColor = Colors.orange;
-      resultIcon = Icons.handshake;
-    } else if (game.isWinner) {
-      resultText = '승리!';
-      resultColor = _accent;
-      resultIcon = Icons.emoji_events;
-    } else {
-      resultText = '아쉬워요...';
-      resultColor = Colors.grey;
-      resultIcon = Icons.sentiment_dissatisfied;
-    }
-
     return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            resultColor.withValues(alpha: 0.1),
-            Colors.white,
-          ],
+      decoration: BoxDecoration(gradient: theme.backgroundGradient),
+      child: SafeArea(
+        top: false,
+        child: BoardFinishedLayout(
+          // 최종 보드 상태 (승리 5목 강조)
+          board: _buildBoard(game),
+          panel: BoardResultPanel(
+            isDraw: game.isDraw,
+            isWinner: game.isWinner,
+            accent: _accent,
+            showRematchWaiting: game.opponentWantsRematch && !game.opponentLeft,
+            opponentNickname: game.opponentNickname,
+            actions: GameResultActionButtons(
+              accentColor: _accent,
+              opponentLeft: game.opponentLeft,
+              rematchWaiting: game.rematchWaiting,
+              isInvitationGame: game.isInvitationGame,
+              canSendFriendRequest:
+                  !game.isInvitationGame &&
+                  !game.opponentLeft &&
+                  game.opponentUserId != null &&
+                  !context.read<FriendProvider>().isFriend(
+                    game.opponentUserId!,
+                  ),
+              onRematchPressed: game.rematchWaiting
+                  ? () => game.cancelRematch()
+                  : () => game.requestRematch(),
+              onSearchAgainPressed: () {
+                game.leaveGame();
+                game.findMatch(AppConfig.gameTypeGomoku);
+              },
+              onLobbyPressed: () {
+                GameSessionHelper.leaveGameAndReturnToLobby(
+                  context: context,
+                  socketService: SocketService(),
+                  roomId: game.roomId,
+                  isRanked: widget.isRanked,
+                  resetState: game.reset,
+                );
+              },
+              onFriendRequestPressed: game.opponentUserId == null
+                  ? null
+                  : () {
+                      context.read<FriendProvider>().sendFriendRequestByUserId(
+                        game.opponentUserId!,
+                      );
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            '${game.opponentNickname}님에게 친구 요청을 보냈습니다',
+                          ),
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    },
+            ),
+          ),
         ),
-      ),
-      child: Column(
-        children: [
-          // 최종 보드 상태
-          Expanded(
-            child: _buildBoard(game),
-          ),
-
-          // 결과
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: resultColor.withValues(alpha: 0.1),
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(24),
-              ),
-            ),
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: resultColor.withValues(alpha: 0.3),
-                        blurRadius: 20,
-                      ),
-                    ],
-                  ),
-                  child: Icon(resultIcon, size: 48, color: resultColor),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  resultText,
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: resultColor,
-                  ),
-                ),
-                // 상대가 나갔을 때 표시
-                if (game.opponentLeft)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.exit_to_app, size: 16, color: Colors.grey.shade600),
-                        const SizedBox(width: 8),
-                        Text(
-                          '상대방이 나갔습니다',
-                          style: TextStyle(color: Colors.grey.shade600),
-                        ),
-                      ],
-                    ),
-                  ),
-                // 상대방 재경기 요청 표시
-                if (game.opponentWantsRematch && !game.opponentLeft)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.green.shade50,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.green.shade200),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.hourglass_top, size: 16, color: Colors.green.shade700),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${game.opponentNickname}님이 대기 중...',
-                          style: TextStyle(color: Colors.green.shade700, fontWeight: FontWeight.w500),
-                        ),
-                      ],
-                    ),
-                  ),
-                const SizedBox(height: 8),
-                GameResultActionButtons(
-                  accentColor: _accent,
-                  opponentLeft: game.opponentLeft,
-                  rematchWaiting: game.rematchWaiting,
-                  isInvitationGame: game.isInvitationGame,
-                  canSendFriendRequest: !game.isInvitationGame &&
-                      !game.opponentLeft &&
-                      game.opponentUserId != null &&
-                      !context.read<FriendProvider>().isFriend(game.opponentUserId!),
-                  onRematchPressed: game.rematchWaiting
-                      ? () => game.cancelRematch()
-                      : () => game.requestRematch(),
-                  onSearchAgainPressed: () {
-                    game.leaveGame();
-                    game.findMatch(AppConfig.gameTypeGomoku);
-                  },
-                  onLobbyPressed: () {
-                    GameSessionHelper.leaveGameAndReturnToLobby(
-                      context: context,
-                      socketService: SocketService(),
-                      roomId: game.roomId,
-                      isRanked: widget.isRanked,
-                      resetState: game.reset,
-                    );
-                  },
-                  onFriendRequestPressed: game.opponentUserId == null
-                      ? null
-                      : () {
-                          context.read<FriendProvider>().sendFriendRequestByUserId(game.opponentUserId!);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('${game.opponentNickname}님에게 친구 요청을 보냈습니다'),
-                              duration: const Duration(seconds: 2),
-                            ),
-                          );
-                        },
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -782,7 +548,8 @@ class _GomokuScreenState extends State<GomokuScreen> {
     }
 
     // 랭크전 대기 중이면 경고 없이 나가기 (하지만 leave_room은 보내야 함)
-    final isRankedWaiting = widget.isRanked &&
+    final isRankedWaiting =
+        widget.isRanked &&
         (game.status == GameStatus.idle ||
             game.status == GameStatus.searching ||
             game.status == GameStatus.matched);
@@ -822,9 +589,11 @@ class _GomokuScreenState extends State<GomokuScreen> {
             Text('게임 나가기'),
           ],
         ),
-        content: Text(game.status == GameStatus.matched
-            ? '매칭이 완료되었습니다. 나가시겠습니까?'
-            : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.'),
+        content: Text(
+          game.status == GameStatus.matched
+              ? '매칭이 완료되었습니다. 나가시겠습니까?'
+              : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -848,21 +617,160 @@ class _GomokuScreenState extends State<GomokuScreen> {
   }
 }
 
+/// 5목 이상이 이어진 칸들의 인덱스 집합(없으면 빈 집합).
+Set<int> _gomokuWinCells(List<int?> board) {
+  const n = _GomokuScreenState.boardSize;
+  const dirs = [
+    [0, 1],
+    [1, 0],
+    [1, 1],
+    [1, -1],
+  ];
+  if (board.length < n * n) return const {};
+  for (var r = 0; r < n; r++) {
+    for (var c = 0; c < n; c++) {
+      final v = board[r * n + c];
+      if (v == null) continue;
+      for (final d in dirs) {
+        final pr = r - d[0];
+        final pc = c - d[1];
+        if (pr >= 0 && pr < n && pc >= 0 && pc < n && board[pr * n + pc] == v) {
+          continue; // 줄의 시작점이 아님
+        }
+        final run = <int>[];
+        var rr = r;
+        var cc = c;
+        while (rr >= 0 &&
+            rr < n &&
+            cc >= 0 &&
+            cc < n &&
+            board[rr * n + cc] == v) {
+          run.add(rr * n + cc);
+          rr += d[0];
+          cc += d[1];
+        }
+        if (run.length >= 5) return run.toSet();
+      }
+    }
+  }
+  return const {};
+}
+
+/// 바둑돌. 흑 = 잉크색, 백 = 흰색 + 굵은 외곽선.
+/// 마지막 수는 통통 튀며 놓이고 분홍 점이 찍히며, 승리 5목은 노란 링이 맥동한다.
+class _GomokuStone extends StatelessWidget {
+  final double size;
+  final bool isBlack;
+  final bool isLast;
+  final bool isWin;
+
+  const _GomokuStone({
+    super.key,
+    required this.size,
+    required this.isBlack,
+    required this.isLast,
+    required this.isWin,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    Widget stone = SizedBox(
+      width: size,
+      height: size,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: isBlack ? CandyColors.ink : Colors.white,
+          border: Border.all(color: CandyColors.ink, width: 1.8),
+          boxShadow: const [
+            BoxShadow(color: Color(0x553A2D5C), offset: Offset(0, 1.5)),
+          ],
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Align(
+              alignment: const Alignment(-0.4, -0.45),
+              child: Container(
+                width: size * 0.26,
+                height: size * 0.14,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: isBlack ? 0.35 : 0.0),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ),
+            ),
+            if (isLast)
+              Container(
+                width: size * 0.26,
+                height: size * 0.26,
+                decoration: const BoxDecoration(
+                  color: CandyColors.pink,
+                  shape: BoxShape.circle,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+
+    if (isWin) {
+      stone = CandyPulse(
+        duration: const Duration(milliseconds: 520),
+        child: stone,
+        builder: (_, t, child) => Stack(
+          alignment: Alignment.center,
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              width: size * (1.0 + 0.4 * t),
+              height: size * (1.0 + 0.4 * t),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: CandyColors.sun.withValues(alpha: 1 - 0.5 * t),
+                  width: 3,
+                ),
+              ),
+            ),
+            Transform.scale(scale: 1 + 0.08 * t, child: child),
+          ],
+        ),
+      );
+    }
+
+    if (isLast) {
+      // 놓일 때 위에서 톡 떨어지며 튕긴다.
+      stone = TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0.0, end: 1.0),
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.elasticOut,
+        builder: (_, t, child) => Opacity(
+          opacity: math.min(1.0, t * 4).clamp(0.0, 1.0),
+          child: Transform.translate(
+            offset: Offset(0, (1 - t) * -12),
+            child: Transform.scale(scale: t.clamp(0.0, 1.5), child: child),
+          ),
+        ),
+        child: stone,
+      );
+    }
+    return stone;
+  }
+}
+
 // 바둑판 그리드 라인을 그리는 CustomPainter
 class GomokuBoardPainter extends CustomPainter {
   final int boardSize;
   final double cellSize;
 
-  GomokuBoardPainter({
-    required this.boardSize,
-    required this.cellSize,
-  });
+  GomokuBoardPainter({required this.boardSize, required this.cellSize});
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.brown.shade700
-      ..strokeWidth = 1.0;
+      ..color = CandyColors.ink.withValues(alpha: 0.55)
+      ..strokeWidth = 1.2;
 
     // 가로선
     for (int i = 0; i < boardSize; i++) {
@@ -886,22 +794,29 @@ class GomokuBoardPainter extends CustomPainter {
 
     // 화점(별 위치) 그리기 - 15x15 보드용
     final starPoints = [
-      [3, 3], [3, 7], [3, 11],
-      [7, 3], [7, 7], [7, 11],
-      [11, 3], [11, 7], [11, 11],
+      [3, 3],
+      [3, 7],
+      [3, 11],
+      [7, 3],
+      [7, 7],
+      [7, 11],
+      [11, 3],
+      [11, 7],
+      [11, 11],
     ];
 
     final starPaint = Paint()
-      ..color = Colors.brown.shade800
+      ..color = CandyColors.ink
       ..style = PaintingStyle.fill;
 
     for (final point in starPoints) {
       final x = cellSize * point[1] + cellSize / 2;
       final y = cellSize * point[0] + cellSize / 2;
-      canvas.drawCircle(Offset(x, y), cellSize * 0.1, starPaint);
+      canvas.drawCircle(Offset(x, y), cellSize * 0.11, starPaint);
     }
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant GomokuBoardPainter old) =>
+      old.cellSize != cellSize || old.boardSize != boardSize;
 }

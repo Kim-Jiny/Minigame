@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
@@ -9,6 +11,7 @@ import '../../services/socket_service.dart';
 import '../../services/socket_listener_registry.dart';
 import '../../config/app_config.dart';
 import '../../models/shop_item.dart';
+import '../../theme/candy_theme.dart';
 import '../../utils/game_theme.dart';
 import '../common/game_rematch_preparing_view.dart';
 import '../common/game_intro_view.dart';
@@ -24,20 +27,13 @@ import '../common/game_session_helper.dart';
 import '../common/game_stage_panel.dart';
 import '../common/game_timer_badge.dart';
 import '../common/game_waiting_view.dart';
+import '../common/match_status_views.dart';
+import '../tictactoe/tictactoe_screen.dart'
+    show CandyPulse, showGameInviteSheet;
 
-enum RpsGameStatus {
-  idle,
-  searching,
-  matched,
-  playing,
-  finished,
-}
+enum RpsGameStatus { idle, searching, matched, playing, finished }
 
-enum RpsChoice {
-  rock,
-  paper,
-  scissors,
-}
+enum RpsChoice { rock, paper, scissors }
 
 class RpsScreen extends StatefulWidget {
   final bool isRanked;
@@ -48,14 +44,17 @@ class RpsScreen extends StatefulWidget {
   State<RpsScreen> createState() => _RpsScreenState();
 }
 
-class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMixin {
+class _RpsScreenState extends State<RpsScreen> {
   final SocketService _socketService = SocketService();
   // 게임 고유색 대신 사용자 테마 컬러를 accent로 사용.
-  Color get _accent =>
-      GameTheme.fromProfileSettings(context.read<ShopProvider>().profileSettings).primary;
-  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
-  bool _hasScheduledPop = false;  // 중복 pop 방지
-  bool _isExitDialogOpen = false;  // 나가기 다이얼로그 열림 상태
+  Color get _accent => GameTheme.fromProfileSettings(
+    context.read<ShopProvider>().profileSettings,
+  ).primary;
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(
+    _socketService,
+  );
+  bool _hasScheduledPop = false; // 중복 pop 방지
+  bool _isExitDialogOpen = false; // 나가기 다이얼로그 열림 상태
 
   RpsGameStatus _status = RpsGameStatus.idle;
 
@@ -96,10 +95,8 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
   bool _isWaitingForReconnect = false;
   Timer? _reconnectTimer;
   Timer? _waitingReconnectTimer;
-  int _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
-
-  late AnimationController _animController;
-  late Animation<double> _scaleAnim;
+  int _reconnectSecondsRemaining =
+      GameReconnectHelper.reconnectGraceDuration.inSeconds;
 
   // 타이머
   Timer? _countdownTimer;
@@ -108,15 +105,8 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
   @override
   void initState() {
     super.initState();
-    _animController = AnimationController(
-      duration: const Duration(milliseconds: 200),
-      vsync: this,
-    );
-    _scaleAnim = Tween<double>(begin: 1.0, end: 0.9).animate(
-      CurvedAnimation(parent: _animController, curve: Curves.easeInOut),
-    );
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       final auth = context.read<AuthProvider>();
       _myId = auth.socketId;
       _myNickname = auth.nickname;
@@ -131,14 +121,18 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
   void _initFromGameProvider() {
     try {
       final game = context.read<GameProvider>();
-      debugPrint('🎮 RpsScreen _initFromGameProvider: isInvitation=${game.isInvitationGame}, roomId=${game.roomId}, opponentNickname=${game.opponentNickname}, status=${game.status}');
-      final isActiveInvitation = game.isInvitationGame &&
+      debugPrint(
+        '🎮 RpsScreen _initFromGameProvider: isInvitation=${game.isInvitationGame}, roomId=${game.roomId}, opponentNickname=${game.opponentNickname}, status=${game.status}',
+      );
+      final isActiveInvitation =
+          game.isInvitationGame &&
           game.roomId != null &&
           game.opponentNickname != null &&
-          (game.status == GameStatus.matched || game.status == GameStatus.playing);
+          (game.status == GameStatus.matched ||
+              game.status == GameStatus.playing);
       if (isActiveInvitation) {
         debugPrint('🎮 RpsScreen: 초대 게임 초기화 from GameProvider');
-        setState(() {
+        _set(() {
           _roomId = game.roomId;
           _opponentNickname = game.opponentNickname;
           _opponentAvatarUrl = game.opponentAvatarUrl;
@@ -159,9 +153,14 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
     _countdownTimer?.cancel();
     _reconnectTimer?.cancel();
     _waitingReconnectTimer?.cancel();
-    _animController.dispose();
     _socketListeners.offAll();
     super.dispose();
+  }
+
+  /// 소켓 콜백/타이머 등 비동기 경로에서 안전하게 쓰는 setState (dispose 이후 호출 방지).
+  void _set(VoidCallback fn) {
+    if (!mounted) return;
+    setState(fn);
   }
 
   bool get _isGameActive =>
@@ -173,9 +172,12 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
     _countdownTimer?.cancel();
     _remainingSeconds = seconds;
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) { timer.cancel(); return; }
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       if (_remainingSeconds > 0) {
-        setState(() => _remainingSeconds--);
+        _set(() => _remainingSeconds--);
       } else {
         timer.cancel();
       }
@@ -191,7 +193,7 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
     _waitingReconnectTimer = GameReconnectHelper.startVisualCountdown(
       onTick: (seconds) {
         if (!mounted || !_isWaitingForReconnect) return;
-        setState(() => _reconnectSecondsRemaining = seconds);
+        _set(() => _reconnectSecondsRemaining = seconds);
       },
     );
   }
@@ -206,14 +208,15 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
       _reconnectTimer = GameReconnectHelper.startReconnectTimeout(
         context: context,
         showFailureSnackBar: false,
-        onEnterWaiting: () => setState(() {
+        onEnterWaiting: () => _set(() {
           _isReconnecting = true;
           _isWaitingForReconnect = false;
-          _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+          _reconnectSecondsRemaining =
+              GameReconnectHelper.reconnectGraceDuration.inSeconds;
         }),
         onTick: (seconds) {
           if (!mounted) return;
-          setState(() => _reconnectSecondsRemaining = seconds);
+          _set(() => _reconnectSecondsRemaining = seconds);
         },
         onTimeout: () {
           GameSessionHelper.handleReconnectTimeout(
@@ -231,17 +234,23 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
     });
 
     _socketListeners.on('waiting_for_match', (_) {
-      setState(() => _status = RpsGameStatus.searching);
+      _set(() => _status = RpsGameStatus.searching);
     });
 
     _socketListeners.on('match_found', (data) {
       final players = data['players'] as List;
-      final opponent = players.cast<Map<String, dynamic>?>().firstWhere((p) => p!['id'] != _myId, orElse: () => null);
+      final opponent = players.cast<Map<String, dynamic>?>().firstWhere(
+        (p) => p!['id'] != _myId,
+        orElse: () => null,
+      );
       if (opponent == null) return;
-      final me = players.firstWhere((p) => p['id'] == _myId, orElse: () => null);
+      final me = players.firstWhere(
+        (p) => p['id'] == _myId,
+        orElse: () => null,
+      );
       _myPlayerIndex = players.indexWhere((p) => p['id'] == _myId);
 
-      setState(() {
+      _set(() {
         _status = RpsGameStatus.matched;
         _roomId = data['roomId'];
         _opponentNickname = opponent['nickname'];
@@ -250,10 +259,14 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
         _isInvitationGame = data['isInvitation'] == true;
         // 프로필 설정 파싱
         if (opponent['profileSettings'] != null) {
-          _opponentProfileSettings = UserProfileSettings.fromJson(opponent['profileSettings']);
+          _opponentProfileSettings = UserProfileSettings.fromJson(
+            opponent['profileSettings'],
+          );
         }
         if (me != null && me['profileSettings'] != null) {
-          _myProfileSettings = UserProfileSettings.fromJson(me['profileSettings']);
+          _myProfileSettings = UserProfileSettings.fromJson(
+            me['profileSettings'],
+          );
         }
       });
     });
@@ -276,7 +289,7 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
         if (mounted) {
           ScaffoldMessenger.of(context).clearSnackBars();
         }
-        setState(() {
+        _set(() {
           _status = RpsGameStatus.playing;
           _remainingSeconds = 10; // 재경기 시 이전 게임의 남은 시간 잔상 방지
           _currentRound = 0;
@@ -301,7 +314,7 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
 
     _socketListeners.on('rps_round_start', (data) {
       final timeLimit = data['timeLimit'] as int? ?? 10000;
-      setState(() {
+      _set(() {
         // rps_round_start가 오면 확실히 게임 중인 상태
         _status = RpsGameStatus.playing;
         _currentRound = data['round'];
@@ -320,13 +333,13 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
 
     _socketListeners.on('rps_player_chosen', (data) {
       if (data['playerId'] != _myId) {
-        setState(() => _opponentChosen = true);
+        _set(() => _opponentChosen = true);
       }
     });
 
     _socketListeners.on('rps_round_result', (data) {
       _stopCountdown();
-      setState(() {
+      _set(() {
         _lastPlayer0Choice = data['player0Choice'];
         _lastPlayer1Choice = data['player1Choice'];
         _lastWinnerIndex = data['winnerIndex'];
@@ -339,7 +352,7 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
 
     _socketListeners.on('rps_round_timeout', (data) {
       _stopCountdown();
-      setState(() {
+      _set(() {
         _waitingForResult = false;
       });
     });
@@ -348,9 +361,10 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
       if (data['gameType'] != 'rps') return;
       _reconnectTimer?.cancel();
       _myId = _socketService.socket?.id;
-      setState(() {
+      _set(() {
         _roomId = data['roomId'] as String?;
-        _myPlayerIndex = (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
+        _myPlayerIndex =
+            (data['playerIndex'] as num?)?.toInt() ?? _myPlayerIndex;
         _currentRound = (data['round'] as num?)?.toInt() ?? _currentRound;
         if (data['scores'] != null) {
           _scores = List<int>.from(data['scores']);
@@ -391,8 +405,9 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
     _socketListeners.on('opponent_disconnected', (_) {
       if (!_isGameActive) return;
       _stopCountdown();
-      setState(() {
-        _reconnectSecondsRemaining = GameReconnectHelper.reconnectGraceDuration.inSeconds;
+      _set(() {
+        _reconnectSecondsRemaining =
+            GameReconnectHelper.reconnectGraceDuration.inSeconds;
         _isWaitingForReconnect = true;
         _isReconnecting = false;
       });
@@ -402,14 +417,14 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
     _socketListeners.on('opponent_reconnected', (_) {
       if (!_isGameActive) return;
       _waitingReconnectTimer?.cancel();
-      setState(() => _isWaitingForReconnect = false);
+      _set(() => _isWaitingForReconnect = false);
       GameReconnectHelper.showOpponentReconnected(context);
     });
 
     _socketListeners.on('game_end', (data) {
       if (_status == RpsGameStatus.finished) return;
       _stopCountdown();
-      setState(() {
+      _set(() {
         _status = RpsGameStatus.finished;
         _winnerId = data['winner'];
         _isDraw = data['isDraw'] ?? false;
@@ -423,13 +438,12 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
     });
 
     _socketListeners.on('opponent_left', (data) {
-      if (_status == RpsGameStatus.idle ||
-          _status == RpsGameStatus.searching) {
+      if (_status == RpsGameStatus.idle || _status == RpsGameStatus.searching) {
         return;
       }
       // 결과 화면에서 상대가 나간 경우: 결과는 유지하고 재대결만 불가 처리
       if (_status == RpsGameStatus.finished) {
-        setState(() {
+        _set(() {
           _opponentLeft = true;
           _rematchWaiting = false;
           _opponentWantsRematch = false;
@@ -441,7 +455,7 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
         Navigator.of(context).pop();
         _isExitDialogOpen = false;
       }
-      setState(() {
+      _set(() {
         _status = RpsGameStatus.finished;
         _winnerId = _myId;
         _opponentLeft = true;
@@ -454,9 +468,9 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(widget.isRanked
-              ? '상대가 나가서 게임이 종료되었습니다. 승리!'
-              : '상대방이 나갔습니다.'),
+            content: Text(
+              widget.isRanked ? '상대가 나가서 게임이 종료되었습니다. 승리!' : '상대방이 나갔습니다.',
+            ),
             backgroundColor: Colors.orange,
           ),
         );
@@ -466,10 +480,10 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
     GameEventHelper.registerRematchHandlers(
       registry: _socketListeners,
       onRematchWaiting: (waiting) {
-        setState(() => _rematchWaiting = waiting);
+        _set(() => _rematchWaiting = waiting);
       },
       onOpponentRematchChanged: (wantsRematch) {
-        setState(() => _opponentWantsRematch = wantsRematch);
+        _set(() => _opponentWantsRematch = wantsRematch);
       },
     );
 
@@ -493,7 +507,7 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
       'gameType': AppConfig.gameTypeRps,
       'isHardcore': _isHardcore,
     });
-    setState(() => _status = RpsGameStatus.searching);
+    _set(() => _status = RpsGameStatus.searching);
   }
 
   void _cancelMatch() {
@@ -501,22 +515,20 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
       'gameType': AppConfig.gameTypeRps,
       'isHardcore': _isHardcore,
     });
-    setState(() => _status = RpsGameStatus.idle);
+    _set(() => _status = RpsGameStatus.idle);
   }
 
   void _makeChoice(RpsChoice choice) {
     if (_myChoice != null || _roomId == null) return;
 
-    setState(() {
+    _set(() {
       _myChoice = choice;
       _waitingForResult = _opponentChosen;
     });
 
     _socketService.emit('game_action', {
       'roomId': _roomId,
-      'action': {
-        'choice': choice.name,
-      },
+      'action': {'choice': choice.name},
     });
   }
 
@@ -528,7 +540,7 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
   void _cancelRematch() {
     if (_roomId == null) return;
     _socketService.emit('rematch_cancel', {'roomId': _roomId});
-    setState(() => _rematchWaiting = false);
+    _set(() => _rematchWaiting = false);
   }
 
   void _leaveGame() {
@@ -543,7 +555,7 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
 
   void _reset() {
     _waitingReconnectTimer?.cancel();
-    setState(() {
+    _set(() {
       _status = RpsGameStatus.idle;
       _roomId = null;
       _opponentNickname = null;
@@ -583,7 +595,8 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
             body: Stack(
               children: [
                 GameScreenTransition(
-                  transitionKey: '${_status.name}-$_currentRound-${_myChoice?.name ?? 'none'}-${_lastWinnerIndex ?? -1}-$_lastIsDraw',
+                  transitionKey:
+                      '${_status.name}-$_currentRound-${_myChoice?.name ?? 'none'}-${_lastWinnerIndex ?? -1}-$_lastIsDraw',
                   child: _buildBody(theme),
                 ),
                 ...GameReconnectHelper.buildStandardOverlays(
@@ -617,163 +630,37 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
 
   Widget _buildBody(GameTheme theme) {
     return switch (_status) {
-      RpsGameStatus.idle => widget.isRanked ? _buildRankedWaitingView(theme) : _buildIdleView(theme),
-      RpsGameStatus.searching => widget.isRanked ? _buildRankedWaitingView(theme) : _buildSearchingView(theme),
-      RpsGameStatus.matched => widget.isRanked ? _buildRankedWaitingView(theme) : _buildMatchedView(theme),
+      RpsGameStatus.idle =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildIdleView(theme),
+      RpsGameStatus.searching =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildSearchingView(theme),
+      RpsGameStatus.matched =>
+        widget.isRanked
+            ? _buildRankedWaitingView(theme)
+            : _buildMatchedView(theme),
       RpsGameStatus.playing => _buildPlayingView(theme),
       RpsGameStatus.finished => _buildFinishedView(theme),
     };
   }
 
   void _showFriendInviteDialog(BuildContext context) {
-    // 친구 목록 새로고침
-    context.read<FriendProvider>().getFriends();
-
-    showModalBottomSheet(
+    showGameInviteSheet(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (dialogContext) => Consumer<FriendProvider>(
-        builder: (context, friendProvider, child) {
-          final onlineFriends = friendProvider.friends.where((f) => f.isOnline).toList();
-
-          return Container(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(dialogContext).size.height * 0.6,
-            ),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // 핸들
-                Container(
-                  margin: const EdgeInsets.only(top: 12),
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                // 헤더
-                Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Row(
-                    children: [
-                      Icon(Icons.person_add, color: _accent),
-                      const SizedBox(width: 12),
-                      const Text(
-                        '친구 초대',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1),
-                // 친구 목록
-                Flexible(
-                  child: onlineFriends.isEmpty
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(40),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.person_off, size: 48, color: Colors.grey.shade400),
-                                const SizedBox(height: 16),
-                                Text(
-                                  '온라인 친구가 없습니다',
-                                  style: TextStyle(color: Colors.grey.shade600),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                      : ListView.builder(
-                          shrinkWrap: true,
-                          itemCount: onlineFriends.length,
-                          itemBuilder: (context, index) {
-                            final friend = onlineFriends[index];
-                            return ListTile(
-                              leading: Stack(
-                                children: [
-                                  CircleAvatar(
-                                    backgroundColor: _accent.withValues(alpha: 0.2),
-                                    child: Text(
-                                      friend.nickname.isNotEmpty ? friend.nickname[0].toUpperCase() : '?',
-                                      style: TextStyle(color: _accent),
-                                    ),
-                                  ),
-                                  Positioned(
-                                    right: 0,
-                                    bottom: 0,
-                                    child: Container(
-                                      width: 12,
-                                      height: 12,
-                                      decoration: BoxDecoration(
-                                        color: Colors.green,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(color: Colors.white, width: 2),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              title: Text(friend.nickname, style: const TextStyle(fontWeight: FontWeight.w600)),
-                              subtitle: friend.memo != null && friend.memo!.isNotEmpty
-                                  ? Text(friend.memo!, style: TextStyle(color: Colors.grey.shade600, fontSize: 12))
-                                  : null,
-                              trailing: ElevatedButton(
-                                onPressed: () {
-                                  friendProvider.inviteToGame(
-                                    friend.id,
-                                    AppConfig.gameTypeRps,
-                                    isHardcore: false,
-                                  );
-                                  Navigator.pop(dialogContext);
-                                  // 기존 SnackBar 제거 후 새 알림 표시 (중복 방지)
-                                  ScaffoldMessenger.of(context).clearSnackBars();
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text('${friend.nickname}님에게 초대를 보냈습니다!'),
-                                      backgroundColor: Colors.green,
-                                    ),
-                                  );
-                                },
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: _accent,
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                ),
-                                child: const Text('초대'),
-                              ),
-                            );
-                          },
-                        ),
-                ),
-                SizedBox(height: MediaQuery.of(dialogContext).padding.bottom + 16),
-              ],
-            ),
-          );
-        },
-      ),
+      accent: _accent,
+      gameType: AppConfig.gameTypeRps,
+      refresh: true, // 친구 목록 새로고침
     );
   }
 
   Widget _buildIdleView(GameTheme theme) {
     return GameIntroView(
-      backgroundGradient: LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [_accent.withValues(alpha: 0.045), const Color(0xFFFAFBFC)],
-      ),
+      backgroundGradient: theme.backgroundGradient,
       accentColor: _accent,
-      icon: Icons.front_hand_rounded,
+      emoji: '✌️',
       title: '가위바위보',
       descriptions: const ['3판 2선승'],
       onFindMatch: _findMatch,
@@ -782,133 +669,68 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
   }
 
   Widget _buildSearchingView(GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            _accent.withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(
-              color: _accent,
-            ),
-            const SizedBox(height: 24),
-            Text(
-              '상대를 찾는 중...',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: _accent,
-              ),
-            ),
-            const SizedBox(height: 48),
-            OutlinedButton(
-              onPressed: _cancelMatch,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.grey,
-                side: BorderSide(color: Colors.grey.shade400),
-              ),
-              child: const Text('취소'),
-            ),
-          ],
-        ),
-      ),
+    return GameSearchingView(
+      theme: theme,
+      isHardcore: false,
+      onCancel: _cancelMatch,
     );
   }
 
   Widget _buildMatchedView(GameTheme theme) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            _accent.withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: const BoxDecoration(
-                color: Color(0xFFE8DAEF),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.sports_esports,
-                size: 64,
-                color: _accent,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '$_opponentNickname님과 매칭!',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: _accent,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '게임이 곧 시작됩니다...',
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
-          ],
-        ),
-      ),
-    );
+    return GameMatchedView(theme: theme, opponentNickname: _opponentNickname);
   }
 
   Widget _buildPlayingView(GameTheme theme) {
-    final bool showResult = _lastPlayer0Choice != null && _lastPlayer1Choice != null;
+    final bool showResult =
+        _lastPlayer0Choice != null && _lastPlayer1Choice != null;
 
-    return Column(
-      children: [
-        // 프로필 & 점수판
-        GameDuelHeader(
-          backgroundColors: const [Color(0xFFF5EEF8), Color(0xFFEDE7F6)],
-          accentColor: _accent,
-          centerLabel: 'R$_currentRound',
-          centerSubtitle: '3판 2선승',
-          myName: _myNickname ?? '나',
-          opponentName: _opponentNickname ?? '상대',
-          myAvatarUrl: _myAvatarUrl,
-          opponentAvatarUrl: _opponentAvatarUrl,
-          myActive: true,
-          opponentActive: false,
-          myProfileSettings: _myProfileSettings,
-          opponentProfileSettings: _opponentProfileSettings,
-          myExtraWidget: _buildScoreWidget(_scores[_myPlayerIndex], true),
-          opponentExtraWidget: _buildScoreWidget(_scores[1 - _myPlayerIndex], false),
-        ),
+    return Container(
+      decoration: BoxDecoration(gradient: theme.backgroundGradient),
+      child: Column(
+        children: [
+          // 프로필 & 점수판
+          GameDuelHeader(
+            backgroundColors: [
+              theme.cardGradient.colors.first,
+              theme.cardGradient.colors.last,
+            ],
+            accentColor: _accent,
+            centerLabel: 'R$_currentRound',
+            centerSubtitle: '3판 2선승',
+            myName: _myNickname ?? '나',
+            opponentName: _opponentNickname ?? '상대',
+            myAvatarUrl: _myAvatarUrl,
+            opponentAvatarUrl: _opponentAvatarUrl,
+            myActive: true,
+            opponentActive: false,
+            myProfileSettings: _myProfileSettings,
+            opponentProfileSettings: _opponentProfileSettings,
+            myExtraWidget: _buildScoreWidget(_scoreOf(_myPlayerIndex), true),
+            opponentExtraWidget: _buildScoreWidget(
+              _scoreOf(1 - _myPlayerIndex),
+              false,
+            ),
+          ),
 
-        // 게임 영역
-        Expanded(
-          child: _currentRound == 0
-              ? _buildWaitingForRoundView()
-              : (showResult ? _buildResultView() : _buildChoiceView()),
-        ),
-      ],
+          // 게임 영역
+          Expanded(
+            child: _currentRound == 0
+                ? _buildWaitingForRoundView()
+                : (showResult ? _buildResultView() : _buildChoiceView()),
+          ),
+        ],
+      ),
     );
   }
+
+  /// 점수 배열 범위 밖 접근 방지.
+  int _scoreOf(int index) =>
+      (index >= 0 && index < _scores.length) ? _scores[index] : 0;
 
   Widget _buildScoreWidget(int score, bool isMe) {
     return GameHeaderScorePill(
       score: score,
-      color: isMe ? _accent : Colors.grey,
+      color: isMe ? _accent : CandyColors.inkSoft,
     );
   }
 
@@ -922,236 +744,291 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
         content: SizedBox(
           width: 30,
           height: 30,
-          child: CircularProgressIndicator(
-            color: _accent,
-            strokeWidth: 3,
-          ),
+          child: CircularProgressIndicator(color: _accent, strokeWidth: 3),
         ),
       ),
     );
   }
 
   Widget _buildChoiceView() {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        // 타이머
-        GameTimerBadge(
-          seconds: _remainingSeconds,
-          label: '선택 남은 시간',
-          accentColor: _accent,
-        ),
-        const SizedBox(height: 24),
-
-        // 상대 상태
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          decoration: BoxDecoration(
-            color: _opponentChosen ? Colors.green.shade50 : Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: _opponentChosen ? Colors.green : Colors.grey.shade300,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                _opponentChosen ? Icons.check_circle : Icons.hourglass_empty,
-                color: _opponentChosen ? Colors.green : Colors.grey,
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                _opponentChosen ? '$_opponentNickname 선택 완료!' : '$_opponentNickname 선택 중...',
-                style: TextStyle(
-                  color: _opponentChosen ? Colors.green.shade700 : Colors.grey.shade600,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 32),
-
-        // 내 선택 상태 또는 선택 버튼
-        if (_myChoice != null)
-          Column(
-            children: [
-              Text(
-                _getChoiceEmoji(_myChoice!),
-                style: const TextStyle(fontSize: 80),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                '${_getChoiceName(_myChoice!)} 선택!',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: _accent,
-                ),
-              ),
-              if (_waitingForResult || !_opponentChosen) ...[
-                const SizedBox(height: 16),
-                Text(
-                  '상대방 대기 중...',
-                  style: TextStyle(color: Colors.grey.shade600),
-                ),
-              ],
-            ],
-          )
-        else
-          Column(
-            children: [
-              Text(
-                '선택하세요!',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: _accent,
-                ),
-              ),
-              const SizedBox(height: 32),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  _buildChoiceButton(RpsChoice.rock),
-                  _buildChoiceButton(RpsChoice.scissors),
-                  _buildChoiceButton(RpsChoice.paper),
+                  // 타이머
+                  GameTimerBadge(
+                    seconds: _remainingSeconds,
+                    label: '선택 남은 시간',
+                    accentColor: _accent,
+                  ),
+                  const SizedBox(height: 18),
+
+                  // 상대 상태
+                  _buildOpponentStatusPill(),
+                  const SizedBox(height: 24),
+
+                  // 내 선택 상태 또는 선택 버튼
+                  if (_myChoice != null)
+                    _buildMyChoiceShown(_myChoice!)
+                  else
+                    Column(
+                      children: [
+                        const Text(
+                          '선택하세요!',
+                          style: TextStyle(
+                            fontSize: 26,
+                            fontWeight: FontWeight.w900,
+                            color: CandyColors.ink,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: LayoutBuilder(
+                            builder: (context, c) {
+                              final size = math.max(
+                                64.0,
+                                math.min(108.0, (c.maxWidth - 24) / 3),
+                              );
+                              return Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceEvenly,
+                                children: [
+                                  _RpsHandButton(
+                                    emoji: _getChoiceEmoji(RpsChoice.rock),
+                                    label: _getChoiceName(RpsChoice.rock),
+                                    color: CandyColors.sky,
+                                    size: size,
+                                    bounceMs: 900,
+                                    onTap: () => _makeChoice(RpsChoice.rock),
+                                  ),
+                                  _RpsHandButton(
+                                    emoji: _getChoiceEmoji(RpsChoice.scissors),
+                                    label: _getChoiceName(RpsChoice.scissors),
+                                    color: CandyColors.sun,
+                                    size: size,
+                                    bounceMs: 760,
+                                    onTap: () =>
+                                        _makeChoice(RpsChoice.scissors),
+                                  ),
+                                  _RpsHandButton(
+                                    emoji: _getChoiceEmoji(RpsChoice.paper),
+                                    label: _getChoiceName(RpsChoice.paper),
+                                    color: CandyColors.mint,
+                                    size: size,
+                                    bounceMs: 1040,
+                                    onTap: () => _makeChoice(RpsChoice.paper),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
                 ],
               ),
-            ],
+            ),
           ),
-      ],
+        );
+      },
     );
   }
 
-  Widget _buildChoiceButton(RpsChoice choice) {
-    return GestureDetector(
-      onTapDown: (_) => _animController.forward(),
-      onTapUp: (_) {
-        _animController.reverse();
-        _makeChoice(choice);
-      },
-      onTapCancel: () => _animController.reverse(),
-      child: AnimatedBuilder(
-        animation: _scaleAnim,
-        builder: (context, child) {
-          return Transform.scale(
-            scale: _scaleAnim.value,
-            child: Container(
-              width: 100,
-              height: 100,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: _accent.withValues(alpha: 0.3),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Center(
-                child: Text(
-                  _getChoiceEmoji(choice),
-                  style: const TextStyle(fontSize: 48),
+  Widget _buildOpponentStatusPill() {
+    final chosen = _opponentChosen;
+    final name = _opponentNickname ?? '상대';
+    return TweenAnimationBuilder<double>(
+      key: ValueKey(chosen),
+      tween: Tween(begin: chosen ? 0.75 : 1.0, end: 1.0),
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.elasticOut,
+      builder: (_, scale, child) => Transform.scale(scale: scale, child: child),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 24),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+        decoration: BoxDecoration(
+          color: chosen ? CandyColors.mint : Colors.white,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: CandyColors.ink, width: 2.5),
+          boxShadow: const [
+            BoxShadow(color: CandyColors.ink, offset: Offset(0, 3)),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              chosen
+                  ? Icons.check_circle_rounded
+                  : Icons.hourglass_empty_rounded,
+              color: chosen ? CandyColors.ink : CandyColors.inkSoft,
+              size: 20,
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                chosen ? '$name 선택 완료!' : '$name 선택 중...',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: chosen ? CandyColors.ink : CandyColors.inkSoft,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
             ),
-          );
-        },
+          ],
+        ),
       ),
     );
   }
 
+  Widget _buildMyChoiceShown(RpsChoice choice) {
+    return Column(
+      children: [
+        TweenAnimationBuilder<double>(
+          key: ValueKey(choice),
+          tween: Tween(begin: 0.3, end: 1.0),
+          duration: const Duration(milliseconds: 600),
+          curve: Curves.elasticOut,
+          builder: (_, scale, child) =>
+              Transform.scale(scale: scale, child: child),
+          child: Container(
+            width: 148,
+            height: 148,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              border: Border.all(color: CandyColors.ink, width: 3),
+              boxShadow: const [
+                BoxShadow(color: CandyColors.ink, offset: Offset(0, 6)),
+              ],
+            ),
+            child: Text(
+              _getChoiceEmoji(choice),
+              style: const TextStyle(fontSize: 76),
+            ),
+          ),
+        ),
+        const SizedBox(height: 22),
+        Text(
+          '${_getChoiceName(choice)} 선택!',
+          style: const TextStyle(
+            fontSize: 26,
+            fontWeight: FontWeight.w900,
+            color: CandyColors.ink,
+          ),
+        ),
+        if (_waitingForResult || !_opponentChosen) ...[
+          const SizedBox(height: 12),
+          const Text(
+            '상대방 대기 중...',
+            style: TextStyle(
+              color: CandyColors.inkSoft,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _buildResultView() {
-    final myChoice = _myPlayerIndex == 0 ? _lastPlayer0Choice : _lastPlayer1Choice;
-    final opponentChoice = _myPlayerIndex == 0 ? _lastPlayer1Choice : _lastPlayer0Choice;
+    final myChoice = _myPlayerIndex == 0
+        ? _lastPlayer0Choice
+        : _lastPlayer1Choice;
+    final opponentChoice = _myPlayerIndex == 0
+        ? _lastPlayer1Choice
+        : _lastPlayer0Choice;
     final isMyWin = _lastWinnerIndex == _myPlayerIndex;
     final isOpponentWin = _lastWinnerIndex == (1 - _myPlayerIndex);
+    final stateColor = _lastIsDraw
+        ? CandyColors.sunDeep
+        : (isMyWin ? CandyColors.mintDeep : CandyColors.pinkDeep);
 
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        GameStagePanel(
-          icon: _lastIsDraw
-              ? Icons.handshake_rounded
-              : (isMyWin
-                  ? Icons.emoji_events_rounded
-                  : Icons.sentiment_dissatisfied_rounded),
-          title: _lastIsDraw ? '무승부!' : (isMyWin ? '이겼다!' : '졌다...'),
-          subtitle: '선택을 모두 확인했고, 다음 라운드를 준비하고 있어요.',
-          accentColor: _lastIsDraw ? Colors.orange : (isMyWin ? Colors.green : Colors.red),
-          compact: true,
-        ),
-        const SizedBox(height: 28),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  GameStagePanel(
+                    icon: _lastIsDraw
+                        ? Icons.handshake_rounded
+                        : (isMyWin
+                              ? Icons.emoji_events_rounded
+                              : Icons.sentiment_dissatisfied_rounded),
+                    title: _lastIsDraw ? '무승부!' : (isMyWin ? '이겼다!' : '졌다...'),
+                    subtitle: '선택을 모두 확인했고, 다음 라운드를 준비하고 있어요.',
+                    accentColor: stateColor,
+                    compact: true,
+                  ),
+                  const SizedBox(height: 24),
 
-        // 선택 비교
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // 내 선택
-            Column(
-              children: [
-                Text(
-                  _getChoiceEmojiFromString(myChoice),
-                  style: const TextStyle(fontSize: 64),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: isMyWin ? Colors.green : (_lastIsDraw ? Colors.orange : Colors.red),
-                    borderRadius: BorderRadius.circular(12),
+                  // 선택 비교 (카드가 뒤집히며 공개)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Flexible(
+                          child: _RpsRevealCard(
+                            emoji: _getChoiceEmojiFromString(myChoice),
+                            label: '나',
+                            isWinner: isMyWin && !_lastIsDraw,
+                            isDraw: _lastIsDraw,
+                            delayMs: 150,
+                          ),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.only(top: 44, left: 8, right: 8),
+                          child: Text(
+                            'VS',
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                              color: CandyColors.inkSoft,
+                            ),
+                          ),
+                        ),
+                        Flexible(
+                          child: _RpsRevealCard(
+                            emoji: _getChoiceEmojiFromString(opponentChoice),
+                            label: _opponentNickname ?? '상대',
+                            isWinner: isOpponentWin && !_lastIsDraw,
+                            isDraw: _lastIsDraw,
+                            delayMs: 450,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: const Text(
-                    '나',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  const SizedBox(height: 22),
+                  const Text(
+                    '다음 라운드 준비 중...',
+                    style: TextStyle(
+                      color: CandyColors.inkSoft,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(width: 40),
-            const Text(
-              'VS',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey,
+                ],
               ),
             ),
-            const SizedBox(width: 40),
-            // 상대 선택
-            Column(
-              children: [
-                Text(
-                  _getChoiceEmojiFromString(opponentChoice),
-                  style: const TextStyle(fontSize: 64),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: isOpponentWin ? Colors.green : (_lastIsDraw ? Colors.orange : Colors.red),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    _opponentNickname ?? '상대',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 32),
-        Text(
-          '다음 라운드 준비 중...',
-          style: TextStyle(color: Colors.grey.shade600),
-        ),
-      ],
+          ),
+        );
+      },
     );
   }
 
@@ -1199,10 +1076,10 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
         markScheduledPop: () => _hasScheduledPop = true,
       );
       return GameRankedResultView(
-      backgroundGradient: theme.backgroundGradient,
-      accentColor: theme.primary,
-      isWinner: isWinner,
-      isDraw: _isDraw,
+        backgroundGradient: theme.backgroundGradient,
+        accentColor: theme.primary,
+        isWinner: isWinner,
+        isDraw: _isDraw,
       );
     }
 
@@ -1212,7 +1089,7 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
 
     if (_isDraw) {
       resultText = '무승부!';
-      resultColor = Colors.orange;
+      resultColor = CandyColors.tangerine;
       resultIcon = Icons.handshake;
     } else if (isWinner) {
       resultText = '승리!';
@@ -1220,21 +1097,12 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
       resultIcon = Icons.emoji_events;
     } else {
       resultText = '아쉬워요...';
-      resultColor = Colors.grey;
+      resultColor = CandyColors.inkSoft;
       resultIcon = Icons.sentiment_dissatisfied;
     }
 
     return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            resultColor.withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
-      ),
+      decoration: BoxDecoration(gradient: theme.backgroundGradient),
       child: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
@@ -1247,61 +1115,68 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
                 title: resultText,
                 subtitle: _isDraw
                     ? '끝까지 쉽게 예측할 수 없는 승부였어요.'
-                    : (isWinner ? '이번 판은 선택 타이밍이 좋았어요.' : '상대의 흐름을 읽어 다음 판을 노려봐요.'),
+                    : (isWinner
+                          ? '이번 판은 선택 타이밍이 좋았어요.'
+                          : '상대의 흐름을 읽어 다음 판을 노려봐요.'),
               ),
               const SizedBox(height: 22),
               GameResultMatchupRow(
                 leftLabel: '나',
-                leftValue: '${_scores[_myPlayerIndex]}',
+                leftValue: '${_scoreOf(_myPlayerIndex)}',
                 rightLabel: _opponentNickname ?? '상대',
-                rightValue: '${_scores[1 - _myPlayerIndex]}',
+                rightValue: '${_scoreOf(1 - _myPlayerIndex)}',
                 accentColor: resultColor,
               ),
               const SizedBox(height: 24),
-            if (_opponentWantsRematch && !_opponentLeft)
-              GameResultStatusPill(
-                icon: Icons.hourglass_top_rounded,
-                text: '$_opponentNickname님이 재경기 대기 중',
-                color: const Color(0xFF15803D),
+              if (_opponentWantsRematch && !_opponentLeft)
+                GameResultStatusPill(
+                  icon: Icons.hourglass_top_rounded,
+                  text: '$_opponentNickname님이 재경기 대기 중',
+                  color: const Color(0xFF15803D),
+                ),
+              GameResultActionButtons(
+                accentColor: _accent,
+                opponentLeft: _opponentLeft,
+                rematchWaiting: _rematchWaiting,
+                isInvitationGame: _isInvitationGame,
+                canSendFriendRequest:
+                    !_isInvitationGame &&
+                    !_opponentLeft &&
+                    _opponentUserId != null &&
+                    !context.read<FriendProvider>().isFriend(_opponentUserId!),
+                onRematchPressed: _rematchWaiting
+                    ? _cancelRematch
+                    : _requestRematch,
+                onSearchAgainPressed: () {
+                  _leaveGame();
+                  _findMatch();
+                },
+                onLobbyPressed: () {
+                  GameSessionHelper.leaveGameAndReturnToLobby(
+                    context: context,
+                    socketService: _socketService,
+                    roomId: _roomId,
+                    isRanked: widget.isRanked,
+                    resetState: _reset,
+                  );
+                },
+                onFriendRequestPressed: _opponentUserId == null
+                    ? null
+                    : () {
+                        context
+                            .read<FriendProvider>()
+                            .sendFriendRequestByUserId(_opponentUserId!);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('$_opponentNickname님에게 친구 요청을 보냈습니다'),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      },
               ),
-            GameResultActionButtons(
-              accentColor: _accent,
-              opponentLeft: _opponentLeft,
-              rematchWaiting: _rematchWaiting,
-              isInvitationGame: _isInvitationGame,
-              canSendFriendRequest: !_isInvitationGame &&
-                  !_opponentLeft &&
-                  _opponentUserId != null &&
-                  !context.read<FriendProvider>().isFriend(_opponentUserId!),
-              onRematchPressed: _rematchWaiting ? _cancelRematch : _requestRematch,
-              onSearchAgainPressed: () {
-                _leaveGame();
-                _findMatch();
-              },
-              onLobbyPressed: () {
-                GameSessionHelper.leaveGameAndReturnToLobby(
-                  context: context,
-                  socketService: _socketService,
-                  roomId: _roomId,
-                  isRanked: widget.isRanked,
-                  resetState: _reset,
-                );
-              },
-              onFriendRequestPressed: _opponentUserId == null
-                  ? null
-                  : () {
-                      context.read<FriendProvider>().sendFriendRequestByUserId(_opponentUserId!);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('$_opponentNickname님에게 친구 요청을 보냈습니다'),
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
-                    },
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -1314,7 +1189,8 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
     }
 
     // 랭크 게임에서 대기 중인 상태인지 확인
-    final isRankedWaiting = widget.isRanked &&
+    final isRankedWaiting =
+        widget.isRanked &&
         (_status == RpsGameStatus.idle ||
             _status == RpsGameStatus.searching ||
             _status == RpsGameStatus.matched);
@@ -1342,5 +1218,274 @@ class _RpsScreenState extends State<RpsScreen> with SingleTickerProviderStateMix
           : '정말 게임을 나가시겠습니까?\n진행 중인 게임은 패배 처리됩니다.',
       onExit: _leaveGame,
     ).then((_) => _isExitDialogOpen = false);
+  }
+}
+
+/// 가위/바위/보 선택 버튼. 평소엔 통통 떠 있고, 누르면 눌리며 햅틱이 울린다.
+class _RpsHandButton extends StatefulWidget {
+  final String emoji;
+  final String label;
+  final Color color;
+  final double size;
+  final int bounceMs;
+  final VoidCallback onTap;
+
+  const _RpsHandButton({
+    required this.emoji,
+    required this.label,
+    required this.color,
+    required this.size,
+    required this.bounceMs,
+    required this.onTap,
+  });
+
+  @override
+  State<_RpsHandButton> createState() => _RpsHandButtonState();
+}
+
+class _RpsHandButtonState extends State<_RpsHandButton> {
+  bool _down = false;
+
+  void _setDown(bool v) {
+    if (_down != v && mounted) setState(() => _down = v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tint = Color.alphaBlend(
+      widget.color.withValues(alpha: 0.45),
+      Colors.white,
+    );
+    return CandyPulse(
+      duration: Duration(milliseconds: widget.bounceMs),
+      builder: (_, t, child) =>
+          Transform.translate(offset: Offset(0, -6 * t), child: child),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => _setDown(true),
+        onTapCancel: () => _setDown(false),
+        onTapUp: (_) => _setDown(false),
+        onTap: () {
+          HapticFeedback.mediumImpact();
+          widget.onTap();
+        },
+        child: AnimatedScale(
+          scale: _down ? 0.88 : 1.0,
+          duration: const Duration(milliseconds: 90),
+          curve: Curves.easeOut,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: widget.size,
+                height: widget.size,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: tint,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: CandyColors.ink, width: 3),
+                  boxShadow: [
+                    BoxShadow(
+                      color: CandyColors.ink,
+                      offset: Offset(0, _down ? 1 : 5),
+                    ),
+                  ],
+                ),
+                child: Text(
+                  widget.emoji,
+                  style: TextStyle(fontSize: widget.size * 0.46),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 3,
+                ),
+                decoration: BoxDecoration(
+                  color: widget.color,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: CandyColors.ink, width: 2),
+                ),
+                child: Text(
+                  widget.label,
+                  maxLines: 1,
+                  style: const TextStyle(
+                    color: CandyColors.ink,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 라운드 결과 공개 카드. 물음표 카드가 3D 로 뒤집히며 손 모양이 나타난다.
+class _RpsRevealCard extends StatefulWidget {
+  final String emoji;
+  final String label;
+  final bool isWinner;
+  final bool isDraw;
+  final int delayMs;
+
+  const _RpsRevealCard({
+    required this.emoji,
+    required this.label,
+    required this.isWinner,
+    required this.isDraw,
+    required this.delayMs,
+  });
+
+  @override
+  State<_RpsRevealCard> createState() => _RpsRevealCardState();
+}
+
+class _RpsRevealCardState extends State<_RpsRevealCard>
+    with SingleTickerProviderStateMixin {
+  static const int _flipMs = 650;
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: Duration(milliseconds: widget.delayMs + _flipMs),
+  );
+  late final Animation<double> _flip = CurvedAnimation(
+    parent: _c,
+    curve: Interval(
+      widget.delayMs / (widget.delayMs + _flipMs),
+      1.0,
+      curve: Curves.easeOutBack,
+    ),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _c.addStatusListener((status) {
+      if (status == AnimationStatus.completed && mounted) {
+        HapticFeedback.lightImpact();
+      }
+    });
+    _c.forward();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Color chipColor = widget.isDraw
+        ? CandyColors.sun
+        : (widget.isWinner ? CandyColors.mint : CandyColors.pink);
+    final Color faceColor = widget.isWinner ? CandyColors.sun : Colors.white;
+
+    final back = Container(
+      decoration: BoxDecoration(
+        color: CandyColors.grape,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: CandyColors.ink, width: 3),
+        boxShadow: const [
+          BoxShadow(color: CandyColors.ink, offset: Offset(0, 5)),
+        ],
+      ),
+      alignment: Alignment.center,
+      child: const FittedBox(
+        child: Padding(
+          padding: EdgeInsets.all(26),
+          child: Text(
+            '?',
+            style: TextStyle(
+              fontSize: 56,
+              fontWeight: FontWeight.w900,
+              color: Colors.white,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final front = Container(
+      decoration: BoxDecoration(
+        color: faceColor,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: CandyColors.ink, width: 3),
+        boxShadow: const [
+          BoxShadow(color: CandyColors.ink, offset: Offset(0, 5)),
+        ],
+      ),
+      alignment: Alignment.center,
+      child: FittedBox(
+        child: Padding(
+          padding: const EdgeInsets.all(22),
+          child: Text(widget.emoji, style: const TextStyle(fontSize: 60)),
+        ),
+      ),
+    );
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 132),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AspectRatio(
+            aspectRatio: 1,
+            child: RepaintBoundary(
+              child: AnimatedBuilder(
+                animation: _flip,
+                builder: (context, _) {
+                  final v = _flip.value;
+                  final angle = v * math.pi;
+                  final showFront = angle > math.pi / 2;
+                  return Transform(
+                    alignment: Alignment.center,
+                    transform: Matrix4.identity()
+                      ..setEntry(3, 2, 0.0012)
+                      ..rotateY(angle),
+                    child: showFront
+                        ? Transform(
+                            alignment: Alignment.center,
+                            transform: Matrix4.rotationY(math.pi),
+                            child: front,
+                          )
+                        : back,
+                  );
+                },
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          AnimatedBuilder(
+            animation: _flip,
+            builder: (context, child) {
+              final o = ((_flip.value - 0.6) / 0.4).clamp(0.0, 1.0);
+              return Opacity(opacity: o, child: child);
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: chipColor,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: CandyColors.ink, width: 2.5),
+              ),
+              child: Text(
+                widget.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: CandyColors.ink,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

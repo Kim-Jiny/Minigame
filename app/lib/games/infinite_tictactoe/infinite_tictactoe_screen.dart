@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../providers/game_provider.dart';
 import '../../providers/auth_provider.dart';
@@ -6,15 +7,25 @@ import '../../providers/friend_provider.dart';
 import '../../providers/shop_provider.dart';
 import '../../services/socket_service.dart';
 import '../../config/app_config.dart';
+import '../../theme/candy_theme.dart';
 import '../../utils/game_theme.dart';
 import '../common/game_hardcore_toggle.dart';
 import '../common/game_intro_view.dart';
 import '../common/game_scaffold.dart';
 import '../common/game_result_summary.dart';
+import '../common/game_timer_badge.dart';
 import '../common/match_status_views.dart';
 import '../common/game_duel_header.dart';
 import '../common/game_result_action_buttons.dart';
 import '../common/game_session_helper.dart';
+import '../tictactoe/tictactoe_screen.dart'
+    show
+        TttBoard,
+        TttPieceDots,
+        CandyTurnChip,
+        CandyNoticeBar,
+        BoardFinishedLayout,
+        BoardResultPanel;
 
 class InfiniteTicTacToeScreen extends StatefulWidget {
   final bool isRanked;
@@ -22,14 +33,17 @@ class InfiniteTicTacToeScreen extends StatefulWidget {
   const InfiniteTicTacToeScreen({super.key, this.isRanked = false});
 
   @override
-  State<InfiniteTicTacToeScreen> createState() => _InfiniteTicTacToeScreenState();
+  State<InfiniteTicTacToeScreen> createState() =>
+      _InfiniteTicTacToeScreenState();
 }
 
 class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
-  bool _hasScheduledPop = false;  // 중복 pop 방지
+  bool _hasScheduledPop = false; // 중복 pop 방지
+  bool _wasMyTurn = false; // 내 턴 전환 감지(햅틱)
   // 게임 고유색 대신 사용자 테마 컬러를 accent로 사용.
-  Color get _accent =>
-      GameTheme.fromProfileSettings(context.read<ShopProvider>().profileSettings).primary;
+  Color get _accent => GameTheme.fromProfileSettings(
+    context.read<ShopProvider>().profileSettings,
+  ).primary;
 
   @override
   void initState() {
@@ -56,6 +70,11 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
     return Consumer2<GameProvider, ShopProvider>(
       builder: (context, game, shop, child) {
         final theme = GameTheme.fromProfileSettings(shop.profileSettings);
+        final myTurnNow = game.status == GameStatus.playing && game.isMyTurn;
+        if (myTurnNow && !_wasMyTurn) {
+          HapticFeedback.selectionClick();
+        }
+        _wasMyTurn = myTurnNow;
         return PopScope(
           canPop: false,
           onPopInvokedWithResult: (didPop, result) {
@@ -69,9 +88,18 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
               onBack: () => _showExitDialog(context),
             ),
             body: switch (game.status) {
-              GameStatus.idle => widget.isRanked ? _buildRankedWaitingView(theme) : _buildIdleView(game, theme),
-              GameStatus.searching => widget.isRanked ? _buildRankedWaitingView(theme) : _buildSearchingView(game, theme),
-              GameStatus.matched => widget.isRanked ? _buildRankedWaitingView(theme) : _buildMatchedView(game, theme),
+              GameStatus.idle =>
+                widget.isRanked
+                    ? _buildRankedWaitingView(theme)
+                    : _buildIdleView(game, theme),
+              GameStatus.searching =>
+                widget.isRanked
+                    ? _buildRankedWaitingView(theme)
+                    : _buildSearchingView(game, theme),
+              GameStatus.matched =>
+                widget.isRanked
+                    ? _buildRankedWaitingView(theme)
+                    : _buildMatchedView(game, theme),
               GameStatus.playing => _buildPlayingView(game, theme),
               GameStatus.finished => _buildFinishedView(game, theme),
             },
@@ -82,7 +110,7 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
   }
 
   Widget _buildIdleView(GameProvider game, GameTheme theme) {
-    final accent = game.isHardcore ? Colors.red : theme.primary;
+    final accent = game.isHardcore ? CandyColors.tangerine : theme.primary;
     return GameIntroView(
       backgroundGradient: theme.backgroundGradient,
       accentColor: accent,
@@ -97,15 +125,26 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: theme.background1,
-              borderRadius: BorderRadius.circular(20),
+              color: CandyColors.sun,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: CandyColors.ink, width: 2.5),
+              boxShadow: const [
+                BoxShadow(color: CandyColors.ink, offset: Offset(0, 3)),
+              ],
             ),
-            child: Row(
+            child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.all_inclusive, size: 16, color: theme.primary),
-                const SizedBox(width: 4),
-                Text('무승부 없음!', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: theme.primary)),
+                Icon(Icons.all_inclusive, size: 16, color: CandyColors.ink),
+                SizedBox(width: 6),
+                Text(
+                  '무승부 없음!',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    color: CandyColors.ink,
+                  ),
+                ),
               ],
             ),
           ),
@@ -129,206 +168,106 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
   }
 
   Widget _buildMatchedView(GameProvider game, GameTheme theme) {
-    return GameMatchedView(theme: theme, opponentNickname: game.opponentNickname);
-  }
-
-  Widget _buildPlayingView(GameProvider game, GameTheme theme) {
-    final auth = context.read<AuthProvider>();
-
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            _accent.withValues(alpha: 0.15),
-            Colors.white,
-          ],
-        ),
-      ),
-      child: Column(
-        children: [
-          // 프로필 & 턴 표시
-          GameDuelHeader(
-            backgroundColors: const [Color(0xFFE0F0FF), Color(0xFFF0F8FF)],
-            accentColor: theme.primary,
-            centerLabel: '',
-            myName: auth.nickname ?? '나',
-            opponentName: game.opponentNickname ?? '상대',
-            myAvatarUrl: auth.avatarUrl,
-            opponentAvatarUrl: game.opponentAvatarUrl,
-            myActive: game.isMyTurn,
-            opponentActive: !game.isMyTurn,
-            myProfileSettings: game.myProfileSettings ?? context.read<ShopProvider>().profileSettings,
-            opponentProfileSettings: game.opponentProfileSettings,
-            myExtraWidget: _buildPieceCount(game.myPieceCount, true),
-            opponentExtraWidget: _buildPieceCount(game.opponentPieceCount, false),
-            centerWidget: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Column(
-                children: [
-                  _buildTimer(game),
-                  const SizedBox(height: 4),
-                  Text(
-                    game.isMyTurn ? '내 차례' : '상대 차례',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: game.isMyTurn ? theme.primary : Colors.grey,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // 타임아웃 알림
-          if (game.timeoutPlayerNickname != null)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              color: Colors.orange.shade100,
-              child: Text(
-                '${game.timeoutPlayerNickname}님 시간 초과! 랜덤 위치에 배치됨',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.orange.shade800,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-
-          // 게임 보드
-          Expanded(
-            child: Center(
-              child: AspectRatio(
-                aspectRatio: 1,
-                child: Container(
-                  margin: const EdgeInsets.all(24),
-                  child: _buildBoard(game),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+    return GameMatchedView(
+      theme: theme,
+      opponentNickname: game.opponentNickname,
     );
   }
 
-  Widget _buildPieceCount(int pieceCount, bool isMe) {
-    final color = isMe ? const Color(0xFFFF6B9D) : const Color(0xFFFFB74D);
-    return Padding(
-      padding: const EdgeInsets.only(top: 2),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: List.generate(3, (index) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 1),
-            child: Icon(
-              index < pieceCount ? Icons.circle : Icons.circle_outlined,
-              size: 12,
-              color: index < pieceCount ? color : Colors.grey.shade300,
-            ),
-          );
-        }),
-      ),
-    );
-  }
-
-  Widget _buildTimer(GameProvider game) {
-    return GameBoardTimer(remaining: game.remainingTime);
-  }
-
-  Widget _buildBoard(GameProvider game) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-      ),
-      itemCount: 9,
-      itemBuilder: (context, index) {
-        final cell = game.board[index];
-        final isNextToDisappear = game.nextToDisappear == index;
-
-        return GestureDetector(
-          onTap: () {
-            if (cell == null && game.isMyTurn) {
-              game.makeMove(index);
-            }
-          },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            decoration: BoxDecoration(
-              color: isNextToDisappear
-                  ? Colors.orange.shade50
-                  : Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isNextToDisappear
-                    ? Colors.orange
-                    : _accent,
-                width: isNextToDisappear ? 3 : 2,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: isNextToDisappear
-                      ? Colors.orange.withValues(alpha: 0.3)
-                      : _accent.withValues(alpha: 0.1),
-                  blurRadius: 8,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Stack(
-              children: [
-                Center(child: _buildCellContent(cell)),
-                if (isNextToDisappear)
-                  Positioned(
-                    top: 4,
-                    right: 4,
-                    child: Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.shade100,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        Icons.timer,
-                        size: 14,
-                        color: Colors.orange.shade700,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        );
+  Widget _buildBoard(GameProvider game, GameTheme theme, bool canPlay) {
+    return TttBoard(
+      board: game.board,
+      canPlay: canPlay,
+      accent: theme.primary,
+      p0Color: theme.primary,
+      p1Color: CandyColors.sky,
+      fadingIndex: game.status == GameStatus.playing
+          ? game.nextToDisappear
+          : null,
+      onCellTap: (index) {
+        if (index < game.board.length &&
+            game.board[index] == null &&
+            game.isMyTurn) {
+          game.makeMove(index);
+        }
       },
     );
   }
 
-  Widget _buildCellContent(int? cell) {
-    if (cell == null) {
-      return const SizedBox.shrink();
-    }
+  Widget _buildPlayingView(GameProvider game, GameTheme theme) {
+    final auth = context.read<AuthProvider>();
+    final myIdx = game.myPlayerIndex ?? 0;
+    final myColor = myIdx == 0 ? theme.primary : CandyColors.sky;
+    final oppColor = myIdx == 0 ? CandyColors.sky : theme.primary;
 
-    // 0 = 동그라미 (첫 번째 플레이어), 1 = 세모 (두 번째 플레이어)
-    if (cell == 0) {
-      return const Icon(
-        Icons.circle_outlined,
-        size: 48,
-        color: Color(0xFFFF6B9D),
-      );
-    } else {
-      return const Icon(
-        Icons.change_history,
-        size: 48,
-        color: Color(0xFF00CEC9),
-      );
-    }
+    return Container(
+      decoration: BoxDecoration(gradient: theme.backgroundGradient),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            // 프로필 & 턴 표시
+            GameDuelHeader(
+              backgroundColors: [
+                theme.cardGradient.colors.first,
+                theme.cardGradient.colors.last,
+              ],
+              accentColor: theme.primary,
+              centerLabel: '',
+              myName: auth.nickname ?? '나',
+              opponentName: game.opponentNickname ?? '상대',
+              myAvatarUrl: auth.avatarUrl,
+              opponentAvatarUrl: game.opponentAvatarUrl,
+              myActive: game.isMyTurn,
+              opponentActive: !game.isMyTurn,
+              myProfileSettings:
+                  game.myProfileSettings ??
+                  context.read<ShopProvider>().profileSettings,
+              opponentProfileSettings: game.opponentProfileSettings,
+              myExtraWidget: _buildPieceCount(game.myPieceCount, myColor),
+              opponentExtraWidget: _buildPieceCount(
+                game.opponentPieceCount,
+                oppColor,
+              ),
+              centerWidget: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    GameTimerBadge(
+                      seconds: game.remainingTime,
+                      label: '',
+                      accentColor: theme.primary,
+                      compact: true,
+                      showLabel: false,
+                      warningThreshold: 5,
+                    ),
+                    const SizedBox(height: 6),
+                    CandyTurnChip(isMine: game.isMyTurn, accent: theme.primary),
+                  ],
+                ),
+              ),
+            ),
+
+            // 타임아웃 알림
+            if (game.timeoutPlayerNickname != null)
+              CandyNoticeBar(
+                text: '${game.timeoutPlayerNickname}님 시간 초과! 랜덤 위치에 배치됨',
+              ),
+
+            // 게임 보드
+            Expanded(child: _buildBoard(game, theme, game.isMyTurn)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPieceCount(int pieceCount, Color color) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: TttPieceDots(count: pieceCount, color: color),
+    );
   }
 
   Widget _buildRankedWaitingView(GameTheme theme) {
@@ -353,159 +292,64 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
       );
     }
 
-    final isWinner = game.isWinner;
-    final resultText = isWinner ? '승리!' : '아쉬워요...';
-    final resultColor = isWinner ? theme.primary : Colors.grey;
-    final resultIcon = isWinner ? Icons.emoji_events : Icons.sentiment_dissatisfied;
-
     return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            resultColor.withValues(alpha: 0.1),
-            Colors.white,
-          ],
-        ),
-      ),
-      child: Column(
-        children: [
-          Expanded(
-            child: Center(
-              child: AspectRatio(
-                aspectRatio: 1,
-                child: Container(
-                  margin: const EdgeInsets.all(24),
-                  child: _buildBoard(game),
-                ),
-              ),
-            ),
-          ),
-
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: resultColor.withValues(alpha: 0.1),
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(24),
-              ),
-            ),
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: resultColor.withValues(alpha: 0.3),
-                        blurRadius: 20,
-                      ),
-                    ],
+      decoration: BoxDecoration(gradient: theme.backgroundGradient),
+      child: SafeArea(
+        top: false,
+        child: BoardFinishedLayout(
+          board: _buildBoard(game, theme, false),
+          panel: BoardResultPanel(
+            isDraw: false,
+            isWinner: game.isWinner,
+            accent: theme.primary,
+            showRematchWaiting: game.opponentWantsRematch && !game.opponentLeft,
+            opponentNickname: game.opponentNickname,
+            actions: GameResultActionButtons(
+              accentColor: theme.primary,
+              opponentLeft: game.opponentLeft,
+              rematchWaiting: game.rematchWaiting,
+              isInvitationGame: game.isInvitationGame,
+              canSendFriendRequest:
+                  !game.isInvitationGame &&
+                  !game.opponentLeft &&
+                  game.opponentUserId != null &&
+                  !context.read<FriendProvider>().isFriend(
+                    game.opponentUserId!,
                   ),
-                  child: Icon(resultIcon, size: 48, color: resultColor),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  resultText,
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: resultColor,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                // 상대가 나갔을 때 표시
-                if (game.opponentLeft)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.exit_to_app, size: 16, color: Colors.grey.shade600),
-                        const SizedBox(width: 8),
-                        Text(
-                          '상대방이 나갔습니다',
-                          style: TextStyle(color: Colors.grey.shade600),
-                        ),
-                      ],
-                    ),
-                  ),
-                // 상대방이 재경기를 원할 때 표시
-                if (game.opponentWantsRematch && !game.opponentLeft)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.green.shade50,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.green.shade200),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.hourglass_top, size: 16, color: Colors.green.shade700),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${game.opponentNickname}님이 대기 중...',
-                          style: TextStyle(
-                            color: Colors.green.shade700,
-                            fontWeight: FontWeight.w500,
+              onRematchPressed: game.rematchWaiting
+                  ? () => game.cancelRematch()
+                  : () => game.requestRematch(),
+              onSearchAgainPressed: () {
+                game.leaveGame();
+                game.findMatch(AppConfig.gameTypeInfiniteTicTacToe);
+              },
+              onLobbyPressed: () {
+                GameSessionHelper.leaveGameAndReturnToLobby(
+                  context: context,
+                  socketService: SocketService(),
+                  roomId: game.roomId,
+                  isRanked: false,
+                  resetState: game.reset,
+                );
+              },
+              onFriendRequestPressed: game.opponentUserId == null
+                  ? null
+                  : () {
+                      context.read<FriendProvider>().sendFriendRequestByUserId(
+                        game.opponentUserId!,
+                      );
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            '${game.opponentNickname}님에게 친구 요청을 보냈습니다',
                           ),
+                          duration: const Duration(seconds: 2),
                         ),
-                      ],
-                    ),
-                  ),
-                const SizedBox(height: 8),
-                GameResultActionButtons(
-                  accentColor: _accent,
-                  rematchWaitingColor: Colors.grey.shade400,
-                  opponentLeft: game.opponentLeft,
-                  rematchWaiting: game.rematchWaiting,
-                  isInvitationGame: game.isInvitationGame,
-                  canSendFriendRequest: !game.isInvitationGame &&
-                      !game.opponentLeft &&
-                      game.opponentUserId != null &&
-                      !context.read<FriendProvider>().isFriend(game.opponentUserId!),
-                  onRematchPressed: game.rematchWaiting
-                      ? () => game.cancelRematch()
-                      : () => game.requestRematch(),
-                  onSearchAgainPressed: () {
-                    game.leaveGame();
-                    game.findMatch(AppConfig.gameTypeInfiniteTicTacToe);
-                  },
-                  onLobbyPressed: () {
-                    GameSessionHelper.leaveGameAndReturnToLobby(
-                      context: context,
-                      socketService: SocketService(),
-                      roomId: game.roomId,
-                      isRanked: false,
-                      resetState: game.reset,
-                    );
-                  },
-                  onFriendRequestPressed: game.opponentUserId == null
-                      ? null
-                      : () {
-                          context.read<FriendProvider>().sendFriendRequestByUserId(game.opponentUserId!);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('${game.opponentNickname}님에게 친구 요청을 보냈습니다'),
-                              duration: const Duration(seconds: 2),
-                            ),
-                          );
-                        },
-                ),
-              ],
+                      );
+                    },
             ),
           ),
-        ],
+        ),
       ),
     );
   }
