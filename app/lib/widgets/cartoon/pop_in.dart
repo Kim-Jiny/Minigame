@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 /// 지연 후 통통 튀며 등장(스케일 + 페이드 + 살짝 위로). 리스트 순차 등장에 쓴다.
@@ -23,13 +24,15 @@ class _PopInState extends State<PopIn> with SingleTickerProviderStateMixin {
     duration: widget.duration,
   );
 
+  Timer? _timer;
+
   @override
   void initState() {
     super.initState();
     if (widget.delay == Duration.zero) {
       _c.forward();
     } else {
-      Future.delayed(widget.delay, () {
+      _timer = Timer(widget.delay, () {
         if (mounted) _c.forward();
       });
     }
@@ -37,6 +40,7 @@ class _PopInState extends State<PopIn> with SingleTickerProviderStateMixin {
 
   @override
   void dispose() {
+    _timer?.cancel();
     _c.dispose();
     super.dispose();
   }

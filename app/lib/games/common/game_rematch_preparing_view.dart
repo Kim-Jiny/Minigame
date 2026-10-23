@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../theme/candy_theme.dart';
+import '../../widgets/cartoon/chunky_button.dart';
+import '../../widgets/cartoon/duo_mascot.dart';
 
 /// 재대결 대기/시작 중에 이전 판 결과 대신 보여주는 "준비 중" 화면.
 /// 결과 화면이 전환 애니메이션 중 잠깐 노출되는 것을 막는다.
@@ -23,83 +26,49 @@ class GameRematchPreparingView extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 28,
-                  vertical: 30,
+              DuoMascot(size: 110, color: accentColor, mood: MascotMood.cheer),
+              const SizedBox(height: 14),
+              const Text(
+                '재대결 준비 중',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  color: CandyColors.ink,
                 ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(color: const Color(0xFFECEDF1)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
-                      blurRadius: 28,
-                      offset: const Offset(0, 12),
-                    ),
-                  ],
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '곧 새 게임이 시작됩니다.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: CandyColors.inkSoft,
                 ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(
-                        color: accentColor.withValues(alpha: 0.12),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        Icons.refresh_rounded,
-                        color: accentColor,
-                        size: 32,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    SizedBox(
-                      width: 34,
-                      height: 34,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 3,
-                        color: accentColor,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    const Text(
-                      '재대결 준비 중',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF1F2430),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '곧 새 게임이 시작됩니다.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 14,
-                        height: 1.5,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                  ],
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: 140,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: LinearProgressIndicator(
+                    minHeight: 8,
+                    color: accentColor,
+                    backgroundColor: accentColor.withValues(alpha: 0.18),
+                  ),
                 ),
               ),
               if (onCancel != null) ...[
-                const SizedBox(height: 16),
-                TextButton(
+                const SizedBox(height: 24),
+                ChunkyButton(
+                  label: '취소',
+                  color: Colors.white,
+                  textColor: CandyColors.ink,
+                  height: 44,
+                  fontSize: 15,
+                  expand: false,
                   onPressed: onCancel,
-                  child: Text(
-                    '취소',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
                 ),
               ],
             ],

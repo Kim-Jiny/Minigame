@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../theme/candy_theme.dart';
+import '../../widgets/cartoon/chunky_button.dart';
 
 class GameEndActionPanel extends StatelessWidget {
   final bool showRematchActions;
@@ -52,6 +54,7 @@ class GameEndActionPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accept = acceptColor ?? CandyColors.mint;
     return SafeArea(
       top: false,
       left: false,
@@ -59,120 +62,90 @@ class GameEndActionPanel extends StatelessWidget {
       minimum: const EdgeInsets.only(bottom: 8),
       child: Column(
         children: [
-          if (opponentLeft) ...[
+          if (opponentLeft)
             Container(
               width: double.infinity,
               margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
               decoration: BoxDecoration(
-                color: const Color(0xFFF1F2F4),
+                color: CandyColors.creamDeep,
                 borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: CandyColors.ink, width: 2),
               ),
-              child: Row(
+              child: const Row(
                 children: [
-                  Icon(
-                    Icons.info_outline_rounded,
-                    size: 18,
-                    color: Colors.grey.shade500,
-                  ),
-                  const SizedBox(width: 8),
+                  Icon(Icons.info_outline_rounded, size: 18, color: CandyColors.inkSoft),
+                  SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       '상대방이 떠났어요',
                       style: TextStyle(
                         fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w800,
+                        color: CandyColors.ink,
                       ),
                     ),
                   ),
                 ],
               ),
             ),
-          ],
           if (showRematchActions) ...[
             if (opponentWantsRematch && !rematchWaiting) ...[
-              if (opponentRequestMessage != null) ...[
+              if (opponentRequestMessage != null)
                 Container(
                   margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
-                    color: (acceptColor ?? Colors.green).withValues(
-                      alpha: 0.15,
-                    ),
+                    color: accept.withValues(alpha: 0.18),
                     borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: CandyColors.ink, width: 2),
                   ),
                   child: Text(
                     opponentRequestMessage!,
-                    style: TextStyle(
-                      color: acceptColor ?? Colors.green,
+                    style: const TextStyle(
+                      color: CandyColors.ink,
                       fontSize: 14,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
-              ],
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: onRequestRematch,
-                  icon: Icon(rematchIcon),
-                  label: Text(acceptRematchLabel),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: acceptColor ?? Colors.green,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                ),
+              ChunkyButton(
+                label: acceptRematchLabel,
+                icon: rematchIcon,
+                color: accept,
+                height: 54,
+                fontSize: 17,
+                onPressed: onRequestRematch,
               ),
             ] else if (rematchWaiting) ...[
               Text(
                 waitingText,
-                style: TextStyle(color: waitingTextColor ?? Colors.grey),
+                style: TextStyle(
+                  color: waitingTextColor ?? CandyColors.inkSoft,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
               TextButton(onPressed: onCancelRematch, child: Text(cancelLabel)),
-            ] else ...[
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: onRequestRematch,
-                  icon: Icon(rematchIcon),
-                  label: Text(rematchLabel),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryColor,
-                    foregroundColor: primaryForegroundColor,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                ),
+            ] else
+              ChunkyButton(
+                label: rematchLabel,
+                icon: rematchIcon,
+                color: primaryColor,
+                textColor: primaryForegroundColor,
+                height: 54,
+                fontSize: 17,
+                onPressed: onRequestRematch,
               ),
-            ],
             const SizedBox(height: 8),
           ],
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: onLeave,
-              icon: Icon(leaveIcon),
-              label: Text(leaveLabel),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: leaveForegroundColor,
-                side: leaveBorderSide,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-            ),
+          ChunkyButton(
+            label: leaveLabel,
+            icon: leaveIcon,
+            color: Colors.white,
+            textColor: leaveForegroundColor ?? CandyColors.ink,
+            height: 48,
+            fontSize: 15,
+            onPressed: onLeave,
           ),
         ],
       ),

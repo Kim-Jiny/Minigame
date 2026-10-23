@@ -11,7 +11,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     // 로그인 화면이 나타나는지 확인
-    expect(find.text('듀오아레나'), findsOneWidget);
+    expect(find.text('듀오 아레나'), findsWidgets); // 로고 워드마크(외곽선+채움 2겹)
     expect(find.text('게임 시작하기'), findsOneWidget);
   });
 }
