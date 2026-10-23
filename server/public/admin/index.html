@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DUO Admin</title>
+  <title>Backstage</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; }
@@ -346,7 +346,6 @@
     #gameHub { padding: 28px 32px; }
     /* 헤더 제거 후 콘텐츠 여백 확보 (duo는 .tab-content 가 이미 패딩 보유) */
     .ctr-tab-content, .saja-tab-content { padding: 24px; }
-    #mfaDashboard { padding: 24px; }
 
     /* ---- Nav tabs (제품 내부 탭) ---- */
     .nav-tabs { position: sticky; top: 0; z-index: 5; background: var(--surface);
@@ -396,32 +395,43 @@
       .sidebar-foot { border-top: none; margin: 0; padding: 0 0 0 6px; border-left: 1px solid var(--border); flex-shrink: 0; }
       .dashboard { margin-left: 0; }
       #gameHub { padding: 18px 14px; }
-      .ctr-tab-content, .saja-tab-content, #mfaDashboard { padding: 16px 12px; }
+      .ctr-tab-content, .saja-tab-content { padding: 16px 12px; }
       .data-table { overflow-x: auto; }
     }
+
   </style>
+  <link rel="stylesheet" href="theme.css?v=20261023c"> <!-- 공통 카툰 테마 -->
+  <link rel="stylesheet" href="mfa.css?v=20261023c"> <!-- [MFA] -->
 </head>
 <body>
   <!-- Login -->
+  <!-- 부팅 스플래시: 토큰 확인이 끝날 때까지 홈/로그인 화면이 깜빡이지 않게 이것만 보여준다 -->
+  <div id="bootSplash"><div class="boot-sprout">🌱</div><div>불러오는 중…</div></div>
+
   <div class="login-container" id="loginContainer">
-    <div class="login-box">
-      <h1>DUO Admin</h1>
-      <div class="error" id="loginError"></div>
-      <input type="text" id="username" placeholder="Username" autocomplete="off">
-      <input type="password" id="password" placeholder="Password">
-      <button onclick="login()">Login</button>
-    </div>
+    <form class="login-box" id="loginForm" onsubmit="login(); return false;" autocomplete="on">
+      <h1>Backstage</h1>
+      <div class="login-sub">관리자 로그인</div>
+      <div class="error" id="loginError" role="alert"></div>
+      <input type="text" id="username" name="username" placeholder="아이디" autocomplete="username" autocapitalize="off" spellcheck="false">
+      <div class="pw-wrap">
+        <input type="password" id="password" name="password" placeholder="비밀번호" autocomplete="current-password">
+        <button type="button" class="pw-toggle" id="pwToggle" onclick="togglePassword()" aria-label="비밀번호 보기" title="비밀번호 보기">👁</button>
+      </div>
+      <button type="submit" id="loginBtn">로그인</button>
+    </form>
   </div>
 
   <!-- Sidebar (로그인 후 표시) — 게임 전환 + 로그아웃. 각 제품 대시보드의 옛 헤더를 대체 -->
   <aside id="sidebar" style="display:none">
-    <div class="sidebar-brand"><span class="logo">🎛️</span> Backstage</div>
+    <div class="sidebar-brand"><span class="logo">🌱</span> Backstage</div>
     <nav class="sidebar-nav">
-      <button class="side-item" id="side-home" onclick="showHub()"><span class="ico">🏠</span> 홈</button>
-      <div class="side-section">게임</div>
+      <button class="side-item" id="side-home" onclick="showHub()"><span class="ico">🏠</span> 전체 보기</button>
+      <div class="side-section">제품</div>
       <div id="sideGames"></div>
     </nav>
     <div class="sidebar-foot">
+      <div class="side-user" id="sideUser" style="display:none"><span class="av">🙂</span><span class="nm" id="sideUserName"></span></div>
       <button class="side-item side-logout" onclick="logout()"><span class="ico">⎋</span> 로그아웃</button>
     </div>
   </aside>
@@ -432,7 +442,7 @@
       <h1>Backstage</h1>
       <button onclick="logout()">Logout</button>
     </div>
-    <h2 style="color:#333;margin:8px 4px 20px;font-size:18px">게임 선택</h2>
+    <h2 style="color:#333;margin:8px 4px 20px;font-size:18px">제품 전체 보기</h2>
     <div class="game-grid" id="gameGrid"></div>
   </div>
 
@@ -607,90 +617,8 @@
     </div>
   </div>
 
-  <!-- [MFA] 성인의 수학 소유 — #mfaDashboard 섹션 삭제·리팩터링 금지 -->
-  <!-- Dashboard (성인의 수학) -->
-  <div class="dashboard" id="mfaDashboard" style="display:none">
-    <div class="header">
-      <div style="display:flex;align-items:center;gap:12px">
-        <button class="btn-back" onclick="backToHub()">← 게임 선택</button>
-        <h1>성인의 수학</h1>
-      </div>
-      <button onclick="logout()">Logout</button>
-    </div>
-
-    <div class="nav-tabs">
-      <button class="active" onclick="mfaTab('stats', this)">통계</button>
-      <button onclick="mfaTab('inquiries', this)">문의 <span class="badge pending" id="mfaPendingBadge" style="display:none">0</span></button>
-      <button onclick="mfaTab('users', this)">유저</button>
-      <button onclick="mfaTab('purchases', this)">결제</button>
-    </div>
-
-    <!-- 통계 탭 -->
-    <div class="ctr-tab-content active" id="mfa-tab-stats">
-      <div class="stats-grid" id="mfaStatsGrid"><div class="empty">Loading...</div></div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-top:16px">
-        <div class="stat-card">
-          <h3>결제 내역(종류별)</h3>
-          <div id="mfaPurchaseBreakdown" style="margin-top:8px"></div>
-        </div>
-        <div class="stat-card">
-          <h3>힌트쿠폰 경제</h3>
-          <div id="mfaCouponEconomy" style="margin-top:8px"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 문의 탭 -->
-    <div class="ctr-tab-content" id="mfa-tab-inquiries" style="display:none">
-      <div class="filter-tabs" id="mfaInquiryFilters">
-        <button class="active" onclick="filterMfaInquiries('all', this)">전체</button>
-        <button onclick="filterMfaInquiries('pending', this)">대기중</button>
-        <button onclick="filterMfaInquiries('replied', this)">답변완료</button>
-      </div>
-      <div style="margin:10px 0;display:flex;gap:8px">
-        <input id="mfaInquiryQuery" placeholder="닉네임·내용·deviceId 검색" style="flex:1;max-width:320px"
-          onkeydown="if(event.key==='Enter')searchMfaInquiries()">
-        <button onclick="searchMfaInquiries()">검색</button>
-      </div>
-      <table class="data-table">
-        <thead>
-          <tr><th>ID</th><th>닉네임</th><th>내용</th><th>상태</th><th>등록일</th></tr>
-        </thead>
-        <tbody id="mfaInquiriesBody"><tr><td colspan="5" class="empty">Loading...</td></tr></tbody>
-      </table>
-    </div>
-
-    <!-- 유저 탭 -->
-    <div class="ctr-tab-content" id="mfa-tab-users" style="display:none">
-      <div style="margin:0 0 10px;display:flex;gap:8px">
-        <input id="mfaUserQuery" placeholder="닉네임·이메일·ID 검색" style="flex:1;max-width:320px"
-          onkeydown="if(event.key==='Enter')searchMfaUsers()">
-        <button onclick="searchMfaUsers()">검색</button>
-      </div>
-      <table class="data-table">
-        <thead>
-          <tr><th>ID</th><th>닉네임</th><th>이메일</th><th>로그인 방식</th><th>쿠폰 잔액</th><th>가입일</th><th>최근 로그인</th></tr>
-        </thead>
-        <tbody id="mfaUsersBody"><tr><td colspan="7" class="empty">Loading...</td></tr></tbody>
-      </table>
-    </div>
-
-    <!-- 결제 탭 -->
-    <div class="ctr-tab-content" id="mfa-tab-purchases" style="display:none">
-      <div class="stats-grid" id="mfaPurchaseSummary"></div>
-      <div style="margin:10px 0;display:flex;gap:8px">
-        <input id="mfaPurchaseQuery" placeholder="닉네임·이메일 검색" style="flex:1;max-width:320px"
-          onkeydown="if(event.key==='Enter')searchMfaPurchases()">
-        <button onclick="searchMfaPurchases()">검색</button>
-      </div>
-      <table class="data-table" style="margin-top:16px">
-        <thead>
-          <tr><th>ID</th><th>유저</th><th>플랫폼</th><th>상품</th><th>종류</th><th>검증</th><th>환경</th><th>일시</th></tr>
-        </thead>
-        <tbody id="mfaPurchasesBody"><tr><td colspan="8" class="empty">Loading...</td></tr></tbody>
-      </table>
-    </div>
-  </div>
+  <!-- [MFA] 성인의 수학 소유 — 화면·동작은 mfa.js, 스타일은 mfa.css 가 만든다. 이 껍데기 삭제 금지. -->
+  <div class="dashboard" id="mfaDashboard" style="display:none"></div>
 
   <!-- [PP] 비즈픽셀(PerlerPixel) 소유 — #ppDashboard 섹션 삭제·리팩터링 금지 (리포 루트 CLAUDE.md) -->
   <!-- Dashboard (비즈픽셀) -->
@@ -1052,36 +980,6 @@
     </div>
   </div>
 
-  <!-- [MFA] 성인의 수학 문의 상세 모달 -->
-  <div class="modal" id="mfaInquiryModal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>문의 상세</h2>
-        <button class="modal-close" onclick="closeModal('mfaInquiryModal')">&times;</button>
-      </div>
-      <div class="modal-body">
-        <label style="font-weight:600;color:#555;font-size:13px">보낸 사람</label>
-        <div class="content-box" id="mfaInqUser"></div>
-        <label style="font-weight:600;color:#555;font-size:13px">등록일</label>
-        <div class="content-box" id="mfaInqDate"></div>
-        <label style="font-weight:600;color:#555;font-size:13px">내용</label>
-        <div class="content-box" id="mfaInqContent" style="white-space:pre-wrap"></div>
-        <div id="mfaReplySection">
-          <label style="font-weight:600;color:#555;font-size:13px">답변</label>
-          <textarea id="mfaReplyText" placeholder="답변을 입력하세요..." style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;min-height:100px;font-size:14px"></textarea>
-        </div>
-        <div id="mfaExistingReply" style="display:none">
-          <label style="font-weight:600;color:#555;font-size:13px">답변 (전송됨)</label>
-          <div class="content-box" id="mfaReplyContent" style="white-space:pre-wrap"></div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-danger" onclick="deleteMfaInquiry()">삭제</button>
-        <button class="btn-primary" onclick="replyMfaInquiry()">답변 전송</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Inquiry Detail Modal -->
   <div class="modal" id="inquiryModal">
     <div class="modal-content">
@@ -1174,6 +1072,7 @@
     </div>
   </div>
 
+  <script src="mfa.js?v=20261023c"></script> <!-- [MFA] -->
   <script>
     let token = localStorage.getItem('adminToken');
     let currentInquiry = null;
@@ -1190,22 +1089,72 @@
       { id: 'saja', name: '사자툰', desc: '사자성어 등록 · 수정 · 통계', icon: '🦁',
         privacy: '/saja/privacy', terms: '/saja/terms' },
       // [MFA] 성인의 수학 소유 — 카드 항목 삭제 금지
-      { id: 'mfa', name: '성인의 수학', desc: '통계 · 유저 · 결제 · 문의', icon: '📐',
+      { id: 'mfa', name: '성인의 수학', desc: '통계 · 소코반·광고 · 유저 · 결제 · 문의', icon: '📐',
         privacy: '/mfa/privacy', terms: '/mfa/support' },
       // [PP] 비즈픽셀(PerlerPixel) 소유 — 카드 항목 삭제 금지
       { id: 'pp', name: '비즈픽셀', desc: '도안 공유 · 신고 · 유저 관리', icon: '🧵',
         privacy: '/pp/privacy', terms: '/pp/terms' },
     ];
 
-    if (token) showHub(); else showLogin();
+    let adminName = ''; // 사이드바에 보여줄 접속 중인 관리자 이름
+    boot();
+
+    // 열자마자: 토큰이 아직 유효한지 먼저 확인(동시에 로그인 유지 기간 연장) → 알맞은 화면으로 바로 진입.
+    // 확인이 끝나기 전에는 스플래시만 보이므로 홈이 잠깐 보였다 로그인으로 튕기는 일이 없다.
+    async function boot() {
+      if (!token) { showLogin(); return; }
+      try {
+        const res = await fetch('/api/admin/refresh', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+        if (res.status === 401) { clearSession(); showLogin('로그인이 만료됐어요. 다시 로그인해 주세요.'); return; }
+        const data = await res.json();
+        if (!data.success) throw new Error('refresh');
+        saveSession(data.token, data.username);
+        openStart();
+      } catch (e) {
+        showLogin('서버에 연결할 수 없어요. 잠시 뒤 새로고침해 주세요.');
+      }
+    }
+
+    function saveSession(newToken, username) {
+      token = newToken;
+      localStorage.setItem('adminToken', token);
+      if (username) { adminName = username; renderSideUser(); }
+    }
+    function clearSession() {
+      token = null;
+      localStorage.removeItem('adminToken');
+    }
+    function renderSideUser() {
+      const box = document.getElementById('sideUser');
+      if (!box) return;
+      box.style.display = adminName ? 'flex' : 'none';
+      document.getElementById('sideUserName').textContent = adminName;
+    }
+
+    // 로그인 직후/새로고침 직후 시작 화면: 마지막으로 보던 곳(없으면 첫 제품). '전체 보기'를 보던 중이었으면 그곳.
+    function openStart() {
+      if (window.mfaLoadSidebarBadge) mfaLoadSidebarBadge(); // [MFA] 사이드바 뱃지(대기 문의 수)
+      document.getElementById('bootSplash').classList.add('hide');
+      document.getElementById('loginContainer').classList.remove('show');
+      const last = localStorage.getItem('adminLastView');
+      if (last === 'home') { showHub(); return; }
+      const id = GAMES.some(g => g.id === last) ? last : GAMES[0].id;
+      document.getElementById('sidebar').style.display = 'flex';
+      renderSidebar(id);
+      enterGame(id);
+    }
 
     // ============================================================
     // Auth
     // ============================================================
     async function login() {
-      const username = document.getElementById('username').value;
+      const username = document.getElementById('username').value.trim();
       const password = document.getElementById('password').value;
       const errorEl = document.getElementById('loginError');
+      const btn = document.getElementById('loginBtn');
+      if (!username || !password) { loginError('아이디와 비밀번호를 입력해 주세요.'); return; }
+      errorEl.textContent = '';
+      btn.disabled = true; btn.textContent = '로그인 중…';
       try {
         const res = await fetch('/api/admin/login', {
           method: 'POST',
@@ -1214,15 +1163,34 @@
         });
         const data = await res.json();
         if (data.success) {
-          token = data.token;
-          localStorage.setItem('adminToken', token);
-          showHub();
+          saveSession(data.token, data.username);
+          document.getElementById('password').value = '';
+          openStart();
+        } else if (res.status === 401 || res.status === 400) {
+          loginError('아이디 또는 비밀번호가 맞지 않아요.');
+          document.getElementById('password').select();
         } else {
-          errorEl.textContent = data.error || 'Login failed';
+          loginError(data.error || '로그인하지 못했어요. 잠시 뒤 다시 시도해 주세요.');
         }
       } catch (e) {
-        errorEl.textContent = 'Connection error';
+        loginError('서버에 연결할 수 없어요.');
+      } finally {
+        btn.disabled = false; btn.textContent = '로그인';
       }
+    }
+    function loginError(msg) {
+      const el = document.getElementById('loginError');
+      el.textContent = msg;
+      const box = document.getElementById('loginForm');
+      box.classList.remove('shake'); void box.offsetWidth; box.classList.add('shake');
+    }
+    function togglePassword() {
+      const input = document.getElementById('password');
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      const btn = document.getElementById('pwToggle');
+      btn.textContent = show ? '🙈' : '👁';
+      btn.title = btn.ariaLabel = show ? '비밀번호 숨기기' : '비밀번호 보기';
     }
 
     // 모든 대시보드 숨기기 (공통)
@@ -1238,6 +1206,7 @@
           <span class="ico">${g.icon}</span> ${g.name}
         </button>`).join('');
       setSidebarActive(activeId);
+      if (window.mfaApplySidebarBadge) mfaApplySidebarBadge(); // [MFA] 대기 문의 수 뱃지
     }
     function setSidebarActive(activeId) {
       document.querySelectorAll('#sidebar .side-item').forEach(b => b.classList.remove('active'));
@@ -1248,20 +1217,28 @@
     }
 
     // 로그인 화면 표시 (미인증 상태)
-    function showLogin() {
+    function showLogin(message) {
+      document.getElementById('bootSplash').classList.add('hide');
       hideAllDashboards();
       document.getElementById('sidebar').style.display = 'none';
       document.getElementById('loginContainer').classList.add('show');
+      if (message) loginError(message); else document.getElementById('loginError').textContent = '';
+      const u = document.getElementById('username');
+      if (!u.value) u.focus(); else document.getElementById('password').focus();
     }
 
-    function logout() {
-      token = null;
-      localStorage.removeItem('adminToken');
-      showLogin();
+    // reason === 'expired' 이면 세션 만료 안내를 같이 보여준다.
+    function logout(reason) {
+      clearSession();
+      adminName = '';
+      renderSideUser();
+      showLogin(reason === 'expired' ? '로그인이 만료됐어요. 다시 로그인해 주세요.' : '');
     }
 
     // 로그인 후 게임 선택 허브
     function showHub() {
+      localStorage.setItem('adminLastView', 'home');
+      document.getElementById('bootSplash').classList.add('hide');
       document.getElementById('loginContainer').classList.remove('show');
       document.getElementById('sidebar').style.display = 'flex';
       renderSidebar('home');
@@ -1269,7 +1246,7 @@
       document.getElementById('gameHub').style.display = 'block';
       const grid = document.getElementById('gameGrid');
       grid.innerHTML = GAMES.map(g => `
-        <div class="game-card" onclick="enterGame('${g.id}')">
+        <div class="game-card" data-game="${g.id}" onclick="enterGame('${g.id}')">
           <div class="game-icon">${g.icon}</div>
           <div class="game-name">${g.name}</div>
           <div class="game-desc">${g.desc}</div>
@@ -1282,6 +1259,7 @@
 
     // 특정 게임 admin 진입
     function enterGame(id) {
+      localStorage.setItem('adminLastView', id);
       document.getElementById('sidebar').style.display = 'flex';
       setSidebarActive(id);
       hideAllDashboards();   // 먼저 전부 숨겨야 사이드바로 게임→게임 이동 시 이전 대시보드가 안 겹침
@@ -1302,8 +1280,7 @@
         document.getElementById('mfaDashboard').style.display = 'block';
         document.getElementById('dashboard').style.display = 'none';
         document.getElementById('ctrDashboard').style.display = 'none';
-        loadMfaStats();
-        loadMfaInquiries('all');
+        mfaEnter(); // [MFA] mfa.js
       } else if (id === 'saja') {
         document.getElementById('sajaDashboard').style.display = 'block';
         document.getElementById('dashboard').style.display = 'none';
@@ -1325,7 +1302,7 @@
         ...options,
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, ...(options.headers || {}) }
       }).then(r => {
-        if (r.status === 401) { logout(); throw new Error('Unauthorized'); }
+        if (r.status === 401) { logout('expired'); throw new Error('Unauthorized'); }
         return r.json();
       });
     }
@@ -2607,281 +2584,8 @@
     }
 
     // ============================================================
-    // [MFA] 성인의 수학 — 문의 관리
+    // [MFA] 성인의 수학 — 화면·동작은 mfa.js (mfaEnter) 로 옮겼다.
     // ============================================================
-    let mfaInquiries = [];
-    let currentMfaInquiry = null;
-    let mfaCurrentStatus = 'all';
-
-    async function loadMfaInquiries(status) {
-      const tbody = document.getElementById('mfaInquiriesBody');
-      tbody.innerHTML = '<tr><td colspan="5" class="empty">Loading...</td></tr>';
-      try {
-        const q = (document.getElementById('mfaInquiryQuery')?.value || '').trim();
-        const params = new URLSearchParams({ status: status || 'all' });
-        if (q) params.set('q', q);
-        const data = await api('/api/admin/mfa/inquiries?' + params.toString());
-        mfaInquiries = data.inquiries || [];
-        const badge = document.getElementById('mfaPendingBadge');
-        if (badge) {
-          badge.textContent = data.pendingCount || 0;
-          badge.style.display = data.pendingCount ? 'inline-block' : 'none';
-        }
-        if (mfaInquiries.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="5" class="empty">문의가 없습니다</td></tr>';
-          return;
-        }
-        tbody.innerHTML = mfaInquiries.map(i => {
-          const preview = (i.content || '').slice(0, 40);
-          const statusBadge = i.status === 'replied'
-            ? '<span class="badge replied">답변완료</span>'
-            : '<span class="badge pending">대기중</span>';
-          return `<tr onclick="openMfaInquiry(${i.id})" style="cursor:pointer">
-            <td>${i.id}</td>
-            <td>${escapeHtml(i.nickname || '익명')}</td>
-            <td>${escapeHtml(preview)}${(i.content||'').length > 40 ? '…' : ''}</td>
-            <td>${statusBadge}</td>
-            <td>${formatDateTime(i.created_at)}</td>
-          </tr>`;
-        }).join('');
-      } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="5" class="empty">불러오기 실패</td></tr>';
-      }
-    }
-
-    function filterMfaInquiries(status, btn) {
-      mfaCurrentStatus = status;
-      document.querySelectorAll('#mfaInquiryFilters button').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      loadMfaInquiries(status);
-    }
-
-    function searchMfaInquiries() {
-      loadMfaInquiries(mfaCurrentStatus);
-    }
-
-    function openMfaInquiry(id) {
-      const inq = mfaInquiries.find(x => x.id === id);
-      if (!inq) return;
-      currentMfaInquiry = inq;
-      document.getElementById('mfaInqUser').textContent = (inq.nickname || '익명') + '  ·  device: ' + (inq.device_id || '').slice(0, 12) + '…';
-      document.getElementById('mfaInqContent').textContent = inq.content || '';
-      document.getElementById('mfaInqDate').textContent = formatDateTime(inq.created_at);
-      const replied = inq.status === 'replied';
-      document.getElementById('mfaReplySection').style.display = replied ? 'none' : 'block';
-      document.getElementById('mfaExistingReply').style.display = replied ? 'block' : 'none';
-      if (replied) {
-        document.getElementById('mfaReplyContent').textContent = inq.reply || '';
-      } else {
-        document.getElementById('mfaReplyText').value = '';
-      }
-      document.getElementById('mfaInquiryModal').classList.add('show');
-    }
-
-    async function replyMfaInquiry() {
-      if (!currentMfaInquiry) return;
-      const reply = document.getElementById('mfaReplyText').value.trim();
-      if (!reply) { alert('답변 내용을 입력하세요'); return; }
-      try {
-        const data = await api(`/api/admin/mfa/inquiries/${currentMfaInquiry.id}/reply`, {
-          method: 'PUT', body: JSON.stringify({ reply })
-        });
-        if (data.success) {
-          document.getElementById('mfaInquiryModal').classList.remove('show');
-          loadMfaInquiries('all');
-        } else {
-          alert(data.error || '답변 실패');
-        }
-      } catch (e) { alert('답변 전송 오류'); }
-    }
-
-    async function deleteMfaInquiry() {
-      if (!currentMfaInquiry) return;
-      if (!confirm('이 문의를 삭제할까요?')) return;
-      try {
-        await api(`/api/admin/mfa/inquiries/${currentMfaInquiry.id}`, { method: 'DELETE' });
-        document.getElementById('mfaInquiryModal').classList.remove('show');
-        loadMfaInquiries('all');
-      } catch (e) { alert('삭제 오류'); }
-    }
-
-    function mfaTab(name, btn) {
-      document.querySelectorAll('#mfaDashboard .nav-tabs button').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById('mfa-tab-stats').style.display = name === 'stats' ? 'block' : 'none';
-      document.getElementById('mfa-tab-inquiries').style.display = name === 'inquiries' ? 'block' : 'none';
-      document.getElementById('mfa-tab-users').style.display = name === 'users' ? 'block' : 'none';
-      document.getElementById('mfa-tab-purchases').style.display = name === 'purchases' ? 'block' : 'none';
-      if (name === 'users') loadMfaUsers();
-      if (name === 'purchases') loadMfaPurchases();
-    }
-
-    async function loadMfaStats() {
-      try {
-        const s = await api('/api/admin/mfa/stats');
-        const cards = [
-          { label: '총 가입자', val: s.signups.total, cls: '' },
-          { label: '오늘 신규', val: s.signups.today, cls: '' },
-          { label: 'iOS', val: s.devices.ios, cls: 'accent' },
-          { label: 'Android', val: s.devices.android, cls: 'success' },
-          { label: 'DAU', val: s.dau, cls: 'accent' },
-          { label: 'WAU', val: s.wau, cls: '' },
-          { label: 'MAU', val: s.mau, cls: '' },
-          { label: '오늘 출석', val: s.checkins.today, cls: '' },
-          { label: '이번주 출석', val: s.checkins.week, cls: '' },
-        ];
-        document.getElementById('mfaStatsGrid').innerHTML = cards.map(c =>
-          `<div class="stat-card ${c.cls}"><h3>${c.label}</h3><div class="number">${c.val}</div></div>`).join('');
-
-        const purchaseRows = s.purchases || [];
-        document.getElementById('mfaPurchaseBreakdown').innerHTML = purchaseRows.length
-          ? purchaseRows.map(p =>
-              `<div style="display:flex;justify-content:space-between;padding:5px 0;color:#555;font-size:14px">
-                <span>${escapeHtml(p.kind || '-')} · ${escapeHtml(p.platform)} · ${p.verified ? '검증됨' : '실패'}</span><b>${p.c}</b></div>`
-            ).join('')
-          : '<div class="empty">데이터 없음</div>';
-
-        const c = s.coupons || { granted: 0, spent: 0 };
-        document.getElementById('mfaCouponEconomy').innerHTML =
-          `<div style="display:flex;justify-content:space-between;padding:5px 0;color:#555;font-size:14px"><span>누적 발급</span><b>${c.granted}</b></div>`
-          + `<div style="display:flex;justify-content:space-between;padding:5px 0;color:#555;font-size:14px"><span>누적 소비</span><b>${c.spent}</b></div>`;
-      } catch (e) {
-        document.getElementById('mfaStatsGrid').innerHTML = '<div class="empty">통계 로드 실패</div>';
-      }
-    }
-
-    let mfaUsersCache = [];
-    async function loadMfaUsers() {
-      const tbody = document.getElementById('mfaUsersBody');
-      tbody.innerHTML = '<tr><td colspan="7" class="empty">Loading...</td></tr>';
-      try {
-        const q = document.getElementById('mfaUserQuery').value.trim();
-        const data = await api('/api/admin/mfa/users?' + (q ? 'q=' + encodeURIComponent(q) : ''));
-        mfaUsersCache = data.users || [];
-        if (!mfaUsersCache.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">유저가 없습니다</td></tr>'; return; }
-        tbody.innerHTML = mfaUsersCache.map(u =>
-          `<tr onclick="openMfaUserDetail(${u.id})" style="cursor:pointer">
-            <td>${u.id}</td><td>${escapeHtml(u.nickname || '-')}</td><td>${escapeHtml(u.email || '-')}</td>
-            <td>${escapeHtml(u.provider)}</td><td>${u.hint_coupon_balance}</td>
-            <td>${formatDate(u.created_at)}</td><td>${formatDateTime(u.last_login)}</td></tr>`
-        ).join('');
-      } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="7" class="empty">불러오기 실패</td></tr>';
-      }
-    }
-    function searchMfaUsers() { loadMfaUsers(); }
-
-    async function openMfaUserDetail(userId) {
-      document.getElementById('userModalTitle').textContent = 'MFA 유저 #' + userId;
-      document.getElementById('userModalBody').innerHTML = '<div class="empty">Loading...</div>';
-      document.getElementById('userModal').classList.add('show');
-      try {
-        const data = await api(`/api/admin/mfa/users/${userId}`);
-        renderMfaUserDetail(data);
-      } catch (e) {
-        document.getElementById('userModalBody').innerHTML = '<div class="empty">Failed to load</div>';
-      }
-    }
-
-    // CS 문의 대응용 — 가입정보/구매내역/쿠폰이력(왜 잔액이 바뀌었는지)/진도요약을 한 번에 보여준다.
-    function renderMfaUserDetail(data) {
-      const u = data.user;
-      const body = document.getElementById('userModalBody');
-      let html = '';
-
-      html += `<div class="section-toggle" onclick="toggleSection('mfaUdBasic')">기본 정보 <span>&#9660;</span></div>
-      <div id="mfaUdBasic" class="section-body show">
-        <table class="info-table">
-          <tr><th>ID</th><td>${u.id}</td></tr>
-          <tr><th>닉네임</th><td>${escapeHtml(u.nickname || '-')}</td></tr>
-          <tr><th>이메일</th><td>${escapeHtml(u.email || '-')}</td></tr>
-          <tr><th>로그인 방식</th><td>${escapeHtml(u.provider)}</td></tr>
-          <tr><th>가입일</th><td>${formatDateTime(u.created_at)}</td></tr>
-          <tr><th>최근 로그인</th><td>${formatDateTime(u.last_login)}</td></tr>
-          <tr><th>힌트쿠폰 잔액</th><td><b>${u.hint_coupon_balance}</b></td></tr>
-          <tr><th>광고 제거</th><td>${data.adsRemoved ? '<span class="badge active">구매함</span>' : '-'}</td></tr>
-        </table>
-      </div>`;
-
-      if (data.progressSummary) {
-        const p = data.progressSummary;
-        html += `<div class="section-toggle" onclick="toggleSection('mfaUdProgress')">학습 진도 요약 <span>&#9660;</span></div>
-        <div id="mfaUdProgress" class="section-body">
-          <table class="info-table">
-            <tr><th>총 풀이수</th><td>${p.totalSolved}</td></tr>
-            <tr><th>총 정답수</th><td>${p.totalCorrect}</td></tr>
-            <tr><th>연속 출석일</th><td>${p.streakDays}</td></tr>
-            <tr><th>동기화 시각</th><td>${formatDateTime(p.updatedAt)}</td></tr>
-          </table>
-        </div>`;
-      }
-
-      html += `<div class="section-toggle" onclick="toggleSection('mfaUdCoupons')">힌트쿠폰 이력(최근 50건) <span>&#9660;</span></div>
-      <div id="mfaUdCoupons" class="section-body show">`;
-      if (data.couponLog && data.couponLog.length) {
-        html += '<table class="info-table"><tr><th>일시</th><th>사유</th><th>변동</th><th>변동 후 잔액</th></tr>';
-        const reasonLabel = { checkin: '출석', purchase: '구매', spend: '소비' };
-        data.couponLog.forEach(c => {
-          const sign = c.delta > 0 ? '+' : '';
-          html += `<tr><td>${formatDateTime(c.created_at)}</td><td>${reasonLabel[c.reason] || c.reason}</td>`
-            + `<td style="color:${c.delta > 0 ? '#27ae60' : '#e74c3c'}">${sign}${c.delta}</td><td>${c.balance_after}</td></tr>`;
-        });
-        html += '</table>';
-      } else {
-        html += '<div style="color:#888;padding:8px">쿠폰 이력이 없습니다</div>';
-      }
-      html += '</div>';
-
-      html += `<div class="section-toggle" onclick="toggleSection('mfaUdPurchases')">결제 내역(${data.purchases.length}) <span>&#9660;</span></div>
-      <div id="mfaUdPurchases" class="section-body">`;
-      if (data.purchases.length) {
-        html += '<table class="info-table"><tr><th>일시</th><th>플랫폼</th><th>상품</th><th>종류</th><th>검증</th></tr>';
-        data.purchases.forEach(p => {
-          const badge = p.verified ? '<span class="badge replied">검증됨</span>' : '<span class="badge pending">' + escapeHtml(p.status || 'failed') + '</span>';
-          html += `<tr><td>${formatDateTime(p.created_at)}</td><td>${escapeHtml(p.platform)}</td><td>${escapeHtml(p.product_id)}</td><td>${escapeHtml(p.kind || '-')}</td><td>${badge}</td></tr>`;
-        });
-        html += '</table>';
-      } else {
-        html += '<div style="color:#888;padding:8px">결제 내역이 없습니다</div>';
-      }
-      html += '</div>';
-
-      body.innerHTML = html;
-    }
-
-    async function loadMfaPurchases() {
-      const tbody = document.getElementById('mfaPurchasesBody');
-      tbody.innerHTML = '<tr><td colspan="8" class="empty">Loading...</td></tr>';
-      try {
-        const q = document.getElementById('mfaPurchaseQuery').value.trim();
-        const data = await api('/api/admin/mfa/purchases' + (q ? '?q=' + encodeURIComponent(q) : ''));
-        const s = data.summary || {};
-        document.getElementById('mfaPurchaseSummary').innerHTML =
-          `<div class="stat-card"><h3>총 결제</h3><div class="number">${s.total || 0}</div></div>`
-          + `<div class="stat-card success"><h3>검증됨</h3><div class="number">${s.verified || 0}</div></div>`
-          + `<div class="stat-card"><h3>실패</h3><div class="number">${s.failed || 0}</div></div>`;
-        const rows = data.purchases || [];
-        if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty">결제 내역이 없습니다</td></tr>'; return; }
-        tbody.innerHTML = rows.map(p => {
-          const badge = p.verified
-            ? '<span class="badge replied">검증됨</span>'
-            : '<span class="badge pending">' + escapeHtml(p.status || 'failed') + '</span>';
-          const userLabel = p.user_id ? `${escapeHtml(p.nickname || '-')} (#${p.user_id})` : '(탈퇴)';
-          return `<tr onclick="${p.user_id ? `openMfaUserDetail(${p.user_id})` : ''}" style="${p.user_id ? 'cursor:pointer' : ''}">
-            <td>${p.id}</td><td>${userLabel}</td><td>${escapeHtml(p.platform)}</td><td>${escapeHtml(p.product_id)}</td>
-            <td>${escapeHtml(p.kind || '-')}</td><td>${badge}</td><td>${escapeHtml(p.environment || '-')}</td>
-            <td>${formatDateTime(p.created_at)}</td></tr>`;
-        }).join('');
-      } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="8" class="empty">불러오기 실패</td></tr>';
-      }
-    }
-    function searchMfaPurchases() { loadMfaPurchases(); }
-
-    // Enter key for login
-    document.getElementById('password').addEventListener('keypress', e => {
-      if (e.key === 'Enter') login();
-    });
 
     // Close modals on backdrop click
     document.querySelectorAll('.modal').forEach(modal => {

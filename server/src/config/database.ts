@@ -659,6 +659,22 @@ export async function setupDatabase() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
       CREATE INDEX IF NOT EXISTS idx_mfa_coupon_log_user ON mfa_coupon_log(user_id, created_at DESC);
+      ALTER TABLE mfa_coupon_log ADD COLUMN IF NOT EXISTS note VARCHAR(200);  -- 관리자 수동 조정 사유
+
+      -- [MFA] 익명 사용 이벤트(소코반 단계 진행·광고 노출). deviceId 기반이고 개인정보는 없다.
+      --       앱이 모아서 배치로 보낸다(POST /api/mathforadults/events). 운영 지표 전용.
+      CREATE TABLE IF NOT EXISTS mfa_events (
+        id BIGSERIAL PRIMARY KEY,
+        device_id VARCHAR(64) NOT NULL,
+        platform VARCHAR(10),
+        event VARCHAR(32) NOT NULL,          -- sk_start | sk_clear | sk_fail | sk_restart | ad_shown ...
+        level INTEGER,                       -- 소코반 단계(1부터)
+        value INTEGER,                       -- 걸음 수 등 수치
+        extra VARCHAR(32),                   -- 광고 위치·실패 사유 등
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_mfa_events_event_time ON mfa_events(event, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_mfa_events_level ON mfa_events(event, level);
 
       -- [PP] PerlerPixel(비즈픽셀) 커뮤니티 게시판 — 별도 리포 ~/Documents/Jiny/PerlerPixel 소유.
       --      도안 공유 게시판. 소셜 로그인(pp_users), 오리지널만 정책 + 사후 신고 기반 모더레이션.

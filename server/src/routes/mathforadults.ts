@@ -146,6 +146,71 @@ router.post('/device-ping', async (req: Request, res: Response): Promise<void> =
   }
 });
 
+// ---------------- 익명 사용 이벤트 (소코반·광고 지표) ----------------
+
+// 앱이 보내는 것을 허용하는 이벤트 이름. 목록에 없으면 버린다(잘못된 데이터 방지).
+const MFA_EVENTS = new Set([
+  'sk_start', // 소코반 단계 시작 (level)
+  'sk_clear', // 클리어 (level, value=걸음 수, extra=별 개수)
+  'sk_fail', // 실패 (level, extra=steps|bomb)
+  'sk_restart', // 진행 중 새로하기 (level, value=그때까지 걸음 수)
+  'sk_resume', // 이어하기로 복원 (level)
+  'ad_shown', // 전면 광고 노출 (extra=restart|next|quiz)
+  'ad_dismissed', // 전면 광고 닫힘 (extra=위치)
+]);
+const MFA_EVENT_BATCH_MAX = 50;
+
+// POST /api/mathforadults/events
+//   { deviceId, platform, events: [{ e, level?, value?, extra?, ago? }] }
+//   ago = 이벤트가 발생한 뒤 지난 초(앱이 모아 보내므로 발생 시각을 보정한다).
+router.post('/events', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    const deviceId = typeof req.body?.deviceId === 'string' ? req.body.deviceId.trim().slice(0, 64) : '';
+    if (!deviceId) {
+      res.status(400).json({ error: 'deviceId is required' });
+      return;
+    }
+    const platform = req.body?.platform === 'ios' || req.body?.platform === 'android' ? req.body.platform : null;
+    const raw = Array.isArray(req.body?.events) ? req.body.events.slice(0, MFA_EVENT_BATCH_MAX) : [];
+
+    const rows: Array<[string, string | null, string, number | null, number | null, string | null, number]> = [];
+    for (const ev of raw) {
+      if (!ev || typeof ev.e !== 'string' || !MFA_EVENTS.has(ev.e)) continue;
+      const int = (v: unknown, max: number): number | null =>
+        typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(0, Math.trunc(v))) : null;
+      const extra = typeof ev.extra === 'string' ? ev.extra.trim().slice(0, 32) || null : null;
+      // 하루(86400초)보다 오래된 건 시각이 신뢰되지 않으므로 지금으로 친다.
+      const ago = Math.min(86400, int(ev.ago, 86400) ?? 0);
+      rows.push([deviceId, platform, ev.e, int(ev.level, 1000), int(ev.value, 1_000_000), extra, ago]);
+    }
+    if (rows.length === 0) {
+      res.json({ success: true, accepted: 0 });
+      return;
+    }
+
+    const values: unknown[] = [];
+    const tuples = rows.map((r, i) => {
+      const b = i * 7;
+      values.push(...r);
+      return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, CURRENT_TIMESTAMP - ($${b + 7} * INTERVAL '1 second'))`;
+    });
+    await pool.query(
+      `INSERT INTO mfa_events (device_id, platform, event, level, value, extra, created_at)
+       VALUES ${tuples.join(', ')}`,
+      values
+    );
+    res.json({ success: true, accepted: rows.length });
+  } catch (error) {
+    console.error('MFA events error:', error);
+    res.status(500).json({ error: 'Failed to record events' });
+  }
+});
+
 // ---------------- 소셜 로그인 + 진도 동기화 (선택적) ----------------
 
 // POST /api/mathforadults/auth/social
