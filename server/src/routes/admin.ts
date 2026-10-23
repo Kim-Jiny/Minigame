@@ -15,6 +15,9 @@ import path from 'path';
 import fs from 'fs';
 import { kstPeriod } from './catchtherule'; // [CTR] 월간 랭킹 period 계산
 
+/** [BOT] 봇이 낀 대전 기록을 집계에서 빼는 조건(dm_game_records g 별칭 필요). */
+const NO_BOT_GAME = `NOT (g.player1_id IN (SELECT id FROM dm_users WHERE is_bot) OR g.player2_id IN (SELECT id FROM dm_users WHERE is_bot))`;
+
 const router = Router();
 
 // [SAJA] 사자툰 만화 이미지 저장 위치. 정적 라우트 /saja(=public/saja)로 서빙되므로
@@ -187,12 +190,13 @@ router.get('/stats', verifyAdminToken, async (req: Request, res: Response): Prom
       pool.query("SELECT COUNT(*) FROM dm_users WHERE is_bot = FALSE AND created_at >= CURRENT_DATE - INTERVAL '30 days'"),
       pool.query('SELECT COUNT(*) FROM dm_inquiries'),
       pool.query("SELECT COUNT(*) FROM dm_inquiries WHERE status = 'pending'"),
-      pool.query("SELECT COUNT(*) FROM dm_game_records WHERE created_at >= CURRENT_DATE"),
+      pool.query(`SELECT COUNT(*) FROM dm_game_records g WHERE g.created_at >= CURRENT_DATE AND ${NO_BOT_GAME}`),
       pool.query("SELECT COUNT(DISTINCT user_id) FROM dm_user_sessions WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'"),
       pool.query(`
-        SELECT game_type, COUNT(*) as count
-        FROM dm_game_records
-        GROUP BY game_type
+        SELECT g.game_type, COUNT(*) as count
+        FROM dm_game_records g
+        WHERE ${NO_BOT_GAME}
+        GROUP BY g.game_type
         ORDER BY count DESC
       `),
       pool.query(`
@@ -311,22 +315,22 @@ router.get('/duo/overview', verifyAdminToken, async (_req: Request, res: Respons
       pool.query(`
         SELECT d::date AS day,
           (SELECT COUNT(*) FROM dm_users u WHERE u.is_bot = FALSE AND u.created_at::date = d::date) AS new_users,
-          (SELECT COUNT(*) FROM dm_game_records g WHERE g.created_at::date = d::date) AS games,
+          (SELECT COUNT(*) FROM dm_game_records g WHERE g.created_at::date = d::date AND NOT (g.player1_id IN (SELECT id FROM dm_users WHERE is_bot) OR g.player2_id IN (SELECT id FROM dm_users WHERE is_bot))) AS games,
           (SELECT COUNT(DISTINCT s.user_id) FROM dm_user_sessions s WHERE s.created_at::date = d::date) AS active_users
         FROM generate_series(CURRENT_DATE - INTERVAL '13 days', CURRENT_DATE, INTERVAL '1 day') d
         ORDER BY day`),
       pool.query(`
-        SELECT game_type, COUNT(*) AS games, COUNT(DISTINCT p) AS players
-        FROM (
-          SELECT game_type, created_at, unnest(ARRAY[player1_id, player2_id]) AS p FROM dm_game_records
-        ) t
-        WHERE created_at >= CURRENT_DATE - INTERVAL '7 days' AND p IS NOT NULL
-          AND p NOT IN (SELECT id FROM dm_users WHERE is_bot)
-        GROUP BY game_type ORDER BY games DESC`),
+        SELECT g.game_type, COUNT(DISTINCT g.id) AS games,
+          COUNT(DISTINCT p.uid) FILTER (WHERE p.uid IS NOT NULL) AS players
+        FROM dm_game_records g
+        CROSS JOIN LATERAL (VALUES (g.player1_id), (g.player2_id)) AS p(uid)
+        LEFT JOIN dm_users u ON u.id = p.uid
+        WHERE g.created_at >= CURRENT_DATE - INTERVAL '7 days' AND COALESCE(u.is_bot, FALSE) = FALSE AND p.uid IS NOT NULL
+        GROUP BY g.game_type ORDER BY games DESC`),
       // 시간대별 대전(최근 7일, KST)
       pool.query(`
         SELECT EXTRACT(HOUR FROM created_at AT TIME ZONE 'Asia/Seoul')::int AS hour, COUNT(*) AS games
-        FROM dm_game_records WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
+        FROM dm_game_records g WHERE g.created_at >= CURRENT_DATE - INTERVAL '7 days' AND NOT (g.player1_id IN (SELECT id FROM dm_users WHERE is_bot) OR g.player2_id IN (SELECT id FROM dm_users WHERE is_bot))
         GROUP BY 1 ORDER BY 1`),
       // 코인 경제: 오늘 지급/소비
       pool.query(`

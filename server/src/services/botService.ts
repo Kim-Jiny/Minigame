@@ -212,6 +212,14 @@ async function spawnBot(gameType: string, isHardcore: boolean, skill: number): P
   });
   // 게임이 끝나면 결과 화면을 잠깐 보는 척하다 떠난다(재대결은 받지 않음).
   socket.on('game_end', () => later(cleanup, rand(3000, 7000)));
+  // 상대(실제 유저)가 나가면 봇도 곧 떠난다. 연결 끊김은 재접속 유예(20초)를 기다렸다가 판단한다.
+  let opponentGone = false;
+  socket.on('opponent_left', () => later(cleanup, rand(1500, 3500)));
+  socket.on('opponent_disconnected', () => {
+    opponentGone = true;
+    later(() => { if (opponentGone) cleanup(); }, 30_000);
+  });
+  socket.on('opponent_reconnected', () => { opponentGone = false; });
 
   const strategy = STRATEGIES[gameType];
   if (strategy) strategy(ctx);
