@@ -54,3 +54,16 @@ flutter_launcher_icons:
 
 flutter:
   uses-material-design: true
+
+  # 주아체(Jua, SIL OFL) — 제목·버튼·점수 등 "게임 느낌" 텍스트에만 쓴다. 단일 굵기 파일이라
+  # 모든 weight 에 같은 파일을 등록해 가짜 볼드(합성 굵기)가 생기지 않게 한다.
+  fonts:
+    - family: Jua
+      fonts:
+        - asset: assets/fonts/Jua-Regular.ttf
+        - asset: assets/fonts/Jua-Regular.ttf
+          weight: 700
+        - asset: assets/fonts/Jua-Regular.ttf
+          weight: 800
+        - asset: assets/fonts/Jua-Regular.ttf
+          weight: 900

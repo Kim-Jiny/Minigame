@@ -61,6 +61,7 @@ class _ChunkyButtonState extends State<ChunkyButton> {
             Text(
               widget.label!,
               style: TextStyle(
+                fontFamily: CandyTheme.displayFont,
                 color: fg,
                 fontSize: widget.fontSize,
                 fontWeight: FontWeight.w900,

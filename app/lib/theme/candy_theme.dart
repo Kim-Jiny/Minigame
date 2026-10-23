@@ -35,6 +35,9 @@ class CandyColors {
 class CandyTheme {
   const CandyTheme._();
 
+  /// 제목·버튼·점수 같은 "게임 느낌" 텍스트용 폰트(주아체). 본문은 시스템 폰트를 유지한다.
+  static const String displayFont = 'Jua';
+
   static const double outline = 3;
   static const double radius = 20;
 
@@ -62,7 +65,8 @@ class CandyTheme {
         elevation: 0,
         centerTitle: true,
         titleTextStyle: TextStyle(
-          fontSize: 20,
+          fontFamily: CandyTheme.displayFont,
+          fontSize: 21,
           fontWeight: FontWeight.w900,
           color: Colors.white,
           letterSpacing: -0.3,

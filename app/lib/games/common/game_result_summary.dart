@@ -53,7 +53,8 @@ class GameRankedResultView extends StatelessWidget {
                 Text(
                   isDraw ? '무승부!' : (isWinner ? '승리!' : '패배'),
                   style: TextStyle(
-                    fontSize: 36,
+                    fontFamily: CandyTheme.displayFont,
+                    fontSize: 38,
                     fontWeight: FontWeight.w900,
                     color: color,
                     letterSpacing: -0.5,
@@ -125,7 +126,8 @@ class GameResultHero extends StatelessWidget {
         Text(
           title,
           style: TextStyle(
-            fontSize: 36,
+            fontFamily: CandyTheme.displayFont,
+            fontSize: 38,
             fontWeight: FontWeight.w900,
             letterSpacing: -0.5,
             color: won ? color : CandyColors.ink,

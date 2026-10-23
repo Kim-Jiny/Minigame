@@ -374,7 +374,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 22,
+                    fontFamily: CandyTheme.displayFont,
+                    fontSize: 23,
                     fontWeight: FontWeight.w900,
                     color: CandyColors.ink,
                     letterSpacing: -0.5,
@@ -433,7 +434,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 Text(
                   entry.title,
                   style: TextStyle(
-                    fontSize: 22,
+                    fontFamily: CandyTheme.displayFont,
+                    fontSize: 23,
                     fontWeight: FontWeight.w900,
                     color: fg,
                     letterSpacing: -0.5,
