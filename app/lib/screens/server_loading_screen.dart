@@ -2,7 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/socket_service.dart';
 import '../services/socket_listener_registry.dart';
-import '../main.dart';
+import '../theme/candy_theme.dart';
+import '../widgets/cartoon/cartoon_card.dart';
+import '../widgets/cartoon/duo_logo.dart';
+import '../widgets/cartoon/floating_bg.dart';
 
 class ServerLoadingScreen extends StatefulWidget {
   final VoidCallback onConnected;
@@ -16,7 +19,9 @@ class ServerLoadingScreen extends StatefulWidget {
 class _ServerLoadingScreenState extends State<ServerLoadingScreen>
     with SingleTickerProviderStateMixin {
   final SocketService _socketService = SocketService();
-  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(_socketService);
+  late final SocketListenerRegistry _socketListeners = SocketListenerRegistry(
+    _socketService,
+  );
   Timer? _checkTimer;
   int _dots = 0;
   Timer? _dotsTimer;
@@ -56,7 +61,9 @@ class _ServerLoadingScreenState extends State<ServerLoadingScreen>
     _showSlowMessage = false;
     _socketService.connect();
 
-    debugPrint('🔌 ServerLoadingScreen: 연결 확인 시작, isReady=${_socketService.isReady}');
+    debugPrint(
+      '🔌 ServerLoadingScreen: 연결 확인 시작, isReady=${_socketService.isReady}',
+    );
 
     // lobby_joined 이벤트도 리스닝 (서버 연결 확인용)
     _socketListeners.on('lobby_joined', (_) {
@@ -66,7 +73,9 @@ class _ServerLoadingScreenState extends State<ServerLoadingScreen>
 
     _checkTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
       _waitSeconds++;
-      debugPrint('🔌 ServerLoadingScreen: 폴링 체크, isConnected=${_socketService.isConnected}');
+      debugPrint(
+        '🔌 ServerLoadingScreen: 폴링 체크, isConnected=${_socketService.isConnected}',
+      );
 
       // 10회(5초) 후 느린 연결 메시지 표시
       if (_waitSeconds >= 10 && !_showSlowMessage && mounted) {
@@ -115,115 +124,68 @@ class _ServerLoadingScreenState extends State<ServerLoadingScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              AppColors.primary,
-              Color(0xFF8B7CF7),
-            ],
-          ),
-        ),
+      body: FloatingBackground(
         child: SafeArea(
           child: Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // 로고/아이콘
                 ScaleTransition(
                   scale: _pulseAnimation,
-                  child: Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.2),
-                          blurRadius: 20,
-                          spreadRadius: 5,
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.games_rounded,
-                      size: 60,
-                      color: AppColors.primary,
+                  child: const DuoLogo(size: 96),
+                ),
+                const SizedBox(height: 40),
+                SizedBox(
+                  width: 180,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: const LinearProgressIndicator(
+                      minHeight: 10,
+                      color: CandyColors.pink,
+                      backgroundColor: CandyColors.creamDeep,
                     ),
                   ),
                 ),
-
-                const SizedBox(height: 48),
-
-                // 앱 이름
-                const Text(
-                  '듀오아레나',
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    letterSpacing: 2,
-                  ),
-                ),
-
-                const SizedBox(height: 48),
-
-                // 로딩 인디케이터
-                const SizedBox(
-                  width: 40,
-                  height: 40,
-                  child: CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    strokeWidth: 3,
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-
-                // 로딩 텍스트
+                const SizedBox(height: 16),
                 Text(
                   _loadingText,
                   style: const TextStyle(
                     fontSize: 16,
-                    color: Colors.white,
-                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.w900,
+                    color: CandyColors.ink,
                   ),
                 ),
-
-                const SizedBox(height: 16),
-
-                // 느린 연결 메시지
+                const SizedBox(height: 20),
                 AnimatedOpacity(
                   opacity: _showSlowMessage ? 1.0 : 0.0,
                   duration: const Duration(milliseconds: 500),
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 40),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Column(
-                      children: [
-                        Icon(
-                          Icons.info_outline,
-                          color: Colors.white70,
-                          size: 24,
-                        ),
-                        SizedBox(height: 8),
-                        Text(
-                          '연결에 시간이 걸리고 있습니다.\n잠시만 기다려주세요...',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.white70,
-                            height: 1.5,
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 40),
+                    child: CartoonCard(
+                      radius: 18,
+                      shadow: 3,
+                      padding: EdgeInsets.all(14),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.hourglass_bottom_rounded,
+                            color: CandyColors.tangerine,
                           ),
-                        ),
-                      ],
+                          SizedBox(width: 10),
+                          Flexible(
+                            child: Text(
+                              '연결에 시간이 걸리고 있어요.\n잠시만 기다려주세요!',
+                              style: TextStyle(
+                                fontSize: 13,
+                                height: 1.5,
+                                fontWeight: FontWeight.w800,
+                                color: CandyColors.ink,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),

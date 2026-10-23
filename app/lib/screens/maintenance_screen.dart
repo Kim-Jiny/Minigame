@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 import '../services/remote_config_service.dart';
+import '../theme/candy_theme.dart';
+import '../widgets/cartoon/cartoon_card.dart';
+import '../widgets/cartoon/chunky_button.dart';
+import '../widgets/cartoon/duo_mascot.dart';
+import '../widgets/cartoon/floating_bg.dart';
 
 class MaintenanceScreen extends StatelessWidget {
   final RemoteConfigService configService;
@@ -17,108 +22,83 @@ class MaintenanceScreen extends StatelessWidget {
     final endTimeFormatted = configService.getMaintenanceEndTimeFormatted();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // 아이콘
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.shade100,
-                    shape: BoxShape.circle,
+      body: FloatingBackground(
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(28),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const DuoMascot(
+                    size: 130,
+                    color: CandyColors.tangerine,
+                    mood: MascotMood.sad,
                   ),
-                  child: Icon(
-                    Icons.construction,
-                    size: 64,
-                    color: Colors.orange.shade700,
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                // 제목
-                const Text(
-                  '서버 점검 중',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF333333),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // 점검 메시지
-                Text(
-                  maintenance?.message ?? '서버 점검 중입니다.',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Color(0xFF666666),
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // 종료 시간
-                if (endTimeFormatted.isNotEmpty)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      children: [
-                        const Text(
-                          '예상 종료 시간',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF999999),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          endTimeFormatted,
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.orange.shade700,
-                          ),
-                        ),
-                      ],
+                  const SizedBox(height: 20),
+                  const Text(
+                    '서버 점검 중',
+                    style: TextStyle(
+                      fontSize: 30,
+                      fontWeight: FontWeight.w900,
+                      color: CandyColors.ink,
+                      letterSpacing: -0.5,
                     ),
                   ),
-                const SizedBox(height: 40),
-
-                // 새로고침 버튼
-                if (onRetry != null)
-                  OutlinedButton.icon(
-                    onPressed: onRetry,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('다시 확인'),
-                    style: OutlinedButton.styleFrom(
+                  const SizedBox(height: 14),
+                  Text(
+                    maintenance?.message ?? '서버 점검 중입니다.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      height: 1.5,
+                      fontWeight: FontWeight.w700,
+                      color: CandyColors.inkSoft,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  if (endTimeFormatted.isNotEmpty)
+                    CartoonCard(
+                      radius: 18,
+                      shadow: 4,
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
+                        horizontal: 22,
                         vertical: 12,
                       ),
-                      foregroundColor: Colors.orange.shade700,
-                      side: BorderSide(color: Colors.orange.shade700),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            '예상 종료 시간',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: CandyColors.inkSoft,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            endTimeFormatted,
+                            style: const TextStyle(
+                              fontSize: 19,
+                              fontWeight: FontWeight.w900,
+                              color: CandyColors.tangerine,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-              ],
+                  const SizedBox(height: 36),
+                  if (onRetry != null)
+                    ChunkyButton(
+                      label: '다시 확인',
+                      icon: Icons.refresh_rounded,
+                      color: CandyColors.tangerine,
+                      expand: false,
+                      onPressed: onRetry,
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -131,75 +111,55 @@ class MaintenanceScreen extends StatelessWidget {
 class ConnectionFailedScreen extends StatelessWidget {
   final VoidCallback? onRetry;
 
-  const ConnectionFailedScreen({
-    super.key,
-    this.onRetry,
-  });
+  const ConnectionFailedScreen({super.key, this.onRetry});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // 아이콘
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Colors.red.shade100,
-                    shape: BoxShape.circle,
+      body: FloatingBackground(
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(28),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const DuoMascot(
+                    size: 130,
+                    color: CandyColors.sky,
+                    mood: MascotMood.sad,
                   ),
-                  child: Icon(
-                    Icons.wifi_off,
-                    size: 64,
-                    color: Colors.red.shade700,
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                // 제목
-                const Text(
-                  '연결 실패',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF333333),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // 메시지
-                const Text(
-                  '서버에 연결할 수 없습니다.\n네트워크 연결을 확인해주세요.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Color(0xFF666666),
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 40),
-
-                // 새로고침 버튼
-                if (onRetry != null)
-                  ElevatedButton.icon(
-                    onPressed: onRetry,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('다시 시도'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 12,
-                      ),
-                      backgroundColor: const Color(0xFFFF6B9D),
+                  const SizedBox(height: 20),
+                  const Text(
+                    '연결 실패',
+                    style: TextStyle(
+                      fontSize: 30,
+                      fontWeight: FontWeight.w900,
+                      color: CandyColors.ink,
+                      letterSpacing: -0.5,
                     ),
                   ),
-              ],
+                  const SizedBox(height: 14),
+                  const Text(
+                    '서버에 연결할 수 없어요.\n네트워크 연결을 확인해주세요.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 16,
+                      height: 1.5,
+                      fontWeight: FontWeight.w700,
+                      color: CandyColors.inkSoft,
+                    ),
+                  ),
+                  const SizedBox(height: 36),
+                  if (onRetry != null)
+                    ChunkyButton(
+                      label: '다시 시도',
+                      icon: Icons.refresh_rounded,
+                      expand: false,
+                      onPressed: onRetry,
+                    ),
+                ],
+              ),
             ),
           ),
         ),

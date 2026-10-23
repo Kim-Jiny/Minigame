@@ -77,8 +77,8 @@ class GamePlayerProfile extends StatelessWidget {
           name,
           style: TextStyle(
             fontSize: 14,
-            fontWeight: FontWeight.bold,
-            color: isActive ? activeColor : Colors.grey.shade700,
+            fontWeight: FontWeight.w900,
+            color: isActive ? activeColor : const Color(0xFF3A2D5C),
           ),
           overflow: TextOverflow.ellipsis,
         ),
