@@ -410,9 +410,18 @@ export async function setupDatabase() {
       );
       -- country 컬럼 추가 (기존 테이블용) — ISO 3166-1 alpha-2 (예: KR)
       ALTER TABLE ctr_rankings ADD COLUMN IF NOT EXISTS country VARCHAR(2);
-      -- 기기당 모드별 1행(최고점). device_id 가 있을 때만 유니크.
-      CREATE UNIQUE INDEX IF NOT EXISTS uq_ctr_rankings_mode_device
-        ON ctr_rankings(mode, device_id) WHERE device_id IS NOT NULL;
+      -- 월간 랭킹: period = KST 달력 월 'YYYY-MM'. 지난 달 행은 보존(삭제 안 함).
+      ALTER TABLE ctr_rankings ADD COLUMN IF NOT EXISTS period VARCHAR(7);
+      -- 기존 행(NULL)은 현재 KST 월로 백필(멱등: NULL 인 행만). NOT NULL 은 롤링 배포 중 구버전
+      -- 인스턴스 insert 를 깨뜨릴 수 있어 걸지 않는다(앱 코드가 항상 period 를 채움).
+      UPDATE ctr_rankings SET period = to_char(NOW() AT TIME ZONE 'Asia/Seoul', 'YYYY-MM')
+        WHERE period IS NULL;
+      -- 기기당 (모드, 기간)별 1행(최고점). 새 인덱스를 먼저 만든 뒤 옛 인덱스를 제거(무중단).
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_ctr_rankings_mode_device_period
+        ON ctr_rankings(mode, device_id, period) WHERE device_id IS NOT NULL;
+      DROP INDEX IF EXISTS uq_ctr_rankings_mode_device;
+      CREATE INDEX IF NOT EXISTS idx_ctr_rankings_mode_period_score
+        ON ctr_rankings(mode, period, score DESC, created_at ASC);
       -- 리더보드 정렬용.
       CREATE INDEX IF NOT EXISTS idx_ctr_rankings_mode_score
         ON ctr_rankings(mode, score DESC, created_at ASC);
@@ -664,6 +673,22 @@ export async function setupDatabase() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
       CREATE INDEX IF NOT EXISTS idx_mfa_coupon_log_user ON mfa_coupon_log(user_id, created_at DESC);
+      ALTER TABLE mfa_coupon_log ADD COLUMN IF NOT EXISTS note VARCHAR(200);  -- 관리자 수동 조정 사유
+
+      -- [MFA] 익명 사용 이벤트(소코반 단계 진행·광고 노출). deviceId 기반이고 개인정보는 없다.
+      --       앱이 모아서 배치로 보낸다(POST /api/mathforadults/events). 운영 지표 전용.
+      CREATE TABLE IF NOT EXISTS mfa_events (
+        id BIGSERIAL PRIMARY KEY,
+        device_id VARCHAR(64) NOT NULL,
+        platform VARCHAR(10),
+        event VARCHAR(32) NOT NULL,          -- sk_start | sk_clear | sk_fail | sk_restart | ad_shown ...
+        level INTEGER,                       -- 소코반 단계(1부터)
+        value INTEGER,                       -- 걸음 수 등 수치
+        extra VARCHAR(32),                   -- 광고 위치·실패 사유 등
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_mfa_events_event_time ON mfa_events(event, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_mfa_events_level ON mfa_events(event, level);
 
       -- [PP] PerlerPixel(비즈픽셀) 커뮤니티 게시판 — 별도 리포 ~/Documents/Jiny/PerlerPixel 소유.
       --      도안 공유 게시판. 소셜 로그인(pp_users), 오리지널만 정책 + 사후 신고 기반 모더레이션.
