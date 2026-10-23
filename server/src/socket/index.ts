@@ -1,3 +1,4 @@
+import { scheduleFill as scheduleBotFill, isActiveBotAccount } from '../services/botService';
 import { Server, Socket } from 'socket.io';
 import { TicTacToeGame } from '../games/tictactoe';
 import { InfiniteTicTacToeGame } from '../games/infinitetictactoe';
@@ -3668,6 +3669,26 @@ async function finishRankedMatchAsDraw(io: Server, room: GameRoom) {
   console.log(`   ${loser.nickname} loses with 30% penalty (${result.loserEloChange} ELO)`);
 }
 
+/** [관리자 대시보드] 실시간 현황 스냅샷. 봇 계정은 제외하고 센다. */
+export function getLiveStats() {
+  let playingRooms = 0;
+  let botRooms = 0;
+  for (const room of rooms.values()) {
+    if (room.status !== 'playing') continue;
+    playingRooms++;
+    if (room.players.some(p => isActiveBotAccount(p.userId))) botRooms++;
+  }
+  const queues: { key: string; waiting: number }[] = [];
+  matchQueues.forEach((q, key) => { if (q.length > 0) queues.push({ key, waiting: q.length }); });
+  return {
+    onlineUsers: [...userSockets.keys()].filter(id => !isActiveBotAccount(id)).length,
+    playingRooms,
+    botRooms,
+    rankedWaiting: rankedQueue.length,
+    queues,
+  };
+}
+
 export function setupSocketHandlers(io: Server) {
   io.on('connection', (socket: Socket) => {
     console.log(`👤 Player connected: ${socket.id}`);
@@ -4507,6 +4528,16 @@ export function setupSocketHandlers(io: Server) {
         // 대기열에 추가
         queue.push(currentPlayer);
         socket.emit('waiting_for_match', { gameType, isHardcore });
+        // [BOT] 일정 시간 상대가 없으면 매칭 봇 투입(관리자 설정 ON 일 때만, 봇끼리는 붙이지 않음)
+        if (!isActiveBotAccount(currentPlayer.userId)) {
+          const waitingSocketId = socket.id;
+          void scheduleBotFill({
+            gameType,
+            isHardcore,
+            isInfinite,
+            isStillWaiting: () => queue.some(p => p.id === waitingSocketId),
+          });
+        }
         console.log(`⏳ ${currentPlayer.nickname} waiting for match (${gameType}${isHardcore ? ' 하드코어' : ''})`);
       }
     });

@@ -38,6 +38,20 @@ export async function setupDatabase() {
         UNIQUE(provider, provider_id)
       );
 
+      -- [BOT] 매칭 봇: 봇 계정 표식 + 관리자 설정(단일 행). 봇은 랭킹·통계 집계에서 제외한다.
+      ALTER TABLE dm_users ADD COLUMN IF NOT EXISTS is_bot BOOLEAN NOT NULL DEFAULT FALSE;
+
+      CREATE TABLE IF NOT EXISTS dm_bot_settings (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        wait_seconds INTEGER NOT NULL DEFAULT 5,
+        skill REAL NOT NULL DEFAULT 0.5,
+        max_concurrent INTEGER NOT NULL DEFAULT 10,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT dm_bot_settings_single CHECK (id = 1)
+      );
+      INSERT INTO dm_bot_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
       CREATE TABLE IF NOT EXISTS dm_game_records (
         id SERIAL PRIMARY KEY,
         game_type VARCHAR(50) NOT NULL,

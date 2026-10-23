@@ -144,12 +144,17 @@ export const friendService = {
 
     // 상대방이 존재하는지 확인
     const userExists = await pool.query(
-      'SELECT id, nickname FROM dm_users WHERE id = $1',
+      'SELECT id, nickname, is_bot FROM dm_users WHERE id = $1',
       [toUserId]
     );
 
     if (userExists.rows.length === 0) {
       return { success: false, message: '존재하지 않는 사용자입니다.' };
+    }
+
+    // [BOT] 매칭 봇은 친구 요청을 받을 수 없다
+    if (userExists.rows[0].is_bot) {
+      return { success: false, message: '이 상대에게는 친구 요청을 보낼 수 없어요.' };
     }
 
     // 이미 친구인지 확인

@@ -7,6 +7,8 @@ import { parseAndValidate } from '../services/ctrPuzzleValidate';
 import { updateNickname } from '../services/userService';
 import { sendLocalizedPushToUser } from '../services/ppPush'; // [PP] 비즈픽셀 문의 답변 푸시(수신자 언어)
 import { tierFor, resolveTier } from '../services/ppTier'; // [PP] 승인 큐 계급 표시 + 계급 오버라이드
+import { getSettings as getBotSettings, updateSettings as updateBotSettings, getRuntimeStatus as getBotRuntime } from '../services/botService'; // [BOT]
+import { getLiveStats } from '../socket';
 import multer from 'multer'; // [SAJA] 사자툰 만화 이미지 업로드용
 // [SAJA] sharp 는 네이티브 모듈 — 로드 실패가 서버 전체를 죽이지 않도록 업로드 시점에 지연 로딩한다.
 import path from 'path';
@@ -171,10 +173,10 @@ router.get('/stats', verifyAdminToken, async (req: Request, res: Response): Prom
       shopRevenue,
       adRewards,
     ] = await Promise.all([
-      pool.query('SELECT COUNT(*) FROM dm_users'),
-      pool.query("SELECT COUNT(*) FROM dm_users WHERE created_at >= CURRENT_DATE"),
-      pool.query("SELECT COUNT(*) FROM dm_users WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'"),
-      pool.query("SELECT COUNT(*) FROM dm_users WHERE created_at >= CURRENT_DATE - INTERVAL '30 days'"),
+      pool.query('SELECT COUNT(*) FROM dm_users WHERE is_bot = FALSE'),
+      pool.query("SELECT COUNT(*) FROM dm_users WHERE is_bot = FALSE AND created_at >= CURRENT_DATE"),
+      pool.query("SELECT COUNT(*) FROM dm_users WHERE is_bot = FALSE AND created_at >= CURRENT_DATE - INTERVAL '7 days'"),
+      pool.query("SELECT COUNT(*) FROM dm_users WHERE is_bot = FALSE AND created_at >= CURRENT_DATE - INTERVAL '30 days'"),
       pool.query('SELECT COUNT(*) FROM dm_inquiries'),
       pool.query("SELECT COUNT(*) FROM dm_inquiries WHERE status = 'pending'"),
       pool.query("SELECT COUNT(*) FROM dm_game_records WHERE created_at >= CURRENT_DATE"),
@@ -227,6 +229,145 @@ router.get('/stats', verifyAdminToken, async (req: Request, res: Response): Prom
   } catch (error) {
     console.error('Get stats error:', error);
     res.status(500).json({ error: 'Failed to get stats' });
+  }
+});
+
+// ============================================================
+// [BOT] 매칭 봇 설정 + 듀오 운영 개요
+// ============================================================
+
+// GET /api/admin/bot - 봇 설정 + 런타임 상태 + 최근 7일 봇 대전 통계
+router.get('/bot', verifyAdminToken, async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const settings = await getBotSettings(true);
+    const r = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE gr.created_at >= CURRENT_DATE) AS today,
+        COUNT(*) AS week,
+        COUNT(*) FILTER (WHERE gr.winner_id IN (SELECT id FROM dm_users WHERE is_bot)) AS bot_wins
+      FROM dm_game_records gr
+      WHERE gr.created_at >= CURRENT_DATE - INTERVAL '7 days'
+        AND (gr.player1_id IN (SELECT id FROM dm_users WHERE is_bot)
+          OR gr.player2_id IN (SELECT id FROM dm_users WHERE is_bot))`);
+    const row = r.rows[0];
+    const accounts = await pool.query('SELECT COUNT(*) FROM dm_users WHERE is_bot = TRUE');
+    res.json({
+      settings,
+      runtime: getBotRuntime(),
+      accounts: parseInt(accounts.rows[0].count),
+      games: {
+        today: parseInt(row.today),
+        week: parseInt(row.week),
+        botWinRate: parseInt(row.week) > 0 ? Math.round((parseInt(row.bot_wins) / parseInt(row.week)) * 100) : null,
+      },
+    });
+  } catch (error) {
+    console.error('Get bot settings error:', error);
+    res.status(500).json({ error: 'Failed to get bot settings' });
+  }
+});
+
+// PUT /api/admin/bot - 봇 설정 변경 { enabled?, waitSeconds?, skill?, maxConcurrent? }
+router.put('/bot', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { enabled, waitSeconds, skill, maxConcurrent } = req.body ?? {};
+    const patch: Record<string, unknown> = {};
+    if (enabled !== undefined) {
+      if (typeof enabled !== 'boolean') { res.status(400).json({ error: 'enabled must be boolean' }); return; }
+      patch.enabled = enabled;
+    }
+    for (const [k, v] of Object.entries({ waitSeconds, skill, maxConcurrent })) {
+      if (v === undefined) continue;
+      if (typeof v !== 'number' || !Number.isFinite(v)) { res.status(400).json({ error: `${k} must be a number` }); return; }
+      patch[k] = v;
+    }
+    const settings = await updateBotSettings(patch);
+    console.log('[bot] settings updated by admin:', settings);
+    res.json({ settings });
+  } catch (error) {
+    console.error('Update bot settings error:', error);
+    res.status(500).json({ error: 'Failed to update bot settings' });
+  }
+});
+
+// GET /api/admin/duo/overview - 운영용 개요(실시간 · 14일 추이 · 게임별 · 경제 · CS)
+router.get('/duo/overview', verifyAdminToken, async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+
+    const [trend, games7, hours, economy, topUsers, cs, retention, bans] = await Promise.all([
+      // 14일 추이: 신규가입 / 대전 수 / 활성 유저(세션 기준)
+      pool.query(`
+        SELECT d::date AS day,
+          (SELECT COUNT(*) FROM dm_users u WHERE u.is_bot = FALSE AND u.created_at::date = d::date) AS new_users,
+          (SELECT COUNT(*) FROM dm_game_records g WHERE g.created_at::date = d::date) AS games,
+          (SELECT COUNT(DISTINCT s.user_id) FROM dm_user_sessions s WHERE s.created_at::date = d::date) AS active_users
+        FROM generate_series(CURRENT_DATE - INTERVAL '13 days', CURRENT_DATE, INTERVAL '1 day') d
+        ORDER BY day`),
+      pool.query(`
+        SELECT game_type, COUNT(*) AS games, COUNT(DISTINCT p) AS players
+        FROM (
+          SELECT game_type, created_at, unnest(ARRAY[player1_id, player2_id]) AS p FROM dm_game_records
+        ) t
+        WHERE created_at >= CURRENT_DATE - INTERVAL '7 days' AND p IS NOT NULL
+          AND p NOT IN (SELECT id FROM dm_users WHERE is_bot)
+        GROUP BY game_type ORDER BY games DESC`),
+      // 시간대별 대전(최근 7일, KST)
+      pool.query(`
+        SELECT EXTRACT(HOUR FROM created_at AT TIME ZONE 'Asia/Seoul')::int AS hour, COUNT(*) AS games
+        FROM dm_game_records WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
+        GROUP BY 1 ORDER BY 1`),
+      // 코인 경제: 오늘 지급/소비
+      pool.query(`
+        SELECT
+          COALESCE(SUM(CASE WHEN amount > 0 THEN amount END), 0) AS issued,
+          COALESCE(SUM(CASE WHEN amount < 0 THEN -amount END), 0) AS spent
+        FROM dm_mileage_history h
+        WHERE h.created_at >= CURRENT_DATE
+          AND h.user_id NOT IN (SELECT id FROM dm_users WHERE is_bot)`),
+      pool.query(`
+        SELECT u.id, u.nickname, COUNT(*) AS games
+        FROM (
+          SELECT unnest(ARRAY[player1_id, player2_id]) AS p FROM dm_game_records
+          WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
+        ) t JOIN dm_users u ON u.id = t.p
+        WHERE u.is_bot = FALSE
+        GROUP BY u.id, u.nickname ORDER BY games DESC LIMIT 5`),
+      pool.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+          COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(created_at) FILTER (WHERE status = 'pending'))) / 3600, 0) AS oldest_hours
+        FROM dm_inquiries`),
+      // D1 리텐션: 어제 가입한 유저 중 오늘 세션이 있는 비율
+      pool.query(`
+        SELECT COUNT(*) AS cohort,
+          COUNT(*) FILTER (WHERE EXISTS (
+            SELECT 1 FROM dm_user_sessions s WHERE s.user_id = u.id AND s.created_at::date = CURRENT_DATE
+          )) AS returned
+        FROM dm_users u WHERE u.is_bot = FALSE AND u.created_at::date = CURRENT_DATE - 1`),
+      pool.query(`SELECT COUNT(DISTINCT user_id) FROM dm_user_bans WHERE is_active = TRUE AND (expires_at IS NULL OR expires_at > NOW())`),
+    ]);
+
+    const cohort = parseInt(retention.rows[0].cohort);
+    res.json({
+      live: getLiveStats(),
+      trend: trend.rows.map(r => ({
+        day: r.day, newUsers: parseInt(r.new_users), games: parseInt(r.games), activeUsers: parseInt(r.active_users),
+      })),
+      games7d: games7.rows.map(r => ({ gameType: r.game_type, games: parseInt(r.games), players: parseInt(r.players) })),
+      hours: hours.rows.map(r => ({ hour: r.hour, games: parseInt(r.games) })),
+      economy: { issued: parseInt(economy.rows[0].issued), spent: parseInt(economy.rows[0].spent) },
+      topUsers: topUsers.rows.map(r => ({ id: r.id, nickname: r.nickname, games: parseInt(r.games) })),
+      cs: { pending: parseInt(cs.rows[0].pending), oldestHours: Math.round(Number(cs.rows[0].oldest_hours)) },
+      retentionD1: cohort > 0 ? { cohort, returned: parseInt(retention.rows[0].returned), rate: Math.round((parseInt(retention.rows[0].returned) / cohort) * 100) } : null,
+      bannedUsers: parseInt(bans.rows[0].count),
+    });
+  } catch (error) {
+    console.error('Get duo overview error:', error);
+    res.status(500).json({ error: 'Failed to get overview' });
   }
 });
 
@@ -395,12 +536,12 @@ router.get('/users', verifyAdminToken, async (req: Request, res: Response): Prom
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 20));
     const offset = (page - 1) * limit;
 
-    let whereClause = '';
+    let whereClause = 'WHERE u.is_bot = FALSE'; // [BOT] 봇 계정은 유저 목록에서 제외
     const params: any[] = [];
 
     if (q) {
       params.push(`%${q}%`);
-      whereClause = `WHERE u.nickname ILIKE $1 OR u.email ILIKE $1 OR CAST(u.id AS TEXT) = $${params.length + 1}`;
+      whereClause = `WHERE u.is_bot = FALSE AND (u.nickname ILIKE $1 OR u.email ILIKE $1 OR CAST(u.id AS TEXT) = $${params.length + 1})`;
       params.push(q);
     }
 

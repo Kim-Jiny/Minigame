@@ -150,6 +150,7 @@ export const rankedService = {
         urs.losses
        FROM dm_user_ranked_stats urs
        JOIN dm_users u ON urs.user_id = u.id
+       WHERE u.is_bot = FALSE
        ORDER BY urs.elo DESC, urs.wins DESC
        LIMIT $1 OFFSET $2`,
       [limit, offset]
