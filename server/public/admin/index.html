@@ -402,6 +402,7 @@
   </style>
   <link rel="stylesheet" href="theme.css?v=20261023c"> <!-- 공통 카툰 테마 -->
   <link rel="stylesheet" href="mfa.css?v=20261023c"> <!-- [MFA] -->
+  <link rel="stylesheet" href="duo.css?v=20261024a"> <!-- 듀오 운영 개요·봇 패널 -->
 </head>
 <body>
   <!-- Login -->
@@ -466,11 +467,13 @@
 
     <!-- Dashboard Tab -->
     <div class="tab-content active" id="tab-dashboard">
+      <div class="duo-live" id="duoLive"></div>
       <div class="stats-grid" id="statsGrid"></div>
       <div class="chart-container">
         <h3>Game Popularity</h3>
         <div class="bar-chart" id="gameChart"></div>
       </div>
+      <div id="duoOverview"></div>
     </div>
 
     <!-- Users Tab -->
@@ -518,6 +521,8 @@
 
     <!-- Settings Tab -->
     <div class="tab-content" id="tab-settings">
+      <h3 style="margin-bottom:16px;color:#333">매칭 봇</h3>
+      <div class="bot-panel" id="botPanel"><div class="empty">Loading...</div></div>
       <h3 style="margin-bottom:16px;color:#333">Ad Settings</h3>
       <div id="adConfigContainer" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
         <div class="empty">Loading...</div>
@@ -1073,6 +1078,7 @@
   </div>
 
   <script src="mfa.js?v=20261023c"></script> <!-- [MFA] -->
+  <script src="duo.js?v=20261024a"></script> <!-- 듀오 운영 개요·봇 패널 -->
   <script>
     let token = localStorage.getItem('adminToken');
     let currentInquiry = null;
@@ -1271,6 +1277,8 @@
         loadNotices();
         searchUsers();
         loadAdConfig();
+        duoOverviewLoad();
+        botLoad();
       } else if (id === 'ctr') {
         document.getElementById('ctrDashboard').style.display = 'block';
         document.getElementById('dashboard').style.display = 'none';

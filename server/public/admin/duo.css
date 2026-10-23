@@ -1,0 +1,22 @@
+/* 듀오 아레나 운영 개요·봇 패널. #tab-dashboard / #botPanel 범위만 건드린다. */
+.duo-live { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.duo-live .live-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--ok, #34b27f); margin-right: 6px; animation: duoPulse 1.6s infinite; }
+@keyframes duoPulse { 0% { box-shadow: 0 0 0 0 rgba(52,178,127,.55); } 70% { box-shadow: 0 0 0 8px rgba(52,178,127,0); } 100% { box-shadow: 0 0 0 0 rgba(52,178,127,0); } }
+.duo-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin: 18px 0; }
+.duo-row .chart-container svg { width: 100%; height: auto; display: block; }
+.duo-legend { display: flex; gap: 14px; font-size: 12px; color: #888; margin-bottom: 8px; flex-wrap: wrap; }
+.duo-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.duo-note { font-size: 12px; color: #999; margin-top: 8px; line-height: 1.5; }
+.duo-mini-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.duo-mini-table td, .duo-mini-table th { padding: 7px 4px; text-align: left; border-bottom: 1px solid rgba(0,0,0,.06); }
+.duo-mini-table th { color: #999; font-weight: 600; font-size: 12px; }
+.bot-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-bottom: 28px; }
+.bot-panel .field { margin-top: 14px; }
+.bot-panel .field label { display: flex; justify-content: space-between; font-size: 13px; color: #666; margin-bottom: 6px; }
+.bot-panel input[type=range] { width: 100%; }
+.bot-panel input[type=number] { width: 90px; padding: 8px 10px; border: 1px solid #ddd; border-radius: 8px; font-weight: bold; }
+.bot-state { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
+.bot-state .state-text { font-weight: 700; }
+.bot-state .state-text.on { color: #27ae60; }
+.bot-state .state-text.off { color: #999; }
+.bot-tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; background: rgba(124,108,242,.12); color: #7c6cf2; margin: 2px 4px 2px 0; }
