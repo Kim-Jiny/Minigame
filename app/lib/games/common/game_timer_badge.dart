@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme/candy_theme.dart';
 
 class GameTimerBadge extends StatelessWidget {
   final int seconds;
@@ -21,29 +22,19 @@ class GameTimerBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isWarning = seconds <= warningThreshold;
-    final foreground = isWarning ? const Color(0xFFDC2626) : accentColor;
-    final background = isWarning
-        ? const Color(0xFFFEF2F2)
-        : accentColor.withValues(alpha: compact ? 0.08 : 0.12);
+    final foreground = isWarning ? const Color(0xFFE5484D) : accentColor;
 
-    return Container(
+    final badge = Container(
       padding: EdgeInsets.symmetric(
         horizontal: compact ? 14 : 20,
-        vertical: compact ? 8 : 11,
+        vertical: compact ? 7 : 10,
       ),
       decoration: BoxDecoration(
-        color: background,
+        color: isWarning ? const Color(0xFFFFE9EA) : Colors.white,
         borderRadius: BorderRadius.circular(compact ? 20 : 24),
-        border: Border.all(
-          color: foreground.withValues(alpha: isWarning ? 0.24 : 0.18),
-          width: 1.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: foreground.withValues(alpha: compact ? 0.08 : 0.14),
-            blurRadius: compact ? 10 : 16,
-            offset: const Offset(0, 6),
-          ),
+        border: Border.all(color: CandyColors.ink, width: 2.5),
+        boxShadow: const [
+          BoxShadow(color: CandyColors.ink, offset: Offset(0, 3)),
         ],
       ),
       child: Row(
@@ -55,7 +46,7 @@ class GameTimerBadge extends StatelessWidget {
             '$seconds초',
             style: TextStyle(
               fontSize: compact ? 18 : 24,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w900,
               color: foreground,
             ),
           ),
@@ -65,13 +56,24 @@ class GameTimerBadge extends StatelessWidget {
               label,
               style: TextStyle(
                 fontSize: compact ? 12 : 13,
-                fontWeight: FontWeight.w600,
-                color: foreground.withValues(alpha: 0.8),
+                fontWeight: FontWeight.w800,
+                color: CandyColors.inkSoft,
               ),
             ),
           ],
         ],
       ),
+    );
+
+    // 경고 구간에는 매초 통통 뛴다.
+    if (!isWarning) return badge;
+    return TweenAnimationBuilder<double>(
+      key: ValueKey(seconds),
+      tween: Tween(begin: 1.18, end: 1.0),
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.elasticOut,
+      builder: (_, scale, child) => Transform.scale(scale: scale, child: child),
+      child: badge,
     );
   }
 }

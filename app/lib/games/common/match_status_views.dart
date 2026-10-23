@@ -17,9 +17,7 @@ class GameSearchingView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
+      decoration: BoxDecoration(gradient: theme.backgroundGradient),
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -43,7 +41,10 @@ class GameSearchingView extends StatelessWidget {
             const SizedBox(height: 8),
             if (isHardcore)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.red.shade50,
                   borderRadius: BorderRadius.circular(12),
@@ -51,7 +52,11 @@ class GameSearchingView extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.local_fire_department, size: 16, color: Colors.red),
+                    Icon(
+                      Icons.local_fire_department,
+                      size: 16,
+                      color: Colors.red,
+                    ),
                     const SizedBox(width: 4),
                     Text(
                       '하드코어 모드 (10초)',
@@ -68,17 +73,22 @@ class GameSearchingView extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.auto_awesome, size: 16, color: const Color(0xFFFDCB6E)),
+                  Icon(
+                    Icons.auto_awesome,
+                    size: 16,
+                    color: const Color(0xFFFDCB6E),
+                  ),
                   const SizedBox(width: 4),
                   Text(
                     '상대를 기다리는 중',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade500,
-                    ),
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
                   ),
                   const SizedBox(width: 4),
-                  Icon(Icons.auto_awesome, size: 16, color: const Color(0xFFFDCB6E)),
+                  Icon(
+                    Icons.auto_awesome,
+                    size: 16,
+                    color: const Color(0xFFFDCB6E),
+                  ),
                 ],
               ),
             const SizedBox(height: 48),
@@ -114,9 +124,7 @@ class GameMatchedView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
+      decoration: BoxDecoration(gradient: theme.backgroundGradient),
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -127,11 +135,7 @@ class GameMatchedView extends StatelessWidget {
                 color: theme.background1,
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                Icons.sports_esports,
-                size: 64,
-                color: theme.primary,
-              ),
+              child: Icon(Icons.sports_esports, size: 64, color: theme.primary),
             ),
             const SizedBox(height: 16),
             Text(
@@ -171,15 +175,15 @@ class GameBoardTimer extends StatelessWidget {
         color: isCritical
             ? Colors.red.shade100
             : isLow
-                ? Colors.orange.shade100
-                : Colors.white,
+            ? Colors.orange.shade100
+            : Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: isCritical
               ? Colors.red
               : isLow
-                  ? Colors.orange
-                  : Colors.grey.shade300,
+              ? Colors.orange
+              : Colors.grey.shade300,
           width: isCritical ? 2 : 1,
         ),
       ),
@@ -192,8 +196,8 @@ class GameBoardTimer extends StatelessWidget {
             color: isCritical
                 ? Colors.red
                 : isLow
-                    ? Colors.orange
-                    : Colors.grey.shade600,
+                ? Colors.orange
+                : Colors.grey.shade600,
           ),
           const SizedBox(width: 4),
           Text(
@@ -204,8 +208,8 @@ class GameBoardTimer extends StatelessWidget {
               color: isCritical
                   ? Colors.red
                   : isLow
-                      ? Colors.orange
-                      : Colors.grey.shade700,
+                  ? Colors.orange
+                  : Colors.grey.shade700,
             ),
           ),
         ],
@@ -234,8 +238,10 @@ class GameSoloSearchingView extends StatelessWidget {
         children: [
           CircularProgressIndicator(color: accentColor),
           const SizedBox(height: 24),
-          Text('상대를 찾는 중...',
-              style: TextStyle(fontSize: 18, color: accentColor)),
+          Text(
+            '상대를 찾는 중...',
+            style: TextStyle(fontSize: 18, color: accentColor),
+          ),
           const SizedBox(height: 24),
           TextButton(
             onPressed: onCancel,
@@ -267,11 +273,14 @@ class GameSoloMatchedView extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           if (opponentNickname != null) ...[
-            Text(opponentNickname!,
-                style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: accentColor)),
+            Text(
+              opponentNickname!,
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: accentColor,
+              ),
+            ),
             const SizedBox(height: 8),
           ],
           Text(
@@ -295,9 +304,7 @@ class GameRankedPreparingView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(
-        gradient: theme.backgroundGradient,
-      ),
+      decoration: BoxDecoration(gradient: theme.backgroundGradient),
       child: const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,

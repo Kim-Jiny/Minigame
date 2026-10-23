@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../theme/candy_theme.dart';
+import '../../widgets/cartoon/cartoon_card.dart';
+import '../../widgets/cartoon/duo_mascot.dart';
 
 class GameWaitingView extends StatefulWidget {
   final LinearGradient backgroundGradient;
@@ -62,7 +65,9 @@ class _GameWaitingViewState extends State<GameWaitingView> {
   @override
   Widget build(BuildContext context) {
     final hasStatusMessages = widget.statusMessages.isNotEmpty;
-    final currentStatus = hasStatusMessages ? widget.statusMessages[_messageIndex] : null;
+    final currentStatus = hasStatusMessages
+        ? widget.statusMessages[_messageIndex]
+        : null;
 
     return Container(
       decoration: BoxDecoration(gradient: widget.backgroundGradient),
@@ -72,39 +77,54 @@ class _GameWaitingViewState extends State<GameWaitingView> {
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 30),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(color: const Color(0xFFECEDF1)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
-                      blurRadius: 28,
-                      offset: const Offset(0, 12),
-                    ),
-                  ],
+              child: CartoonCard(
+                radius: 28,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 28,
+                  vertical: 30,
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(
-                        color: widget.accentColor.withValues(alpha: 0.12),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(widget.icon, color: widget.accentColor, size: 32),
+                    Stack(
+                      clipBehavior: Clip.none,
+                      alignment: Alignment.center,
+                      children: [
+                        DuoMascot(size: 92, color: widget.accentColor),
+                        Positioned(
+                          right: -6,
+                          top: -4,
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: CandyColors.ink,
+                                width: 2.5,
+                              ),
+                            ),
+                            child: Icon(
+                              widget.icon,
+                              color: widget.accentColor,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 14),
                     SizedBox(
-                      width: 34,
-                      height: 34,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 3,
-                        color: widget.accentColor,
+                      width: 120,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: LinearProgressIndicator(
+                          minHeight: 8,
+                          color: widget.accentColor,
+                          backgroundColor: widget.accentColor.withValues(
+                            alpha: 0.18,
+                          ),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 18),
@@ -113,8 +133,8 @@ class _GameWaitingViewState extends State<GameWaitingView> {
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF111827),
+                        fontWeight: FontWeight.w900,
+                        color: CandyColors.ink,
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -124,17 +144,22 @@ class _GameWaitingViewState extends State<GameWaitingView> {
                       style: const TextStyle(
                         fontSize: 14,
                         height: 1.5,
-                        color: Color(0xFF6B7280),
+                        fontWeight: FontWeight.w700,
+                        color: CandyColors.inkSoft,
                       ),
                     ),
                     if (currentStatus != null) ...[
                       const SizedBox(height: 18),
                       Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
                         decoration: BoxDecoration(
-                          color: widget.accentColor.withValues(alpha: 0.08),
+                          color: widget.accentColor.withValues(alpha: 0.14),
                           borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: CandyColors.ink, width: 2),
                         ),
                         child: AnimatedSwitcher(
                           duration: const Duration(milliseconds: 220),

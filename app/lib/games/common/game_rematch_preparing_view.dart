@@ -24,7 +24,10 @@ class GameRematchPreparingView extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 30),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 28,
+                  vertical: 30,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(28),
@@ -47,7 +50,11 @@ class GameRematchPreparingView extends StatelessWidget {
                         color: accentColor.withValues(alpha: 0.12),
                         shape: BoxShape.circle,
                       ),
-                      child: Icon(Icons.refresh_rounded, color: accentColor, size: 32),
+                      child: Icon(
+                        Icons.refresh_rounded,
+                        color: accentColor,
+                        size: 32,
+                      ),
                     ),
                     const SizedBox(height: 18),
                     SizedBox(

@@ -131,7 +131,10 @@ class GameReconnectHelper {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 420),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 28,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(24),
@@ -173,11 +176,16 @@ class GameReconnectHelper {
                           const SizedBox(height: 10),
                           Container(
                             width: double.infinity,
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
                             decoration: BoxDecoration(
                               color: accentColor.withValues(alpha: 0.08),
                               borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: accentColor.withValues(alpha: 0.18)),
+                              border: Border.all(
+                                color: accentColor.withValues(alpha: 0.18),
+                              ),
                             ),
                             child: Text(
                               resultMessage,
@@ -193,7 +201,10 @@ class GameReconnectHelper {
                         if (secondsRemaining != null) ...[
                           const SizedBox(height: 18),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
                             decoration: BoxDecoration(
                               color: const Color(0xFFF3F4F6),
                               borderRadius: BorderRadius.circular(16),

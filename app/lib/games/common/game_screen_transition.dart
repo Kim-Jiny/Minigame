@@ -21,7 +21,10 @@ class GameScreenTransition extends StatelessWidget {
       switchInCurve: Curves.easeOutCubic,
       switchOutCurve: Curves.easeInCubic,
       transitionBuilder: (child, animation) {
-        final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+        );
         final offsetAnimation = Tween<Offset>(
           begin: beginOffset,
           end: Offset.zero,
@@ -29,16 +32,10 @@ class GameScreenTransition extends StatelessWidget {
 
         return FadeTransition(
           opacity: curved,
-          child: SlideTransition(
-            position: offsetAnimation,
-            child: child,
-          ),
+          child: SlideTransition(position: offsetAnimation, child: child),
         );
       },
-      child: KeyedSubtree(
-        key: ValueKey<Object>(transitionKey),
-        child: child,
-      ),
+      child: KeyedSubtree(key: ValueKey<Object>(transitionKey), child: child),
     );
   }
 }

@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import '../../theme/candy_theme.dart';
+import '../../widgets/cartoon/cartoon_card.dart';
+import '../../widgets/cartoon/confetti_burst.dart';
+import '../../widgets/cartoon/duo_mascot.dart';
+import '../../widgets/cartoon/pop_in.dart';
 
 /// 랭크전 종료 시 잠깐 보여주는 결과 화면(승/패/무 + 자동 복귀 안내).
 /// 모든 랭크 지원 게임이 동일하게 사용한다. (자동 복귀 예약은 각 게임에서 호출)
@@ -22,40 +27,51 @@ class GameRankedResultView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final color = isDraw
+        ? CandyColors.tangerine
+        : (isWinner ? accentColor : CandyColors.inkSoft);
     return Container(
       decoration: BoxDecoration(gradient: backgroundGradient),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              isDraw
-                  ? Icons.handshake
-                  : (isWinner ? Icons.emoji_events : Icons.sentiment_dissatisfied),
-              size: 80,
-              color: isDraw
-                  ? Colors.orange
-                  : (isWinner ? Colors.amber : Colors.grey),
+      child: Stack(
+        children: [
+          if (isWinner && !isDraw)
+            const Positioned.fill(child: ConfettiBurst()),
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                PopIn(
+                  child: DuoMascot(
+                    size: 130,
+                    color: isWinner && !isDraw ? accentColor : CandyColors.sky,
+                    mood: isDraw
+                        ? MascotMood.wink
+                        : (isWinner ? MascotMood.cheer : MascotMood.sad),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  isDraw ? '무승부!' : (isWinner ? '승리!' : '패배'),
+                  style: TextStyle(
+                    fontSize: 36,
+                    fontWeight: FontWeight.w900,
+                    color: color,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                if (extra != null) ...[const SizedBox(height: 8), extra!],
+                const SizedBox(height: 24),
+                const Text(
+                  '잠시 후 다음 게임...',
+                  style: TextStyle(
+                    color: CandyColors.inkSoft,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            Text(
-              isDraw ? '무승부!' : (isWinner ? '승리!' : '패배'),
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: isDraw
-                    ? Colors.orange
-                    : (isWinner ? accentColor : Colors.grey),
-              ),
-            ),
-            if (extra != null) ...[
-              const SizedBox(height: 8),
-              extra!,
-            ],
-            const SizedBox(height: 24),
-            const Text('잠시 후 다음 게임...', style: TextStyle(color: Colors.grey)),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -77,43 +93,54 @@ class GameResultHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final won =
+        icon == Icons.emoji_events_rounded || icon == Icons.emoji_events;
+    final draw = icon == Icons.handshake_rounded || icon == Icons.handshake;
     return Column(
       children: [
-        Container(
-          width: 112,
-          height: 112,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: color.withValues(alpha: 0.10),
-            boxShadow: [
-              BoxShadow(
-                color: color.withValues(alpha: 0.12),
-                blurRadius: 28,
-                offset: const Offset(0, 12),
+        Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
+          children: [
+            if (won)
+              const Positioned(
+                left: -160,
+                right: -160,
+                top: -40,
+                height: 460,
+                child: ConfettiBurst(),
               ),
-            ],
-          ),
-          child: Icon(icon, size: 56, color: color),
+            PopIn(
+              child: DuoMascot(
+                size: 124,
+                color: won ? color : CandyColors.sky,
+                mood: won
+                    ? MascotMood.cheer
+                    : (draw ? MascotMood.wink : MascotMood.sad),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 14),
         Text(
           title,
           style: TextStyle(
-            fontSize: 32,
-            fontWeight: FontWeight.w800,
+            fontSize: 36,
+            fontWeight: FontWeight.w900,
             letterSpacing: -0.5,
-            color: color,
+            color: won ? color : CandyColors.ink,
           ),
         ),
         if (subtitle != null) ...[
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Text(
             subtitle!,
             textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 14,
               height: 1.5,
-              color: Color(0xFF6B7280),
+              fontWeight: FontWeight.w700,
+              color: CandyColors.inkSoft,
             ),
           ),
         ],
@@ -142,13 +169,11 @@ class GameResultStatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
       decoration: BoxDecoration(
-        color: backgroundColor ?? color.withValues(alpha: 0.08),
+        color: backgroundColor ?? Colors.white,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: borderColor ?? color.withValues(alpha: 0.14),
-        ),
+        border: Border.all(color: borderColor ?? CandyColors.ink, width: 2.5),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -157,10 +182,7 @@ class GameResultStatusPill extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             text,
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.w700,
-            ),
+            style: TextStyle(color: color, fontWeight: FontWeight.w900),
           ),
         ],
       ),
@@ -208,7 +230,7 @@ class GameResultMatchupRow extends StatelessWidget {
           style: const TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w800,
-            color: Color(0xFFC2C7CF),
+            color: CandyColors.inkSoft,
           ),
         );
 
@@ -260,29 +282,11 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return CartoonCard(
+      color: highlighted ? accentColor.withValues(alpha: 0.12) : Colors.white,
+      radius: 20,
+      shadow: 4,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-      decoration: BoxDecoration(
-        // 둘 다 흰 배경(틴트 채움이 딤하게 보이는 문제 제거).
-        // 내 카드는 accent 테두리·글자색으로 또렷하게 강조한다.
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: highlighted
-              ? accentColor.withValues(alpha: 0.55)
-              : const Color(0xFFECEDF1),
-          width: highlighted ? 1.6 : 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: highlighted
-                ? accentColor.withValues(alpha: 0.14)
-                : Colors.black.withValues(alpha: 0.03),
-            blurRadius: highlighted ? 16 : 14,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
       child: Column(
         children: [
           Text(
@@ -291,8 +295,8 @@ class _MetricCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: highlighted ? accentColor : const Color(0xFF9AA1AC),
+              fontWeight: FontWeight.w900,
+              color: highlighted ? accentColor : CandyColors.inkSoft,
             ),
           ),
           const SizedBox(height: 8),
@@ -302,9 +306,9 @@ class _MetricCard extends StatelessWidget {
               value,
               maxLines: 1,
               style: TextStyle(
-                fontSize: 26,
+                fontSize: 28,
                 fontWeight: FontWeight.w900,
-                color: highlighted ? accentColor : const Color(0xFF1A1D23),
+                color: highlighted ? accentColor : CandyColors.ink,
               ),
             ),
           ),

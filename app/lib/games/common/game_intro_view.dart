@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import '../../theme/candy_theme.dart';
+import '../../widgets/cartoon/cartoon_card.dart';
+import '../../widgets/cartoon/chunky_button.dart';
+import '../../widgets/cartoon/duo_mascot.dart';
+import '../../widgets/cartoon/pop_in.dart';
 
 /// 게임 진입(대기) 화면 공통 위젯.
 /// 부드러운 히어로 아이콘 + 제목/설명 + 풀폭 1차 CTA(상대 찾기) + 토널 보조(친구 초대).
@@ -52,35 +57,52 @@ class GameIntroView extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // 히어로
-                  Container(
-                    width: 96,
-                    height: 96,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(28),
-                      boxShadow: [
-                        BoxShadow(
-                          color: accentColor.withValues(alpha: 0.18),
-                          blurRadius: 28,
-                          offset: const Offset(0, 12),
+                  // 히어로: 게임 아이콘 카드 + 응원하는 마스코트
+                  Stack(
+                    clipBehavior: Clip.none,
+                    alignment: Alignment.center,
+                    children: [
+                      PopIn(
+                        child: CartoonCard(
+                          color: Colors.white,
+                          radius: 30,
+                          padding: EdgeInsets.zero,
+                          child: SizedBox(
+                            width: 104,
+                            height: 104,
+                            child: Center(
+                              child: emoji != null
+                                  ? Text(
+                                      emoji!,
+                                      style: const TextStyle(fontSize: 48),
+                                    )
+                                  : Icon(icon, size: 52, color: accentColor),
+                            ),
+                          ),
                         ),
-                      ],
-                    ),
-                    child: Center(
-                      child: emoji != null
-                          ? Text(emoji!, style: const TextStyle(fontSize: 44))
-                          : Icon(icon, size: 46, color: accentColor),
-                    ),
+                      ),
+                      Positioned(
+                        right: -62,
+                        bottom: -10,
+                        child: PopIn(
+                          delay: const Duration(milliseconds: 250),
+                          child: DuoMascot(
+                            size: 64,
+                            color: accentColor,
+                            mood: MascotMood.happy,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 26),
                   Text(
                     title,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF1F2430),
+                      fontSize: 30,
+                      fontWeight: FontWeight.w900,
+                      color: CandyColors.ink,
                       letterSpacing: -0.5,
                     ),
                   ),
@@ -91,71 +113,33 @@ class GameIntroView extends StatelessWidget {
                       child: Text(
                         d,
                         textAlign: TextAlign.center,
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 15,
                           height: 1.5,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w700,
+                          color: CandyColors.inkSoft,
                         ),
                       ),
                     ),
-                  if (extra != null) ...[
-                    const SizedBox(height: 24),
-                    extra!,
-                  ],
+                  if (extra != null) ...[const SizedBox(height: 24), extra!],
                   const SizedBox(height: 36),
                   // 1차 CTA — 상대 찾기 (풀폭)
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: onFindMatch,
-                      icon: const Icon(Icons.search_rounded),
-                      label: Text(
-                        findMatchLabel,
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: accentColor,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                      ),
-                    ),
+                  ChunkyButton(
+                    label: findMatchLabel,
+                    icon: Icons.search_rounded,
+                    color: accentColor,
+                    onPressed: onFindMatch,
                   ),
                   if (onInviteFriend != null) ...[
-                    const SizedBox(height: 12),
-                    // 보조 — 친구 초대 (토널)
-                    SizedBox(
-                      width: double.infinity,
-                      child: Material(
-                        color: accentColor.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(18),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(18),
-                          onTap: onInviteFriend,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 15),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.person_add_rounded, size: 20, color: accentColor),
-                                const SizedBox(width: 8),
-                                Text(
-                                  '친구 초대',
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w700,
-                                    color: accentColor,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
+                    const SizedBox(height: 10),
+                    ChunkyButton(
+                      label: '친구 초대',
+                      icon: Icons.person_add_rounded,
+                      color: Colors.white,
+                      textColor: accentColor,
+                      height: 50,
+                      fontSize: 16,
+                      onPressed: onInviteFriend,
                     ),
                   ],
                 ],

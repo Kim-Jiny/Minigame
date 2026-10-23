@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../theme/candy_theme.dart';
+import '../../widgets/cartoon/cartoon_card.dart';
 import '../../models/shop_item.dart';
 import '../../widgets/game_player_profile.dart';
 
@@ -40,80 +42,77 @@ class GameDuelHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFECEDF1)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: GamePlayerProfile(
-              name: myName,
-              avatarUrl: myAvatarUrl,
-              isActive: myActive,
-              isMe: true,
-              profileSettings: myProfileSettings,
-              activeColor: accentColor,
-              extraWidget: myExtraWidget,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: CartoonCard(
+        radius: 24,
+        shadow: 4,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Expanded(
+              child: GamePlayerProfile(
+                name: myName,
+                avatarUrl: myAvatarUrl,
+                isActive: myActive,
+                isMe: true,
+                profileSettings: myProfileSettings,
+                activeColor: accentColor,
+                extraWidget: myExtraWidget,
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: centerWidget ??
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: accentColor.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        centerLabel,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                          color: accentColor,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child:
+                  centerWidget ??
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: accentColor.withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: CandyColors.ink, width: 2),
+                        ),
+                        child: Text(
+                          centerLabel,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w900,
+                            color: accentColor,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      centerSubtitle ?? 'VS',
-                      style: TextStyle(
-                        fontSize: centerSubtitle != null ? 11 : 14,
-                        fontWeight: FontWeight.w900,
-                        color: const Color(0xFF9AA1AC),
-                        letterSpacing: 0.4,
+                      const SizedBox(height: 6),
+                      Text(
+                        centerSubtitle ?? 'VS',
+                        style: TextStyle(
+                          fontSize: centerSubtitle != null ? 11 : 14,
+                          fontWeight: FontWeight.w900,
+                          color: CandyColors.inkSoft,
+                          letterSpacing: 0.4,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-          ),
-          Expanded(
-            child: GamePlayerProfile(
-              name: opponentName,
-              avatarUrl: opponentAvatarUrl,
-              isActive: opponentActive,
-              isMe: false,
-              profileSettings: opponentProfileSettings,
-              activeColor: accentColor,
-              extraWidget: opponentExtraWidget,
+                    ],
+                  ),
             ),
-          ),
-        ],
+            Expanded(
+              child: GamePlayerProfile(
+                name: opponentName,
+                avatarUrl: opponentAvatarUrl,
+                isActive: opponentActive,
+                isMe: false,
+                profileSettings: opponentProfileSettings,
+                activeColor: accentColor,
+                extraWidget: opponentExtraWidget,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -133,19 +132,27 @@ class GameHeaderScorePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: margin,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        '$score',
-        style: const TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.w800,
-          color: Colors.white,
+    return TweenAnimationBuilder<double>(
+      key: ValueKey(score),
+      tween: Tween(begin: 1.45, end: 1.0),
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.elasticOut,
+      builder: (_, scale, child) => Transform.scale(scale: scale, child: child),
+      child: Container(
+        margin: margin,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: CandyColors.ink, width: 2),
+        ),
+        child: Text(
+          '$score',
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w900,
+            color: Colors.white,
+          ),
         ),
       ),
     );
@@ -172,6 +179,7 @@ class GameHeaderStatusPill extends StatelessWidget {
       decoration: BoxDecoration(
         color: color,
         borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: CandyColors.ink, width: 1.5),
       ),
       child: Text(
         text,
@@ -208,7 +216,7 @@ class GameHeaderStarTrack extends StatelessWidget {
           child: Icon(
             index < active ? Icons.star_rounded : Icons.star_border_rounded,
             size: 14,
-            color: index < active ? activeColor : Colors.grey.shade300,
+            color: index < active ? activeColor : const Color(0xFFD9D2EA),
           ),
         );
       }),

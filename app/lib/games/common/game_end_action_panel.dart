@@ -70,8 +70,11 @@ class GameEndActionPanel extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.info_outline_rounded,
-                      size: 18, color: Colors.grey.shade500),
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 18,
+                    color: Colors.grey.shade500,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -92,9 +95,14 @@ class GameEndActionPanel extends StatelessWidget {
               if (opponentRequestMessage != null) ...[
                 Container(
                   margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
-                    color: (acceptColor ?? Colors.green).withValues(alpha: 0.15),
+                    color: (acceptColor ?? Colors.green).withValues(
+                      alpha: 0.15,
+                    ),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Text(
@@ -128,10 +136,7 @@ class GameEndActionPanel extends StatelessWidget {
                 waitingText,
                 style: TextStyle(color: waitingTextColor ?? Colors.grey),
               ),
-              TextButton(
-                onPressed: onCancelRematch,
-                child: Text(cancelLabel),
-              ),
+              TextButton(onPressed: onCancelRematch, child: Text(cancelLabel)),
             ] else ...[
               SizedBox(
                 width: double.infinity,
