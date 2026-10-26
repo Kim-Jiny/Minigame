@@ -88,6 +88,8 @@ class _StroopScreenState extends State<StroopScreen>
   bool _isWaitingForReconnect = false;
   Timer? _reconnectTimer;
   Timer? _waitingReconnectTimer;
+  Timer? _gameEndTimer;
+  DateTime? _lastRoundResultAt;
   int _reconnectSecondsRemaining =
       GameReconnectHelper.reconnectGraceDuration.inSeconds;
 
@@ -183,6 +185,7 @@ class _StroopScreenState extends State<StroopScreen>
 
   @override
   void dispose() {
+    _gameEndTimer?.cancel();
     _hardcoreTimer?.cancel();
     _reconnectTimer?.cancel();
     _waitingReconnectTimer?.cancel();
@@ -355,6 +358,7 @@ class _StroopScreenState extends State<StroopScreen>
     });
 
     _socketListeners.on('stroop_result', (data) {
+      _lastRoundResultAt = DateTime.now();
       debugPrint('🎨 stroop_result received: $data');
 
       if (!mounted) return;
@@ -472,8 +476,21 @@ class _StroopScreenState extends State<StroopScreen>
       GameReconnectHelper.showOpponentReconnected(context);
     });
 
-    _socketListeners.on('game_end', (data) {
+    void onGameEnd(dynamic data) {
       if (_status == StroopGameStatus.finished) return;
+      // 마지막 라운드 결과를 보여주는 중이면 잠시 보여준 뒤 결과 화면으로
+      final shownAt = _lastRoundResultAt;
+      if (shownAt != null) {
+        final wait = 2200 - DateTime.now().difference(shownAt).inMilliseconds;
+        _lastRoundResultAt = null;
+        if (wait > 0) {
+          _gameEndTimer?.cancel();
+          _gameEndTimer = Timer(Duration(milliseconds: wait), () {
+            if (mounted) onGameEnd(data);
+          });
+          return;
+        }
+      }
       debugPrint('🎨 StroopScreen game_end received: $data');
       _hardcoreTimer?.cancel();
       setState(() {
@@ -486,7 +503,9 @@ class _StroopScreenState extends State<StroopScreen>
       });
       _waitingReconnectTimer?.cancel();
       debugPrint('🎨 StroopScreen status changed to finished');
-    });
+    }
+
+    _socketListeners.on('game_end', onGameEnd);
 
     _socketListeners.on('opponent_left', (data) {
       if (_status == StroopGameStatus.idle ||
@@ -622,6 +641,8 @@ class _StroopScreenState extends State<StroopScreen>
   }
 
   void _reset() {
+    _gameEndTimer?.cancel();
+    _lastRoundResultAt = null;
     _hardcoreTimer?.cancel();
     _waitingReconnectTimer?.cancel();
     setState(() {

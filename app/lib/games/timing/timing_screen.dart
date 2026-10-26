@@ -87,6 +87,8 @@ class _TimingScreenState extends State<TimingScreen>
   bool _isWaitingForReconnect = false;
   Timer? _reconnectTimer;
   Timer? _waitingReconnectTimer;
+  Timer? _gameEndTimer;
+  DateTime? _lastRoundResultAt;
   int _reconnectSecondsRemaining =
       GameReconnectHelper.reconnectGraceDuration.inSeconds;
 
@@ -144,6 +146,7 @@ class _TimingScreenState extends State<TimingScreen>
 
   @override
   void dispose() {
+    _gameEndTimer?.cancel();
     _reconnectTimer?.cancel();
     _waitingReconnectTimer?.cancel();
     _socketListeners.offAll();
@@ -293,6 +296,7 @@ class _TimingScreenState extends State<TimingScreen>
     });
 
     _socketListeners.on('timing_round_result', (data) {
+      _lastRoundResultAt = DateTime.now();
       if (!mounted) return;
       _gaugeController.stop();
       final positions = List<double>.from(
@@ -400,8 +404,21 @@ class _TimingScreenState extends State<TimingScreen>
       GameReconnectHelper.showOpponentReconnected(context);
     });
 
-    _socketListeners.on('game_end', (data) {
+    void onGameEnd(dynamic data) {
       if (_status == TimingGameStatus.finished) return;
+      // 마지막 라운드 결과를 보여주는 중이면 잠시 보여준 뒤 결과 화면으로
+      final shownAt = _lastRoundResultAt;
+      if (shownAt != null) {
+        final wait = 2200 - DateTime.now().difference(shownAt).inMilliseconds;
+        _lastRoundResultAt = null;
+        if (wait > 0) {
+          _gameEndTimer?.cancel();
+          _gameEndTimer = Timer(Duration(milliseconds: wait), () {
+            if (mounted) onGameEnd(data);
+          });
+          return;
+        }
+      }
       _gaugeController.stop();
       setState(() {
         _status = TimingGameStatus.finished;
@@ -416,7 +433,9 @@ class _TimingScreenState extends State<TimingScreen>
         }
       });
       _waitingReconnectTimer?.cancel();
-    });
+    }
+
+    _socketListeners.on('game_end', onGameEnd);
 
     _socketListeners.on('opponent_left', (data) {
       if (_status == TimingGameStatus.idle ||
@@ -557,6 +576,8 @@ class _TimingScreenState extends State<TimingScreen>
   }
 
   void _reset() {
+    _gameEndTimer?.cancel();
+    _lastRoundResultAt = null;
     _waitingReconnectTimer?.cancel();
     _gaugeController.stop();
     setState(() {
