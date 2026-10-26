@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/cartoon/title_icon_art.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/stats_provider.dart';
@@ -484,7 +485,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         if (icon != null) ...[
-          Text(icon, style: const TextStyle(fontSize: 14)),
+          TitleIconArt(icon: icon, size: 18),
           const SizedBox(width: 4),
         ],
         ShaderMask(

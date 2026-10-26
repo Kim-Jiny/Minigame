@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'cartoon/title_icon_art.dart';
 import '../models/shop_item.dart';
 import 'cartoon/avatar_art.dart';
 
@@ -162,7 +163,7 @@ class GamePlayerProfile extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           if (icon != null) ...[
-            Text(icon, style: const TextStyle(fontSize: 10)),
+            TitleIconArt(icon: icon, size: 13),
             const SizedBox(width: 2),
           ],
           Flexible(

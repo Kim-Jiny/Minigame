@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../widgets/cartoon/title_icon_art.dart';
 import 'package:provider/provider.dart';
 import '../providers/shop_provider.dart';
 import '../providers/stats_provider.dart';
@@ -1258,7 +1259,7 @@ class _ShopScreenState extends State<ShopScreen>
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        if (icon != null) Text(icon, style: const TextStyle(fontSize: 32)),
+        if (icon != null) TitleIconArt(icon: icon, size: 36),
         const SizedBox(height: 4),
         ShaderMask(
           shaderCallback: (bounds) {
