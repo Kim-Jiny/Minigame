@@ -93,6 +93,19 @@ class _ChunkyButtonState extends State<ChunkyButton> {
         height: widget.height + _depth,
         child: Stack(
           children: [
+            // expand:false 일 때 IntrinsicWidth 가 폭을 잴 수 있게 하는 보이지 않는 크기 기준.
+            // 아래/윗면 레이어는 전부 Positioned 라 그대로면 고유 폭이 0 이 되어 버튼이 사라진다.
+            if (!widget.expand)
+              Visibility(
+                visible: false,
+                maintainSize: true,
+                maintainAnimation: true,
+                maintainState: true,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 26),
+                  child: content,
+                ),
+              ),
             // 아래 "두께"
             Positioned(
               left: 0,
