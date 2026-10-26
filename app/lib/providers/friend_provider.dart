@@ -464,6 +464,20 @@ class FriendProvider extends ChangeNotifier with ProviderFeedback {
     }
   }
 
+  DateTime? _lastCodeRequestAt;
+
+  /// 코드가 아직 없으면(응답 유실·로그인 직후 경합 등) 다시 요청한다. 3초에 한 번만.
+  void ensureFriendCode() {
+    if (_myFriendCode != null || !_socketService.isReady) return;
+    final now = DateTime.now();
+    if (_lastCodeRequestAt != null &&
+        now.difference(_lastCodeRequestAt!) < const Duration(seconds: 3)) {
+      return;
+    }
+    _lastCodeRequestAt = now;
+    getMyFriendCode();
+  }
+
   void getMyFriendCode() {
     debugPrint('📤 Emitting get_friend_code');
     _socketService.emit('get_friend_code', {});
@@ -586,6 +600,7 @@ class FriendProvider extends ChangeNotifier with ProviderFeedback {
     _sentRequests = [];
     _invitations = [];
     _hasFetchedInitialData = false;
+    _lastCodeRequestAt = null;
     _unreadCounts = {};
     _pendingRemovals.clear();
     _activeChatFriendId = null;

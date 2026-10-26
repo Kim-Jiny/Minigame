@@ -362,6 +362,12 @@ class _FriendsScreenState extends State<FriendsScreen> {
     BuildContext context,
     FriendProvider friendProvider,
   ) {
+    // 코드가 비어 있으면 다시 요청(로그인 직후 응답을 놓친 경우 등).
+    if (friendProvider.myFriendCode == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) friendProvider.ensureFriendCode();
+      });
+    }
     return CartoonCard(
       color: CandyColors.sun,
       padding: const EdgeInsets.all(18),
@@ -413,9 +419,11 @@ class _FriendsScreenState extends State<FriendsScreen> {
                               const SnackBar(content: Text('친구 코드가 복사되었습니다!')),
                             );
                           }
-                        : null,
-                    icon: const Icon(
-                      Icons.copy_rounded,
+                        : friendProvider.getMyFriendCode,
+                    icon: Icon(
+                      friendProvider.myFriendCode != null
+                          ? Icons.copy_rounded
+                          : Icons.refresh_rounded,
                       color: CandyColors.pinkDeep,
                     ),
                   ),
