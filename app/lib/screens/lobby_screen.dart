@@ -19,7 +19,6 @@ import '../widgets/cartoon/duo_mascot.dart';
 import '../widgets/cartoon/floating_bg.dart';
 import '../widgets/cartoon/pop_in.dart';
 import 'ranked_screen.dart';
-import '../navigation/game_routes.dart';
 import '../widgets/game_launch_sheet.dart';
 
 class _LobbyNoticeStyle {
@@ -37,6 +36,11 @@ class LobbyScreen extends StatefulWidget {
 }
 
 class _LobbyScreenState extends State<LobbyScreen> {
+  static const _quickStartGames = {
+    'tictactoe', 'gomoku', 'rps', 'reaction',
+    'speedtap', 'numberbattle', 'mathrace', 'arrowdash',
+  };
+
   int _currentIndex = 0;
   GameEntryMode _mode = GameEntryMode.versus;
   String? _lastProcessedInvitationRoomId; // 중복 초대 게임 처리 방지
@@ -383,8 +387,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
       radius: 26,
       padding: const EdgeInsets.all(18),
       onTap: () {
+        // 상대가 바로 잡히도록 매칭 봇이 지원하는 게임만 후보로 한다.
+        // 서버 botService.ts 의 SUPPORTED_GAMES 와 같게 유지할 것.
         final pool = GameRegistry.forEntry(GameEntryMode.versus)
-            .where((g) => GameRoutes.buildModeEntry(g.id, GameEntryMode.versus) == null)
+            .where((g) => _quickStartGames.contains(g.id))
             .toList();
         final game = pool[math.Random().nextInt(pool.length)];
         openGame(context, game, GameEntryMode.versus, autoStart: true);
