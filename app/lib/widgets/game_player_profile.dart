@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'cartoon/title_icon_art.dart';
 import '../models/shop_item.dart';
 import 'cartoon/avatar_art.dart';
-import 'cartoon/duo_mascot.dart';
+import 'cartoon/pet_mascot.dart';
 import '../theme/candy_theme.dart';
 
 class GamePlayerProfile extends StatelessWidget {
@@ -107,13 +107,13 @@ class GamePlayerProfile extends StatelessWidget {
           right: isMe ? -18 : null,
           left: isMe ? null : -18,
           bottom: -6,
-          child: IgnorePointer(
-            child: DuoMascot(
-              size: 32,
-              color: mascot?.$1 ?? CandyColors.pink,
-              accessory: mascot?.$2,
-              mood: isActive ? MascotMood.cheer : MascotMood.happy,
-            ),
+          child: PetMascot(
+            size: 34,
+            color: mascot?.$1 ?? CandyColors.pink,
+            accessory: mascot?.$2,
+            active: isActive,
+            // 내 쪽(왼쪽 프로필)은 왼쪽을, 상대 쪽은 오른쪽을 향하게 해서 마주 보는 느낌.
+            faceLeft: !isMe,
           ),
         ),
       ],
