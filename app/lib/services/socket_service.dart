@@ -96,6 +96,10 @@ class SocketService {
           // 최초 연결 핸드셰이크 타임아웃(기본 20s → 15s).
           .setTimeout(15000)
           .setAuth(_auth)
+          // socket_io_client 는 같은 URL 의 Manager/Socket 을 캐시해 재사용한다. 재사용되면
+          // 새로 넘긴 auth 가 무시되고 옛 계정(게스트) auth 의 Socket 이 되살아나므로,
+          // 계정 전환(게스트→소셜 등) 때마다 항상 새 연결을 만든다.
+          .enableForceNew()
           .build(),
     );
 
