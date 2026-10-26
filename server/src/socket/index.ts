@@ -4565,6 +4565,9 @@ export function setupSocketHandlers(io: Server) {
       // 연결 끊김을 판정하는 문제를 방지하기 위함.
       try {
       const room = rooms.get(data.roomId);
+      // 이미 끝난 게임에 늦게 도착한 입력(마지막 탭·타이머 경합 등)은 조용히 버린다.
+      // 에러를 보내면 클라이언트가 '연결 종료' 로 판단해 결과 화면 대신 로비로 쫓아낸다.
+      if (room && room.status === 'finished') return;
       if (!room || room.status !== 'playing') {
         socket.emit('error', { message: 'Invalid room or game not in progress' });
         return;

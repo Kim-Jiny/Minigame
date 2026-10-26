@@ -96,3 +96,8 @@ ON/OFF, 투입까지 대기시간(3~30초), 실력(0~100%), 동시 봇 수, 오�
 2. 앱 실기기 확인(위 "시각 검증 필요 항목"), 앱 아이콘 교체.
 3. 개인정보처리방침/스토어 고지 검토(봇).
 4. `dev` 는 `main` 을 한 번 머지해 둔 상태(MFA 관리자 개편 포함) — 충돌 없음.
+
+
+## 추가 수정 (2026-10-26)
+- **"연결 종료 · 연결이 끊어져 게임이 종료되었습니다" 팝업**: 게임이 끝난 방에 늦게 도착한 `game_action`(마지막 탭·타이머 경합)에 서버가 `Invalid room or game not in progress` 에러를 돌려주고, 클라이언트(`GameEventHelper.registerInvalidRoomHandler`)가 이를 '연결 종료'로 처리해 결과 화면 대신 로비로 보냈다. 서버가 `room.status === 'finished'` 인 방의 늦은 입력은 에러 없이 무시하도록 수정(`server/src/socket/index.ts` game_action 핸들러). 봇전은 게임이 빨리 끝나 경합이 더 자주 났을 가능성이 있다. dev 에서 재현 여부 확인 필요.
+- 로비 개편: 게임 그리드 + 시작 시트 + 바로 대전(인트로 자동 매칭). `GameLaunchArgs`(game_intro_view.dart) 참고.
