@@ -1,5 +1,5 @@
 /* 듀오 아레나 관리자 — 운영 개요(실시간·추이·시간대·경제·CS)와 매칭 봇 설정.
-   index.html 의 전역 api / escapeHtml 을 쓴다. 전역은 duoOverviewLoad, botLoad, botSave, shopLoad 만 노출. 상점 패널은 #shopPanel(클릭·변경은 data-* 위임). */
+   index.html 의 전역 api / escapeHtml 을 쓴다. 전역은 duoOverviewLoad, botLoad, botSave, shopLoad, opsLoad, opsBadgeInit 만 노출. 운영 지표 탭은 #opsPanel(data-act 위임). 상점 패널은 #shopPanel(클릭·변경은 data-* 위임). */
 (function () {
   const GAME_LABELS = {
     tictactoe: '틱택토', infinite_tictactoe: '무한 틱택토', gomoku: '오목', reaction: '반응속도', rps: '가위바위보',
@@ -414,8 +414,296 @@
     await Promise.all([shopLoadStats(), shopLoadItems()]);
   }
 
+  // ============================================================
+  // 운영 지표 탭 (#opsPanel) — 유저·매칭·게임 건강도·코인 경제·알림. 클릭은 data-act 위임.
+  // 서버가 KST 일 단위·60초 캐시로 집계한다. 섹션은 각각 독립 로드(실패해도 나머지는 표시).
+  // ============================================================
+  const OPS_C = { a: '#a99dff', b: '#34b27f', c: '#ff8fb1', d: '#f0a93b' };
+  const opsState = { days: 30, timer: null };
+  const pc = (v) => (v === null || v === undefined ? '-' : v + '%');
+  const secs = (ms) => (ms === null || ms === undefined ? '-' : (ms / 1000).toFixed(1) + '초');
+  const dur = (s) => (s === null || s === undefined ? '-' : s >= 90 ? Math.round(s / 60) + '분' : s + '초');
+  const signed = (n) => (n > 0 ? '+' : '') + fmt(n);
+  const noData = '<div class="empty ops-empty">데이터 없음</div>';
+  const tile = (title, value, sub, cls) => `<div class="stat-card ${cls || ''}"><h3>${esc(title)}</h3><div class="number">${value}</div><div class="sub">${sub || ''}</div></div>`;
+  const opsTable = (heads, rows, empty) => `<div class="ops-scroll"><table class="duo-mini-table"><thead><tr>${heads.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.join('') : `<tr><td colspan="${heads.length}" class="empty">${esc(empty || '데이터 없음')}</td></tr>`}</tbody></table></div>`;
+  const legend = (items) => `<div class="duo-legend">${items.map((i) => `<span><i style="background:${i[1]}"></i>${esc(i[0])}</span>`).join('')}</div>`;
+
+  // 선 차트(SVG, 단일 축). series: [{name,color,values}] — values 에 null 이면 선이 끊긴다. opt.pct = 0~100% 고정 축.
+  function lineChart(labels, series, opt) {
+    opt = opt || {};
+    const W = 560, H = 190, L = 40, B = 24, T = 10, R = 8, n = labels.length;
+    const all = series.flatMap((s) => s.values).filter((v) => v !== null && v !== undefined);
+    const hi = opt.pct ? 100 : Math.max(1, ...all);
+    const lo = opt.pct ? 0 : Math.min(0, ...all);
+    const x = (i) => L + ((W - L - R) / Math.max(1, n - 1)) * i;
+    const y = (v) => T + (H - T - B) * (1 - (v - lo) / (hi - lo || 1));
+    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img">`;
+    for (let g = 0; g <= 4; g++) {
+      const gv = hi - ((hi - lo) * g) / 4;
+      svg += `<line x1="${L}" x2="${W - R}" y1="${y(gv)}" y2="${y(gv)}" stroke="rgba(0,0,0,.07)"/><text x="${L - 6}" y="${y(gv) + 4}" font-size="10" fill="#8a90a2" text-anchor="end">${Math.round(gv)}${opt.pct ? '%' : ''}</text>`;
+    }
+    if (lo < 0) svg += `<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="rgba(0,0,0,.35)"/>`;
+    series.forEach((s) => {
+      let seg = [];
+      const flush = () => { if (seg.length > 1) svg += `<polyline points="${seg.join(' ')}" fill="none" stroke="${s.color}" stroke-width="2.5" stroke-linejoin="round"/>`; seg = []; };
+      s.values.forEach((v, i) => { if (v === null || v === undefined) flush(); else seg.push(`${x(i)},${y(v)}`); });
+      flush();
+      s.values.forEach((v, i) => {
+        if (v !== null && v !== undefined) svg += `<circle cx="${x(i)}" cy="${y(v)}" r="${n > 40 ? 2 : 3}" fill="${s.color}" stroke="#fff" stroke-width="1.5"><title>${esc(labels[i])} ${esc(s.name)} ${v}${opt.pct ? '%' : ''}</title></circle>`;
+      });
+    });
+    const step = Math.max(1, Math.ceil(n / 8));
+    labels.forEach((lb, i) => { if (i % step === 0 || i === n - 1) svg += `<text x="${x(i)}" y="${H - 7}" font-size="10" fill="#8a90a2" text-anchor="middle">${esc(lb)}</text>`; });
+    return svg + '</svg>';
+  }
+  const mmdd = (arr) => arr.map((d) => String(d).slice(5));
+
+  function opsSecFrame(id, title, note) {
+    return `<section class="ops-sec"><h2>${esc(title)}</h2>${note ? `<div class="duo-note ops-secnote">${esc(note)}</div>` : ''}<div id="${id}"><div class="empty ops-empty">불러오는 중...</div></div></section>`;
+  }
+
+  function opsFrame() {
+    return `
+      <div class="shop-toolbar ops-toolbar">
+        <div class="shop-range">${[7, 30, 90].map((n) => `<button data-act="range" data-days="${n}" class="${opsState.days === n ? 'on' : ''}">${n}일</button>`).join('')}</div>
+        <button class="shop-save" data-act="refresh">새로고침</button>
+      </div>
+      <div id="opsAlerts"></div>
+      <div class="duo-live" id="opsKpis"><div class="empty ops-empty">불러오는 중...</div></div>
+      ${opsSecFrame('opsUsers', '유저 지표', '실제 계정 기준(게스트·봇 제외). 활동 = 접속 세션 또는 대전 기록이 있는 날.')}
+      ${opsSecFrame('opsMatching', '매칭 품질', '비랭크 랜덤 매칭만. 대기시간 = 먼저 대기열에 들어간 사람이 기다린 시간.')}
+      ${opsSecFrame('opsHealth', '게임 건강도', '비랭크 랜덤 매칭·재대결 판만 집계(랭크·솔로·친구 초대 제외).')}
+      ${opsSecFrame('opsEconomy', '코인 경제', '봇 제외. 발행 = 코인 증가 내역, 소비 = 코인 감소 내역.')}
+      <div class="duo-note ops-foot">날짜는 모두 한국 시간(KST) 기준으로 묶어요. 집계는 60초간 캐시돼요. 계측 데이터(매칭·게임 건강도)는 계측 배포 이후부터 쌓이고 90일 보관돼요.</div>`;
+  }
+
+  // ---- 알림 -------------------------------------------------
+  function alertsHtml(alerts) {
+    if (!alerts || !alerts.length) return '<div class="ops-alerts ok"><span class="ops-ic">✓</span> 현재 이상 징후 없음</div>';
+    return `<div class="ops-alerts">${alerts.map((a) => `
+      <div class="ops-alert ${a.severity === 'crit' ? 'crit' : 'warn'}"><span class="ops-ic">${a.severity === 'crit' ? '⛔' : '⚠'}</span>
+      <span class="ops-sev">${a.severity === 'crit' ? '심각' : '경고'}</span><span class="ops-msg">${esc(a.message)}</span>
+      <span class="ops-val">값 ${esc(a.value === null ? '-' : a.value)} / 기준 ${esc(a.threshold === null ? '-' : a.threshold)}</span></div>`).join('')}</div>`;
+  }
+  function setBadge(alerts) {
+    const b = document.getElementById('opsBadge');
+    if (!b) return;
+    const n = alerts ? alerts.length : 0;
+    b.hidden = n === 0;
+    b.textContent = String(n);
+    b.classList.toggle('crit', !!(alerts && alerts.some((a) => a.severity === 'crit')));
+    b.title = n ? `운영 알림 ${n}건` : '';
+  }
+  async function opsBadgePoll() {
+    if (document.hidden) return;
+    try {
+      const d = await api('/api/admin/duo/alerts');
+      if (d && !d.error) setBadge(d.alerts);
+    } catch (e) { /* 배지는 조용히 실패 */ }
+  }
+  function opsBadgeInit() {
+    if (opsState.timer) return;
+    opsBadgePoll();
+    opsState.timer = setInterval(opsBadgePoll, 60000);
+  }
+
+  // ---- 요약 -------------------------------------------------
+  async function opsLoadSummary() {
+    const kp = document.getElementById('opsKpis'), al = document.getElementById('opsAlerts');
+    if (!kp) return;
+    try {
+      const d = await api('/api/admin/ops/summary');
+      if (d && d.error) throw new Error(d.error);
+      const k = d.kpi;
+      kp.innerHTML = [
+        tile('DAU (오늘, 진행 중)', fmt(k.dau), `WAU ${fmt(k.wau)} · MAU ${fmt(k.mau)}`, 'accent'),
+        tile('스티키니스 (DAU/MAU)', pc(k.stickinessPct), '높을수록 자주 돌아와요'),
+        tile('오늘 신규 가입', fmt(k.newUsersToday), `지금 접속 ${fmt(d.live.onlineUsers)}명 · 대전 ${fmt(d.live.playingRooms)}`),
+        tile('24시간 매칭', fmt(k.matches24h), `봇 비중 ${pc(k.botSharePct24h)} · 대기 이탈 ${pc(k.abandonRatePct24h)}`),
+        tile('24시간 판 완료율', pc(k.completionRatePct24h), `${fmt(k.games24h)}판 기록`, k.completionRatePct24h !== null && k.completionRatePct24h < 85 ? 'warn' : 'success'),
+        tile('오늘 코인 순증', signed(k.coinsNetToday), `발행 ${fmt(k.coinsEarnedToday)} · 소비 ${fmt(k.coinsSpentToday)}`),
+      ].join('');
+      if (al) al.innerHTML = alertsHtml(d.alerts);
+      setBadge(d.alerts);
+    } catch (e) {
+      console.error('ops summary failed', e);
+      kp.innerHTML = '<div class="empty ops-empty">요약을 불러오지 못했어요.</div>';
+    }
+  }
+
+  // ---- 유저 -------------------------------------------------
+  function usersHtml(d) {
+    const days = d.daily.map((x) => x.date);
+    const k = d.kpi;
+    const r = d.retentionSummary;
+    const ret = d.retention;
+    const funnelMax = Math.max(1, ...d.funnel.map((f) => f.count));
+    return `
+      <div class="duo-live">
+        ${tile('DAU / WAU / MAU', `${fmt(k.dau)} <small>/ ${fmt(k.wau)} / ${fmt(k.mau)}</small>`, '마지막 날(오늘) 기준')}
+        ${tile('스티키니스', pc(k.stickinessPct), `최근 7일 평균 DAU 기준 ${pc(k.stickiness7Pct)}`)}
+        ${tile('D1 리텐션', pc(r.d1.ratePct), `성숙 코호트 ${fmt(r.d1.cohort)}명 중 ${fmt(r.d1.returned)}명`)}
+        ${tile('D7 리텐션', pc(r.d7.ratePct), `성숙 코호트 ${fmt(r.d7.cohort)}명 중 ${fmt(r.d7.returned)}명`)}
+        ${tile(`${d.days}일 신규 가입`, fmt(k.newUsersRange), `전체 유저 ${fmt(k.totalUsers)}명`)}
+      </div>
+      <div class="duo-row">
+        <div class="chart-container"><h3>일별 활성 유저</h3>
+          ${legend([['DAU', OPS_C.a], ['WAU(7일)', OPS_C.b], ['MAU(30일)', OPS_C.c]])}
+          ${trendChart(days, [{ name: 'DAU', color: OPS_C.a, values: d.daily.map((x) => x.dau) }, { name: 'WAU', color: OPS_C.b, values: d.daily.map((x) => x.wau) }, { name: 'MAU', color: OPS_C.c, values: d.daily.map((x) => x.mau) }])}</div>
+        <div class="chart-container"><h3>일별 신규 가입</h3>
+          ${trendChart(days, [{ name: '신규 가입', color: OPS_C.c, values: d.daily.map((x) => x.newUsers) }])}</div>
+      </div>
+      <div class="duo-row">
+        <div class="chart-container"><h3>가입 코호트별 리텐션</h3>
+          ${legend([['D1', OPS_C.a], ['D7', OPS_C.b]])}
+          ${ret.length ? lineChart(mmdd(ret.map((x) => x.date)), [{ name: 'D1', color: OPS_C.a, values: ret.map((x) => x.d1.ratePct) }, { name: 'D7', color: OPS_C.b, values: ret.map((x) => x.d7.ratePct) }], { pct: true }) : noData}
+          <div class="duo-note">가입한 날 기준. 아직 D+1/D+7 이 지나지 않은 코호트는 그리지 않아요.</div></div>
+        <div class="chart-container"><h3>첫 게임 퍼널 (${d.days}일 가입자)</h3>
+          ${d.funnel[0].count ? `<div class="ops-funnel">${d.funnel.map((f) => `
+            <div class="ops-fstep"><div class="ops-fhead"><span>${esc(f.label)}</span><b>${fmt(f.count)}명 <small>${pc(f.pctOfSignup)}</small></b></div>
+            <div class="bar-track"><div class="bar-fill" style="width:${(f.count / funnelMax) * 100}%"></div></div>
+            ${f.dropFromPrevPct === null ? '' : `<div class="ops-drop">이전 단계 대비 ${f.dropFromPrevPct}% 이탈</div>`}</div>`).join('')}</div>` : noData}</div>
+      </div>
+      <div class="chart-container"><h3>최근 코호트 상세</h3>
+        ${opsTable(['가입일', '가입자', 'D1', 'D7'], ret.slice(-14).reverse().map((x) => `<tr><td>${esc(x.date)}</td><td>${fmt(x.size)}</td><td>${x.d1.ratePct === null ? '-' : `${x.d1.ratePct}% <small>(${x.d1.returned})</small>`}</td><td>${x.d7.ratePct === null ? '-' : `${x.d7.ratePct}% <small>(${x.d7.returned})</small>`}</td></tr>`))}</div>`;
+  }
+
+  // ---- 매칭 -------------------------------------------------
+  function matchingHtml(d) {
+    const t = d.totals;
+    const days = d.daily.map((x) => x.date);
+    const slow = 20000;
+    const botTxt = d.bot ? (d.bot.enabled ? `봇 ON · ${d.bot.waitSeconds}초 후 투입` : '봇 OFF') : '봇 설정 확인 불가';
+    return `
+      <div class="duo-live">
+        ${tile('성사된 매칭', fmt(t.matches), botTxt)}
+        ${tile('대기 시간 p50 / p90', `${secs(t.p50WaitMs)} <small>/ ${secs(t.p90WaitMs)}</small>`, `평균 ${secs(t.avgWaitMs)}`)}
+        ${tile('봇 비중', pc(t.botSharePct), `봇 매칭 ${fmt(t.botMatches)}건`)}
+        ${tile('대기 이탈', fmt(t.abandons), `이탈률 ${pc(t.abandonRatePct)} (취소·끊김)`, t.abandonRatePct !== null && t.abandonRatePct > 30 ? 'warn' : '')}
+      </div>
+      <div class="chart-container"><h3>일별 매칭</h3>
+        ${legend([['성사', OPS_C.a], ['봇 매칭', OPS_C.b], ['대기 이탈', OPS_C.c]])}
+        ${trendChart(days, [{ name: '성사', color: OPS_C.a, values: d.daily.map((x) => x.matches) }, { name: '봇 매칭', color: OPS_C.b, values: d.daily.map((x) => x.botMatches) }, { name: '대기 이탈', color: OPS_C.c, values: d.daily.map((x) => x.abandons) }])}</div>
+      <div class="chart-container"><h3>게임별 매칭 품질</h3>
+        ${opsTable(['게임', '매칭', '평균', 'p50', 'p90', '봇 비중', '이탈', '이탈률', '봇 힌트'], d.games.map((g) => `<tr>
+          <td>${esc(label(g.gameType))}</td><td>${fmt(g.matches)}</td><td>${secs(g.avgWaitMs)}</td><td>${secs(g.p50WaitMs)}</td>
+          <td class="${g.p90WaitMs !== null && g.p90WaitMs > slow ? 'ops-bad' : ''}">${g.p90WaitMs !== null && g.p90WaitMs > slow ? '⚠ ' : ''}${secs(g.p90WaitMs)}</td>
+          <td>${pc(g.botSharePct)}</td><td>${fmt(g.abandons)}</td><td>${pc(g.abandonRatePct)}</td>
+          <td class="ops-hint">${g.hint ? esc(g.hint.message) : '-'}</td></tr>`))}
+        <div class="duo-note">p90 이 20초를 넘으면 ⚠. "봇 힌트"는 현재 봇 설정(켜짐 여부·투입 대기)과 유저끼리 대기 p90 을 비교해 계산해요. 표본이 5건 미만이면 비워둬요.</div></div>`;
+  }
+
+  // ---- 건강도 -----------------------------------------------
+  function healthHtml(d) {
+    const t = d.totals, e = d.errors;
+    const days = d.daily.map((x) => x.date);
+    const mins = e.socketErrors.perMinute.map((_, i, a) => (i === a.length - 1 ? '지금' : (i % 10 === 0 ? `-${a.length - 1 - i}분` : '')));
+    return `
+      <div class="duo-live">
+        ${tile('기록된 판', fmt(t.plays), `봇 대전 비중 ${pc(t.vsBotSharePct)}`)}
+        ${tile('정상 완료율', pc(t.completionRatePct), `완료 ${fmt(t.completed)} / 비정상 ${fmt(t.abandoned)}`, t.completionRatePct !== null && t.completionRatePct < 85 ? 'warn' : 'success')}
+        ${tile('이탈·끊김률', pc(t.abandonRatePct), '상대 이탈 + 연결 끊김 + 기권')}
+        ${tile('평균 판 길이', dur(t.avgDurationSec), '모든 판 평균')}
+        ${tile('소켓 error (최근 5분)', fmt(e.socketErrors.last5m), `최근 60분 ${fmt(e.socketErrors.last60m)} · DB 풀 에러 ${fmt(e.poolErrors.last60m)}`, e.socketErrors.last5m >= 50 ? 'warn' : '')}
+      </div>
+      <div class="duo-row">
+        <div class="chart-container"><h3>문제 게임 순위</h3>
+          ${d.problematic.length ? `<ol class="ops-rank">${d.problematic.map((p) => `<li><b>${esc(label(p.gameType))}</b> — 이탈·끊김 ${pc(p.abandonRatePct)} <small>(${fmt(p.plays)}판)</small><div class="ops-sub">${esc(p.reason)}</div></li>`).join('')}</ol>` : '<div class="empty ops-empty">문제 징후가 있는 게임이 없어요 (5판 이상 기준)</div>'}
+          <div class="duo-note">점수 = 이탈률 × 표본 가중(20판에서 1.0). 표본이 적은 게임은 덜 반영돼요.</div></div>
+        <div class="chart-container"><h3>일별 판 수</h3>
+          ${legend([['전체', OPS_C.a], ['비정상 종료', OPS_C.c]])}
+          ${trendChart(days, [{ name: '전체', color: OPS_C.a, values: d.daily.map((x) => x.plays) }, { name: '비정상 종료', color: OPS_C.c, values: d.daily.map((x) => x.abandoned) }])}</div>
+      </div>
+      <div class="chart-container"><h3>게임별 건강도</h3>
+        ${opsTable(['게임', '판 수', '완료율', '이탈·끊김률', '상대 이탈', '끊김 종료', '평균 길이', '봇 대전'], d.games.map((g) => `<tr>
+          <td>${esc(label(g.gameType))}</td><td>${fmt(g.plays)}</td><td>${pc(g.completionRatePct)}</td>
+          <td class="${g.abandonRatePct !== null && g.abandonRatePct > 15 ? 'ops-bad' : ''}">${g.abandonRatePct !== null && g.abandonRatePct > 15 ? '⚠ ' : ''}${pc(g.abandonRatePct)}</td>
+          <td>${fmt(g.opponentLeft)}</td><td>${fmt(g.disconnectTimeout)}</td><td>${dur(g.avgDurationSec)}</td><td>${pc(g.vsBotSharePct)}</td></tr>`))}</div>
+      <div class="chart-container"><h3>소켓 error 이벤트 (분당, 최근 60분)</h3>
+        ${lineChart(mins.map((m) => m), [{ name: '분당 error', color: OPS_C.d, values: e.socketErrors.perMinute }])}
+        <div class="duo-note">서버 시작 이후 인메모리 카운터예요(재시작하면 0). 서버가 클라이언트 소켓에 직접 보낸 'error' 이벤트만 세요. 서버 가동 ${dur(e.uptimeSec)}.</div></div>`;
+  }
+
+  // ---- 경제 -------------------------------------------------
+  const INFL = { inflating: ['⚠', '인플레 위험', 'bad'], watch: ['•', '주의', ''], healthy: ['✓', '균형', 'good'], deflating: ['▼', '코인 감소', ''], insufficient: ['•', '데이터 부족', ''] };
+  function economyHtml(d) {
+    const b = d.balances, inf = d.inflation;
+    const days = d.daily.map((x) => x.date);
+    const ic = INFL[inf.status] || INFL.insufficient;
+    const srcRows = d.sources.map((s) => ({ label: s.label, value: s.earned + s.spent, sub: `발행 ${fmt(s.earned)} / 소비 ${fmt(s.spent)}` }));
+    return `
+      <div class="duo-live">
+        ${tile(`${d.days}일 발행`, fmt(d.totals.earned), '코인 증가 합계')}
+        ${tile(`${d.days}일 소비`, fmt(d.totals.spent), '코인 감소 합계')}
+        ${tile('순발행', signed(d.totals.net), `최근 7일 일평균 ${signed(inf.avgNet7d)}`, d.totals.net > 0 ? 'accent' : '')}
+        ${tile('잔액 평균 / 중앙값', `${fmt(b.avg)} <small>/ ${fmt(b.median)}</small>`, `유통 ${fmt(b.total)} · 유저 ${fmt(b.users)}명`)}
+        ${tile('최저가 아이템 구매 불가', pc(b.cannotAfford.pct), b.cheapestItemPrice === null ? '판매 중 유료 아이템 없음' : `최저가 ${fmt(b.cheapestItemPrice)}코인 · 최근 30일 활성 ${pc(b.cannotAffordActive.pct)}`, b.cannotAfford.pct !== null && b.cannotAfford.pct > 50 ? 'warn' : '')}
+        <div class="stat-card"><h3>인플레 지표</h3><div class="number ops-status ${ic[2]}"><span class="ops-ic">${ic[0]}</span> ${ic[1]}</div><div class="sub">${esc(inf.message)}</div></div>
+      </div>
+      <div class="duo-row">
+        <div class="chart-container"><h3>일별 발행 vs 소비</h3>
+          ${legend([['발행', OPS_C.a], ['소비', OPS_C.c]])}
+          ${trendChart(days, [{ name: '발행', color: OPS_C.a, values: d.daily.map((x) => x.earned) }, { name: '소비', color: OPS_C.c, values: d.daily.map((x) => x.spent) }])}</div>
+        <div class="chart-container"><h3>순발행과 7일 이동평균</h3>
+          ${legend([['일별 순발행', OPS_C.a], ['7일 이동평균', OPS_C.b]])}
+          ${lineChart(mmdd(days), [{ name: '순발행', color: OPS_C.a, values: d.daily.map((x) => x.net) }, { name: '7일 평균', color: OPS_C.b, values: d.daily.map((x) => x.net7d) }])}
+          <div class="duo-note">0 위로 오르는 추세가 계속되면 코인이 쌓이는(인플레) 신호예요. 직전 7일 대비 ${inf.changePct === null ? '-' : signed(inf.changePct) + '%'}.</div></div>
+      </div>
+      <div class="duo-row">
+        <div class="chart-container"><h3>코인 흐름 출처 (발행+소비)</h3>${shareBars(srcRows)}
+          <div class="duo-note">상점 구매 ${fmt(d.purchases.count)}건 · 매출 ${fmt(d.purchases.revenue)} · 구매 유저 ${fmt(d.purchases.buyers)}명</div></div>
+        <div class="chart-container"><h3>코인 보유 TOP 10</h3>
+          ${opsTable(['#', '닉네임', '보유 코인'], d.topHolders.map((h, i) => `<tr style="cursor:pointer" data-act="user" data-id="${Number(h.id)}"><td>${i + 1}</td><td>${esc(h.nickname)}</td><td>${fmt(h.balance)}</td></tr>`))}
+          <div class="duo-note">행을 누르면 유저 상세로 이동해요.</div></div>
+      </div>`;
+  }
+
+  const OPS_SECTIONS = [
+    ['opsUsers', 'users', usersHtml, '유저 지표'],
+    ['opsMatching', 'matching', matchingHtml, '매칭 지표'],
+    ['opsHealth', 'health', healthHtml, '게임 건강도'],
+    ['opsEconomy', 'economy', economyHtml, '코인 경제'],
+  ];
+  async function opsLoadSection(sec) {
+    const [id, path, render, name] = sec;
+    const el = document.getElementById(id);
+    if (!el) return;
+    try {
+      const d = await api(`/api/admin/ops/${path}?days=${opsState.days}`);
+      if (d && d.error) throw new Error(d.error);
+      el.innerHTML = render(d);
+    } catch (e) {
+      console.error('ops section failed', path, e);
+      el.innerHTML = `<div class="empty ops-empty">${esc(name)}을(를) 불러오지 못했어요. <button class="shop-save" data-act="retry" data-sec="${esc(path)}">다시 시도</button></div>`;
+    }
+  }
+
+  async function opsLoad() {
+    const el = document.getElementById('opsPanel');
+    if (!el) return;
+    if (!el.dataset.ready) {
+      el.dataset.ready = '1';
+      el.addEventListener('click', (ev) => {
+        const b = ev.target.closest('[data-act]');
+        if (!b) return;
+        const act = b.getAttribute('data-act');
+        if (act === 'range') { opsState.days = parseInt(b.getAttribute('data-days'), 10) || 30; opsLoad(); }
+        else if (act === 'refresh') opsLoad();
+        else if (act === 'retry') { const s = OPS_SECTIONS.find((x) => x[1] === b.getAttribute('data-sec')); if (s) opsLoadSection(s); }
+        else if (act === 'user') { const id = parseInt(b.getAttribute('data-id'), 10); if (id && typeof openUserDetail === 'function') openUserDetail(id); }
+      });
+    }
+    el.innerHTML = opsFrame();
+    opsBadgeInit();
+    await opsLoadSummary(); // 헤더(KPI·알림)를 먼저 그린 뒤 섹션을 병렬 로드
+    await Promise.all(OPS_SECTIONS.map(opsLoadSection));
+  }
+
   window.duoOverviewLoad = duoOverviewLoad;
   window.botLoad = botLoad;
   window.botSave = botSave;
   window.shopLoad = shopLoad;
+  window.opsLoad = opsLoad;
+  window.opsBadgeInit = opsBadgeInit;
 })();

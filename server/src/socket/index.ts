@@ -1,4 +1,6 @@
 import { scheduleFill as scheduleBotFill, isActiveBotAccount } from '../services/botService';
+import { opsRecordMatch, opsRecordAbandon, opsRecordGame } from '../services/opsMetrics'; // [OPS]
+import { opsCounters } from '../services/opsCounters'; // [OPS]
 import { Server, Socket } from 'socket.io';
 import { TicTacToeGame } from '../games/tictactoe';
 import { InfiniteTicTacToeGame } from '../games/infinitetictactoe';
@@ -141,6 +143,59 @@ const disconnectGraceTimers = new Map<number, NodeJS.Timeout>();
 const disconnectContexts = new Map<number, { socket: Socket; roomId: string }>();
 const expiredReconnectUsers = new Set<number>();
 const RECONNECT_GRACE_MS = 20000; // 20초
+
+// ============================================================
+// [OPS] 운영 지표 계측 보조 — 기록 전용(fire-and-forget). 매칭/게임 로직·지연에 영향 없음.
+//  - WeakMap/WeakSet 이라 방·플레이어 객체가 사라지면 같이 정리된다.
+//  - 모든 함수는 예외를 삼킨다(소켓 경로로 절대 던지지 않는다).
+// ============================================================
+/** 대기열에 들어간 시각/조건. 매칭 대기시간·이탈 계측용. */
+const opsQueued = new WeakMap<Player, { at: number; gameType: string; isHardcore: boolean; isInfinite: boolean }>();
+/** 게임 시작 시각 + 봇 대전 여부. 판 종료 시 1회만 기록하고 지운다. */
+const opsRooms = new WeakMap<GameRoom, { startedAt: number; vsBot: boolean }>();
+/** 재접속 유예가 만료돼 leaveRoom 으로 들어온 방(→ outcome=disconnect_timeout). */
+const opsGraceExpired = new WeakSet<GameRoom>();
+
+function opsGameType(gameType: string, isInfinite: boolean): string {
+  return gameType === 'tictactoe' && isInfinite ? 'infinite_tictactoe' : gameType;
+}
+/** 대기열 진입 기록(매칭 계측용). */
+function opsMarkQueued(p: Player, gameType: string, isHardcore: boolean, isInfinite: boolean): void {
+  try { opsQueued.set(p, { at: Date.now(), gameType: opsGameType(gameType, isInfinite), isHardcore, isInfinite }); } catch { /* noop */ }
+}
+/** 판 시작 등록(재대결 시에도 호출). */
+function opsStartRoom(room: GameRoom): void {
+  try { opsRooms.set(room, { startedAt: Date.now(), vsBot: room.players.some(pl => isActiveBotAccount(pl.userId)) }); } catch { /* noop */ }
+}
+/** 매칭 성사 기록 + 판 시작 등록. waiter = 먼저 대기열에 있던 사람(대기시간 기준). */
+function opsOnMatched(room: GameRoom, waiter: Player, isHardcore: boolean, isInfinite: boolean): void {
+  try {
+    const q = opsQueued.get(waiter);
+    const opponentIsBot = room.players.some(pl => isActiveBotAccount(pl.userId));
+    // 대기하던 쪽이 봇이면(유저가 막 들어와 바로 붙은 경우) 유저 대기는 0.
+    const waitMs = q && !isActiveBotAccount(waiter.userId) ? Date.now() - q.at : 0;
+    opsRecordMatch({ gameType: room.gameType, isHardcore, isInfinite, waitMs, opponentIsBot });
+    opsStartRoom(room);
+  } catch { /* noop */ }
+}
+/** 대기열 이탈 기록(봇은 제외). */
+function opsOnAbandon(p: Player): void {
+  try {
+    const q = opsQueued.get(p);
+    if (!q || isActiveBotAccount(p.userId)) return;
+    opsRecordAbandon({ gameType: q.gameType, isHardcore: q.isHardcore, isInfinite: q.isInfinite, waitedMs: Date.now() - q.at });
+    opsQueued.delete(p);
+  } catch { /* noop */ }
+}
+/** 판 종료 기록(방당 1회). 등록되지 않은 방(랭크·솔로·친구초대 등)은 무시된다. */
+function opsFinishRoom(room: GameRoom, outcome: 'completed' | 'opponent_left' | 'disconnect_timeout' | 'forfeit'): void {
+  try {
+    const m = opsRooms.get(room);
+    if (!m) return;
+    opsRooms.delete(room);
+    opsRecordGame({ gameType: room.gameType, durationSec: (Date.now() - m.startedAt) / 1000, outcome, vsBot: m.vsBot });
+  } catch { /* noop */ }
+}
 
 function getQueueKey(gameType: string, isHardcore: boolean, isInfinite: boolean = false, maxPlayers: number = 2): string {
   let key = gameType;
@@ -374,6 +429,7 @@ function markRoomFinishedOnce(room: GameRoom, reason: string): boolean {
     return false;
   }
   room.status = 'finished';
+  opsFinishRoom(room, 'completed'); // [OPS]
   return true;
 }
 
@@ -3693,6 +3749,15 @@ export function setupSocketHandlers(io: Server) {
   io.on('connection', (socket: Socket) => {
     console.log(`👤 Player connected: ${socket.id}`);
 
+    // [OPS] 이 소켓이 클라이언트로 보내는 'error' 이벤트만 세는 얇은 래퍼(인자·this 그대로 위임, 예외 없음).
+    try {
+      const origEmit = socket.emit;
+      socket.emit = function (this: Socket, ev: any, ...args: any[]) {
+        if (ev === 'error') opsCounters.socketError();
+        return (origEmit as any).call(this, ev, ...args);
+      } as any;
+    } catch { /* noop */ }
+
     // 플레이어 정보
     let currentPlayer: Player | null = null;
     let currentRoomId: string | null = null;
@@ -4264,6 +4329,7 @@ export function setupSocketHandlers(io: Server) {
             isInfinite,
           };
           rooms.set(roomId, room);
+          opsOnMatched(room, others[0], isHardcore, isInfinite); // [OPS]
           for (const p of players) {
             p.socket.join(roomId);
             if (p.userId) userRooms.set(p.userId, roomId);
@@ -4298,6 +4364,7 @@ export function setupSocketHandlers(io: Server) {
             scheduleRoundStart(room, 1000, () => startSet(io, room));
           }
         } else {
+          opsMarkQueued(currentPlayer, gameType, isHardcore, isInfinite); // [OPS]
           q.push(currentPlayer);
           socket.emit('match_waiting', { gameType, maxPlayers, waiting: q.length });
           console.log(`⏳ ${gameType.toUpperCase()} ${maxPlayers}인 대기: ${currentPlayer.nickname} (${q.length}/${maxPlayers})`);
@@ -4371,6 +4438,7 @@ export function setupSocketHandlers(io: Server) {
         }
 
         rooms.set(roomId, room);
+        opsOnMatched(room, opponent, isHardcore, isInfinite); // [OPS]
 
         // 두 플레이어를 방에 조인
         opponent.socket.join(roomId);
@@ -4526,6 +4594,7 @@ export function setupSocketHandlers(io: Server) {
         }
       } else {
         // 대기열에 추가
+        opsMarkQueued(currentPlayer, gameType, isHardcore, isInfinite); // [OPS]
         queue.push(currentPlayer);
         socket.emit('waiting_for_match', { gameType, isHardcore });
         // [BOT] 일정 시간 상대가 없으면 매칭 봇 투입(관리자 설정 ON 일 때만, 봇끼리는 붙이지 않음)
@@ -4551,6 +4620,7 @@ export function setupSocketHandlers(io: Server) {
       if (queue) {
         const index = queue.findIndex(p => p.id === socket.id);
         if (index !== -1) {
+          opsOnAbandon(queue[index]); // [OPS]
           queue.splice(index, 1);
           socket.emit('match_cancelled');
         }
@@ -6990,6 +7060,7 @@ export function setupSocketHandlers(io: Server) {
           room.game = new HunminGame();
         }
         room.status = 'playing';
+        opsStartRoom(room); // [OPS] 재대결도 새 판으로 계측
         room.rematchRequests.clear();
 
         // 플레이어 순서 교체 (선공/후공 바꾸기)
@@ -7336,6 +7407,7 @@ export function setupSocketHandlers(io: Server) {
       matchQueues.forEach((queue, gameType) => {
         const index = queue.findIndex(p => p.id === socket.id);
         if (index !== -1) {
+          opsOnAbandon(queue[index]); // [OPS]
           queue.splice(index, 1);
         }
       });
@@ -7403,6 +7475,7 @@ export function setupSocketHandlers(io: Server) {
               disconnectContexts.delete(userId);
               expiredReconnectUsers.add(userId);
               setTimeout(() => expiredReconnectUsers.delete(userId), 60000);
+              { const gr = rooms.get(roomId); if (gr) opsGraceExpired.add(gr); } // [OPS] 유예 만료 → disconnect_timeout
               leaveRoom(socket, roomId);
             } catch (err) {
               console.error('[grace timer] cleanup error:', err);
@@ -7501,6 +7574,7 @@ export function setupSocketHandlers(io: Server) {
             // 먼저 상태를 finished로 변경 (두 번째 나가는 사람이 중복 기록 안 되게)
             room.status = 'finished';
             clearRoundTimer(room);
+            opsFinishRoom(room, opsGraceExpired.has(room) ? 'disconnect_timeout' : 'opponent_left'); // [OPS]
 
             try {
               // 랭크전인 경우 특별 처리

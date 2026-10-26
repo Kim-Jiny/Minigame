@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import bcrypt from 'bcrypt';
+import { opsCounters } from '../services/opsCounters'; // [OPS]
 
 let pool: Pool;
 
@@ -18,6 +19,11 @@ export async function setupDatabase() {
 
   pool = new Pool({
     connectionString: databaseUrl,
+  });
+  // [OPS] 유휴 클라이언트 에러를 카운트(알림용). 전역 uncaughtException 핸들러가 이미 있어 동작은 달라지지 않는다.
+  pool.on('error', (err) => {
+    opsCounters.poolError();
+    console.error('[pg pool error]', err instanceof Error ? err.message : String(err));
   });
 
   try {
@@ -310,6 +316,48 @@ export async function setupDatabase() {
       -- 접속 기록 인덱스
       CREATE INDEX IF NOT EXISTS idx_dm_user_sessions_user_id ON dm_user_sessions(user_id);
       CREATE INDEX IF NOT EXISTS idx_dm_user_sessions_created_at ON dm_user_sessions(created_at);
+
+      -- [OPS] 운영 지표용 보조 인덱스(집계가 created_at 범위 스캔을 쓴다). 이미 있으면 건너뜀.
+      CREATE INDEX IF NOT EXISTS idx_dm_game_records_created_at ON dm_game_records(created_at);
+      CREATE INDEX IF NOT EXISTS idx_dm_mileage_history_created_at ON dm_mileage_history(created_at);
+      CREATE INDEX IF NOT EXISTS idx_dm_users_created_at ON dm_users(created_at);
+
+      -- [OPS] 매칭 품질 계측(append-only, 90일 보관 — 관리자 집계 시 지연 정리). 봇 매칭 여부 포함.
+      CREATE TABLE IF NOT EXISTS dm_match_events (
+        id BIGSERIAL PRIMARY KEY,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        game_type VARCHAR(50) NOT NULL,
+        is_hardcore BOOLEAN NOT NULL DEFAULT FALSE,
+        is_infinite BOOLEAN NOT NULL DEFAULT FALSE,
+        wait_ms INTEGER NOT NULL DEFAULT 0,
+        opponent_is_bot BOOLEAN NOT NULL DEFAULT FALSE
+      );
+      CREATE INDEX IF NOT EXISTS idx_dm_match_events_created_at ON dm_match_events(created_at);
+      CREATE INDEX IF NOT EXISTS idx_dm_match_events_game ON dm_match_events(game_type, created_at);
+
+      -- [OPS] 대기열 이탈(취소/연결 끊김) — 매칭 못 잡고 포기한 건
+      CREATE TABLE IF NOT EXISTS dm_match_abandons (
+        id BIGSERIAL PRIMARY KEY,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        game_type VARCHAR(50) NOT NULL,
+        is_hardcore BOOLEAN NOT NULL DEFAULT FALSE,
+        is_infinite BOOLEAN NOT NULL DEFAULT FALSE,
+        waited_ms INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_dm_match_abandons_created_at ON dm_match_abandons(created_at);
+      CREATE INDEX IF NOT EXISTS idx_dm_match_abandons_game ON dm_match_abandons(game_type, created_at);
+
+      -- [OPS] 게임 건강도: 끝난 판마다 1행. outcome = completed | opponent_left | disconnect_timeout | forfeit
+      CREATE TABLE IF NOT EXISTS dm_game_health (
+        id BIGSERIAL PRIMARY KEY,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        game_type VARCHAR(50) NOT NULL,
+        duration_sec INTEGER NOT NULL DEFAULT 0,
+        outcome VARCHAR(24) NOT NULL,
+        vs_bot BOOLEAN NOT NULL DEFAULT FALSE
+      );
+      CREATE INDEX IF NOT EXISTS idx_dm_game_health_created_at ON dm_game_health(created_at);
+      CREATE INDEX IF NOT EXISTS idx_dm_game_health_game ON dm_game_health(game_type, created_at);
 
       -- 문의 테이블
       CREATE TABLE IF NOT EXISTS dm_inquiries (

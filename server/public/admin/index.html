@@ -402,7 +402,7 @@
   </style>
   <link rel="stylesheet" href="theme.css?v=20261023c"> <!-- 공통 카툰 테마 -->
   <link rel="stylesheet" href="mfa.css?v=20261023c"> <!-- [MFA] -->
-  <link rel="stylesheet" href="duo.css?v=20261026a"> <!-- 듀오 운영 개요·봇 패널 -->
+  <link rel="stylesheet" href="duo.css?v=20261026b"> <!-- 듀오 운영 개요·봇 패널 -->
 </head>
 <body>
   <!-- Login -->
@@ -463,6 +463,7 @@
       <button onclick="switchTab('inquiries', this)">Inquiries</button>
       <button onclick="switchTab('notices', this)">Notices</button>
       <button onclick="switchTab('shop', this); shopLoad()">Shop</button>
+      <button onclick="switchTab('ops', this); opsLoad()">운영 지표<span id="opsBadge" class="ops-badge" hidden></span></button>
       <button onclick="switchTab('settings', this)">Settings</button>
     </div>
 
@@ -523,6 +524,11 @@
     <!-- Shop Tab (듀오 상점 통계·운영) -->
     <div class="tab-content" id="tab-shop">
       <div id="shopPanel"><div class="empty">Loading...</div></div>
+    </div>
+
+    <!-- 운영 지표 Tab (유저·매칭·게임 건강도·코인 경제·알림) -->
+    <div class="tab-content" id="tab-ops">
+      <div id="opsPanel"><div class="empty">Loading...</div></div>
     </div>
 
     <!-- Settings Tab -->
@@ -1084,7 +1090,7 @@
   </div>
 
   <script src="mfa.js?v=20261023c"></script> <!-- [MFA] -->
-  <script src="duo.js?v=20261026a"></script> <!-- 듀오 운영 개요·봇 패널 -->
+  <script src="duo.js?v=20261026b"></script> <!-- 듀오 운영 개요·봇 패널 -->
   <script>
     let token = localStorage.getItem('adminToken');
     let currentInquiry = null;
@@ -1285,6 +1291,7 @@
         loadAdConfig();
         duoOverviewLoad();
         botLoad();
+        if (typeof opsBadgeInit === 'function') opsBadgeInit(); // [OPS] 알림 배지 폴링
       } else if (id === 'ctr') {
         document.getElementById('ctrDashboard').style.display = 'block';
         document.getElementById('dashboard').style.display = 'none';

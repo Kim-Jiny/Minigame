@@ -9,6 +9,7 @@ import { sendLocalizedPushToUser } from '../services/ppPush'; // [PP] 비즈픽�
 import { tierFor, resolveTier } from '../services/ppTier'; // [PP] 승인 큐 계급 표시 + 계급 오버라이드
 import { getSettings as getBotSettings, updateSettings as updateBotSettings, getRuntimeStatus as getBotRuntime } from '../services/botService'; // [BOT]
 import { getLiveStats } from '../socket';
+import { getUsersMetrics, getMatchingMetrics, getHealthMetrics, getEconomyMetrics, getOpsSummary, getAlerts, clampDays, opsCleanupIfDue } from '../services/opsMetrics'; // [OPS]
 import multer from 'multer'; // [SAJA] 사자툰 만화 이미지 업로드용
 // [SAJA] sharp 는 네이티브 모듈 — 로드 실패가 서버 전체를 죽이지 않도록 업로드 시점에 지연 로딩한다.
 import path from 'path';
@@ -659,6 +660,38 @@ router.get('/duo/overview', verifyAdminToken, async (_req: Request, res: Respons
     res.status(500).json({ error: 'Failed to get overview' });
   }
 });
+
+// ============================================================
+// [OPS] 운영 지표 탭 — 유저/매칭/게임 건강도/코인 경제/알림 (집계는 services/opsMetrics.ts, 60초 캐시, KST 일 단위)
+// ============================================================
+function opsHandler(fn: (req: Request) => Promise<unknown>, label: string) {
+  return async (req: Request, res: Response): Promise<void> => {
+    try {
+      if (!getPool()) { res.status(500).json({ error: 'Database not available' }); return; }
+      opsCleanupIfDue(); // 90일 지난 계측 행 정리(6시간에 한 번, 백그라운드)
+      res.json(await fn(req));
+    } catch (error) {
+      console.error(`[ops] ${label} error:`, error instanceof Error ? error.message : error);
+      res.status(500).json({ error: `Failed to get ${label}` });
+    }
+  };
+}
+
+// GET /api/admin/ops/summary - 탭 헤더용 핵심 KPI + 알림
+router.get('/ops/summary', verifyAdminToken, opsHandler(async () => {
+  const live = getLiveStats();
+  return getOpsSummary({ onlineUsers: live.onlineUsers, playingRooms: live.playingRooms });
+}, 'ops summary'));
+// GET /api/admin/ops/users?days=30 (1..90)
+router.get('/ops/users', verifyAdminToken, opsHandler((req) => getUsersMetrics(clampDays(req.query.days)), 'ops users'));
+// GET /api/admin/ops/matching?days=7 (1..90)
+router.get('/ops/matching', verifyAdminToken, opsHandler((req) => getMatchingMetrics(clampDays(req.query.days, 7)), 'ops matching'));
+// GET /api/admin/ops/health?days=7 (1..90)
+router.get('/ops/health', verifyAdminToken, opsHandler((req) => getHealthMetrics(clampDays(req.query.days, 7)), 'ops health'));
+// GET /api/admin/ops/economy?days=30 (1..90)
+router.get('/ops/economy', verifyAdminToken, opsHandler((req) => getEconomyMetrics(clampDays(req.query.days)), 'ops economy'));
+// GET /api/admin/duo/alerts - 폴링용 가벼운 알림 목록(60초 캐시)
+router.get('/duo/alerts', verifyAdminToken, opsHandler(async () => getAlerts(getLiveStats().onlineUsers), 'duo alerts'));
 
 // ============================================================
 // Inquiries (라우트 경로 수정: dm_inquiries → inquiries)

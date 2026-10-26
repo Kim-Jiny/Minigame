@@ -42,3 +42,47 @@
 #shopPanel .shop-sub { font-size: 11px; color: #999; margin-top: 2px; }
 #shopPanel .shop-msg { display: block; font-size: 11px; color: #27ae60; margin-top: 4px; }
 #shopPanel tr.shop-off td { opacity: .55; }
+
+/* 운영 지표 탭 (#opsPanel) + 탭 배지(.ops-badge). 테이블은 .ops-scroll 안에서만 가로 스크롤. */
+.ops-badge { display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 6px; border-radius: 999px; background: #f0a93b; color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; vertical-align: 1px; }
+.ops-badge.crit { background: #e74c3c; }
+.ops-badge[hidden] { display: none; }
+#opsPanel { max-width: 100%; overflow-x: hidden; }
+#opsPanel .ops-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+#opsPanel .shop-range { display: inline-flex; border: 1px solid #ddd; border-radius: 10px; overflow: hidden; }
+#opsPanel .shop-range button { border: 0; background: transparent; padding: 7px 16px; cursor: pointer; font-size: 13px; color: #666; }
+#opsPanel .shop-range button.on { background: #7c6cf2; color: #fff; font-weight: 700; }
+#opsPanel .shop-save { border: 0; border-radius: 8px; padding: 7px 14px; background: #7c6cf2; color: #fff; font-size: 13px; cursor: pointer; }
+#opsPanel .ops-sec { margin: 28px 0 8px; }
+#opsPanel .ops-sec > h2 { font-size: 17px; margin: 0 0 4px; }
+#opsPanel .ops-secnote { margin: 0 0 12px; }
+#opsPanel .ops-empty { padding: 20px; }
+#opsPanel .ops-foot { margin: 24px 0 8px; }
+#opsPanel .stat-card .number small { font-size: .6em; font-weight: 600; color: #999; }
+#opsPanel .chart-container { min-width: 0; }
+#opsPanel .duo-row { grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); }
+#opsPanel .ops-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+#opsPanel .ops-scroll .duo-mini-table td, #opsPanel .ops-scroll .duo-mini-table th { white-space: nowrap; }
+#opsPanel .ops-scroll .duo-mini-table td.ops-hint { white-space: normal; min-width: 220px; font-size: 12px; color: #666; }
+#opsPanel .ops-bad { color: #c0392b; font-weight: 700; }
+#opsPanel .ops-alerts.ok { padding: 10px 14px; border-radius: 10px; background: rgba(39,174,96,.1); color: #1e8449; font-size: 13px; margin-bottom: 14px; }
+#opsPanel .ops-alerts { margin-bottom: 14px; display: grid; gap: 8px; }
+#opsPanel .ops-alert { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; padding: 10px 14px; border-radius: 10px; font-size: 13px; border-left: 4px solid; }
+#opsPanel .ops-alert.warn { background: rgba(240,169,59,.12); border-color: #f0a93b; }
+#opsPanel .ops-alert.crit { background: rgba(231,76,60,.12); border-color: #e74c3c; }
+#opsPanel .ops-sev { font-weight: 700; }
+#opsPanel .ops-msg { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+#opsPanel .ops-val { color: #888; font-size: 12px; }
+#opsPanel .ops-funnel { display: grid; gap: 12px; }
+#opsPanel .ops-fhead { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; margin-bottom: 4px; }
+#opsPanel .ops-fhead small { color: #999; font-weight: 400; }
+#opsPanel .ops-drop { font-size: 11px; color: #999; margin-top: 3px; }
+#opsPanel .ops-rank { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.7; }
+#opsPanel .ops-sub { font-size: 12px; color: #999; }
+#opsPanel .ops-status { font-size: 20px; }
+#opsPanel .ops-status.bad { color: #c0392b; }
+#opsPanel .ops-status.good { color: #1e8449; }
+@media (max-width: 600px) {
+  #opsPanel .duo-live { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  #opsPanel .ops-alert { font-size: 12px; }
+}
