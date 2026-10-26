@@ -100,6 +100,7 @@ class _RpsScreenState extends State<RpsScreen> {
 
   // 타이머
   Timer? _countdownTimer;
+  Timer? _gameEndTimer;
   int _remainingSeconds = 10;
 
   @override
@@ -150,6 +151,7 @@ class _RpsScreenState extends State<RpsScreen> {
 
   @override
   void dispose() {
+    _gameEndTimer?.cancel();
     _countdownTimer?.cancel();
     _reconnectTimer?.cancel();
     _waitingReconnectTimer?.cancel();
@@ -424,17 +426,34 @@ class _RpsScreenState extends State<RpsScreen> {
     _socketListeners.on('game_end', (data) {
       if (_status == RpsGameStatus.finished) return;
       _stopCountdown();
-      _set(() {
-        _status = RpsGameStatus.finished;
-        _winnerId = data['winner'];
-        _isDraw = data['isDraw'] ?? false;
-        _isReconnecting = false;
-        _isWaitingForReconnect = false;
-        if (data['scores'] != null) {
-          _scores = List<int>.from(data['scores']);
-        }
+      void applyEnd() {
+        _set(() {
+          _status = RpsGameStatus.finished;
+          _winnerId = data['winner'];
+          _isDraw = data['isDraw'] ?? false;
+          _isReconnecting = false;
+          _isWaitingForReconnect = false;
+          if (data['scores'] != null) {
+            _scores = List<int>.from(data['scores']);
+          }
+        });
+        _waitingReconnectTimer?.cancel();
+      }
+
+      // 마지막 라운드 결과(서로 낸 손)를 보여주는 중이면 잠시 보여준 뒤 결과 화면으로
+      final revealing =
+          _status == RpsGameStatus.playing &&
+          _lastPlayer0Choice != null &&
+          _lastPlayer1Choice != null;
+      if (!revealing) {
+        applyEnd();
+        return;
+      }
+      _gameEndTimer?.cancel();
+      _gameEndTimer = Timer(const Duration(milliseconds: 2500), () {
+        if (!mounted || _status == RpsGameStatus.finished) return;
+        applyEnd();
       });
-      _waitingReconnectTimer?.cancel();
     });
 
     _socketListeners.on('opponent_left', (data) {
@@ -554,6 +573,7 @@ class _RpsScreenState extends State<RpsScreen> {
   }
 
   void _reset() {
+    _gameEndTimer?.cancel();
     _waitingReconnectTimer?.cancel();
     _set(() {
       _status = RpsGameStatus.idle;
