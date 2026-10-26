@@ -75,12 +75,26 @@ class MinigameApp extends StatelessWidget {
         builder: (context, child) {
           // 안드로이드에서 텍스트 크기 축소 (85%)
           if (Platform.isAndroid) {
-            final scale = MediaQuery.of(context).textScaler.scale(1.0) * 0.85;
-            return MediaQuery(
-              data: MediaQuery.of(
-                context,
-              ).copyWith(textScaler: TextScaler.linear(scale)),
-              child: child!,
+            final mq = MediaQuery.of(context);
+            final scale = mq.textScaler.scale(1.0) * 0.85;
+            // Android 15+ 는 edge-to-edge 가 기본이라 화면이 시스템 내비게이션 바 뒤로 들어간다.
+            // 하단 인셋만큼 앱 전체를 위로 올려 목록·버튼이 내비게이션 바에 가리지 않게 한다.
+            // (키보드가 올라오면 viewInsets 가 이미 그만큼 차지하므로 겹치지 않게 뺀다.)
+            final bottomInset = (mq.viewPadding.bottom - mq.viewInsets.bottom)
+                .clamp(0.0, double.infinity);
+            return ColoredBox(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              child: Padding(
+                padding: EdgeInsets.only(bottom: bottomInset),
+                child: MediaQuery(
+                  data: mq.copyWith(
+                    textScaler: TextScaler.linear(scale),
+                    padding: mq.padding.copyWith(bottom: 0),
+                    viewPadding: mq.viewPadding.copyWith(bottom: 0),
+                  ),
+                  child: child!,
+                ),
+              ),
             );
           }
           return child!;
