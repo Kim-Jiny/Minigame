@@ -1194,6 +1194,13 @@ class _SpeedTapScreenState extends State<SpeedTapScreen> {
   }
 
   void _showExitDialog(GameTheme theme) {
+    // 결과 화면에서는 패배 처리 경고 없이 바로 나가기
+    if (_status == SpeedTapGameStatus.finished) {
+      _leaveGame();
+      Navigator.pop(context);
+      return;
+    }
+
     // 일반 게임에서 idle 상태면 바로 나가기
     if (!widget.isRanked && _status == SpeedTapGameStatus.idle) {
       Navigator.pop(context);

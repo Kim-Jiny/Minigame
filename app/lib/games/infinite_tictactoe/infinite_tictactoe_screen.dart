@@ -357,6 +357,13 @@ class _InfiniteTicTacToeScreenState extends State<InfiniteTicTacToeScreen> {
   void _showExitDialog(BuildContext context) {
     final game = context.read<GameProvider>();
 
+    // 결과 화면에서는 패배 처리 경고 없이 바로 나가기
+    if (game.status == GameStatus.finished) {
+      game.leaveGame();
+      Navigator.pop(context);
+      return;
+    }
+
     if (game.status == GameStatus.idle) {
       Navigator.pop(context);
       return;

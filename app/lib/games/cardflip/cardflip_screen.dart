@@ -1216,6 +1216,13 @@ class _CardFlipScreenState extends State<CardFlipScreen> {
   }
 
   void _showExitDialog(GameTheme theme) {
+    // 결과 화면에서는 패배 처리 경고 없이 바로 나가기
+    if (_status == CardFlipGameStatus.finished) {
+      _leaveGame();
+      Navigator.pop(context);
+      return;
+    }
+
     if (!widget.isRanked && _status == CardFlipGameStatus.idle) {
       Navigator.pop(context);
       return;

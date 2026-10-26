@@ -1298,6 +1298,13 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
   void _showExitDialog(BuildContext context) {
     final game = context.read<GameProvider>();
 
+    // 결과 화면에서는 패배 처리 경고 없이 바로 나가기
+    if (game.status == GameStatus.finished) {
+      game.leaveGame();
+      Navigator.pop(context);
+      return;
+    }
+
     // 일반 게임에서 idle 상태면 바로 나가기
     if (!widget.isRanked && game.status == GameStatus.idle) {
       Navigator.pop(context);

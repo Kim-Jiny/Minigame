@@ -1388,6 +1388,13 @@ class _ArrowdashScreenState extends State<ArrowdashScreen>
   }
 
   void _showExitDialog(GameTheme theme) {
+    // 결과 화면에서는 패배 처리 경고 없이 바로 나가기
+    if (_status == ArrowdashGameStatus.finished) {
+      _leaveGame();
+      Navigator.pop(context);
+      return;
+    }
+
     if (!widget.isRanked && _status == ArrowdashGameStatus.idle) {
       Navigator.pop(context);
       return;
