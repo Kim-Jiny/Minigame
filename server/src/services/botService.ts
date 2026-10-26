@@ -8,6 +8,12 @@
  * - 설정(on/off, 대기 시간, 실력, 동시 봇 수)은 dm_bot_settings 에 저장되고 관리자 대시보드에서 바꾼다.
  * - 봇 계정은 dm_users.is_bot = TRUE. 랭킹·통계 집계에서는 제외한다.
  * - 지원 게임은 SUPPORTED_GAMES 뿐이다. 그 외 게임은 봇이 투입되지 않는다.
+ *   2인 게임 전부(틱택토·오목·가위바위보·반응속도·스피드탭·넘버배틀·사칙연산·화살표·스트룹·시퀀스·
+ *   타이밍·카드뒤집기·무한 틱택토·SET·훈민정음·헥사곤·피라미드)를 지원한다.
+ *   - SET: 보드에서 세트를 직접 찾아 사람 속도로 claim(가끔 오답). 무한모드(isInfinite)는 미지원.
+ *   - 훈민정음: dm_korean_words(초성 인덱스)에서 후보를 조회·캐시, 실력만큼만 아는 단어로 답한다.
+ *   - 헥사곤/피라미드: 보드를 풀어 버저 → 답 제출. 실력이 낮을수록 늦고 가끔 틀린다.
+ *   - set/hunmin 은 실제 클라이언트처럼 find_match 에 maxPlayers: 2 를 함께 보낸다(2인 큐 경로).
  */
 import { io as ioClient, Socket as ClientSocket } from 'socket.io-client';
 import { getPool } from '../config/database';
@@ -26,6 +32,7 @@ const DEFAULT_SETTINGS: BotSettings = { enabled: false, waitSeconds: 5, skill: 0
 const SUPPORTED_GAMES = [
   'tictactoe', 'gomoku', 'rps', 'reaction', 'speedtap', 'numberbattle', 'mathrace', 'arrowdash',
   'stroop', 'sequence', 'timing', 'cardflip', 'infinite_tictactoe',
+  'set', 'hunmin', 'hexagon', 'pyramid',
 ];
 const HARDCORE_OK = ['tictactoe', 'gomoku'];
 
@@ -200,7 +207,9 @@ async function spawnBot(gameType: string, isHardcore: boolean, isInfinite: boole
     socket.emit('join_lobby', { nickname: account.nickname, token: generateToken(account.id) });
   });
   socket.on('lobby_joined', () => {
-    socket.emit('find_match', { gameType, isHardcore, isInfinite });
+    // SET·훈민정음은 실제 클라이언트가 maxPlayers 를 항상 보낸다. 2 = 기존 2인 큐 경로.
+    const twoPlayerFlag = gameType === 'set' || gameType === 'hunmin' ? { maxPlayers: 2 } : {};
+    socket.emit('find_match', { gameType, isHardcore, isInfinite, ...twoPlayerFlag });
   });
   socket.on('auth_error', cleanup);
   socket.on('connect_error', () => { stats.failed++; cleanup(); });
@@ -446,6 +455,11 @@ const STRATEGIES: Record<string, (ctx: BotContext) => void> = {
     });
   },
 
+  set(ctx) { setStrategy(ctx); },
+  hunmin(ctx) { hunminStrategy(ctx); },
+  hexagon(ctx) { hexagonStrategy(ctx); },
+  pyramid(ctx) { pyramidStrategy(ctx); },
+
   infinite_tictactoe(ctx) {
     turnBased(ctx, (board, me) => infiniteTttMove(board as (number | null)[], me, ctx.skill));
   },
@@ -588,5 +602,286 @@ function gomokuMove(board: (number | null)[], me: number, skill: number): number
   return cands[Math.min(cands.length - 1, randInt(0, Math.random() < 0.3 * (1 - skill) ? spread : 0))].pos;
 }
 
+
+// ---------------------------------------------------------------- SET / 훈민정음 / 헥사곤 / 피라미드
+
+/** 임의 값이 정수 배열이면 그대로, 아니면 빈 배열. 서버 페이로드가 예상과 달라도 던지지 않기 위함. */
+const intArray = (v: unknown): number[] =>
+  Array.isArray(v) ? v.filter((x): x is number => typeof x === 'number' && Number.isFinite(x)) : [];
+
+function setAttrs(id: number): number[] {
+  return [Math.floor(id / 27) % 3, Math.floor(id / 9) % 3, Math.floor(id / 3) % 3, id % 3];
+}
+function isSetTriple(a: number, b: number, c: number): boolean {
+  const A = setAttrs(a); const B = setAttrs(b); const C = setAttrs(c);
+  return [0, 1, 2, 3].every(k => (A[k] + B[k] + C[k]) % 3 === 0);
+}
+/** 보드의 모든 유효 세트(카드 id 3개). */
+function findSets(board: number[]): number[][] {
+  const out: number[][] = [];
+  for (let i = 0; i < board.length - 2; i++) {
+    for (let j = i + 1; j < board.length - 1; j++) {
+      for (let k = j + 1; k < board.length; k++) {
+        if (isSetTriple(board[i], board[j], board[k])) out.push([board[i], board[j], board[k]]);
+      }
+    }
+  }
+  return out;
+}
+
+/** SET: 보드가 바뀔 때마다 "찾는 시간"을 새로 잡고, 지나면 세트 하나를 claim 한다. 무한모드는 지원하지 않는다. */
+function setStrategy(ctx: BotContext) {
+  let board: number[] = [];
+  let gen = 0; // 보드가 바뀌면 예약된 claim 을 무효화
+  let over = false;
+  const schedule = () => {
+    const my = ++gen;
+    if (over || !board.length) return;
+    ctx.later(() => {
+      if (my !== gen || over) return;
+      const sets = findSets(board);
+      // 사람도 가끔 헛짚는다: 실수 확률은 실력이 낮을수록 커진다(서버는 오답 -1점).
+      if (board.length >= 3 && Math.random() < 0.05 * (1.2 - ctx.skill)) {
+        const cards = [...board].sort(() => Math.random() - 0.5).slice(0, 3);
+        if (!isSetTriple(cards[0], cards[1], cards[2])) {
+          ctx.emitAction({ type: 'claim', cards });
+          return;
+        }
+      }
+      if (!sets.length) return; // 덱 소진 등 — 다음 보드 갱신을 기다린다
+      const cards = [...pick(sets)].sort(() => Math.random() - 0.5);
+      ctx.emitAction({ type: 'claim', cards });
+    }, human(ctx, 3000, 10000));
+  };
+  const onBoard = (d: { board?: unknown }) => {
+    const b = intArray(d?.board);
+    if (!b.length) return;
+    board = b;
+    schedule();
+  };
+  ctx.socket.on('set_start', onBoard);
+  ctx.socket.on('set_resumed', onBoard);
+  ctx.socket.on('set_claimed', onBoard);
+  // 내 오답은 보드가 안 바뀌므로 다시 찾는다. 상대가 먼저 가져가 실패한 경우는 set_claimed 가 따로 온다.
+  ctx.socket.on('set_claim_rejected', (d: { playerIndex?: number; reason?: string }) => {
+    if (d?.playerIndex === ctx.myIndex && (d.reason === 'not_a_set' || d.reason === 'bad_input')) schedule();
+  });
+  ctx.socket.on('set_timeout', () => { over = true; gen++; });
+  ctx.socket.on('game_end', () => { over = true; gen++; });
+}
+
+// ---- 훈민정음 ----
+
+const hunminWordCache = new Map<string, string[]>();
+
+/** 초성(2글자)에 맞는 2글자 단어 후보를 사전 DB 에서 조회한다(초성별 캐시). DB 가 없거나 실패하면 빈 배열. */
+async function hunminCandidates(chosung: string): Promise<string[]> {
+  const cached = hunminWordCache.get(chosung);
+  if (cached) return cached;
+  const pool = getPool();
+  if (!pool) return [];
+  try {
+    const r = await pool.query(
+      'SELECT word FROM dm_korean_words WHERE chosung = $1 AND char_length(word) = 2 LIMIT 500',
+      [chosung]
+    );
+    const words = (r.rows as { word: string }[]).map(x => x.word).filter(w => typeof w === 'string');
+    if (words.length) hunminWordCache.set(chosung, words); // 빈 결과는 캐시하지 않는다(사전 증가 대비)
+    return words;
+  } catch (e) {
+    console.error('[bot] hunmin dictionary query failed:', e);
+    return [];
+  }
+}
+
+function hunminStrategy(ctx: BotContext) {
+  let chosung = '';
+  let used: string[] = [];
+  let myTurnToken = 0;
+  ctx.socket.on('hunmin_round_start', (d: { chosung?: string }) => {
+    chosung = typeof d?.chosung === 'string' ? d.chosung : '';
+    used = [];
+    myTurnToken++;
+  });
+  ctx.socket.on('hunmin_word_accepted', (d: { word?: string; usedWords?: string[] }) => {
+    if (Array.isArray(d?.usedWords)) used = d.usedWords.filter(w => typeof w === 'string');
+    else if (typeof d?.word === 'string') used.push(d.word);
+  });
+  ctx.socket.on('hunmin_turn_start', (d: { playerIndex?: number; timeLimit?: number }) => {
+    const token = ++myTurnToken;
+    if (d?.playerIndex !== ctx.myIndex || !chosung) return;
+    const limit = typeof d.timeLimit === 'number' ? d.timeLimit : 15000;
+    const startedAt = Date.now();
+    const cs = chosung;
+    void (async () => {
+      const all = await hunminCandidates(cs);
+      if (token !== myTurnToken) return;
+      // 사람은 사전의 일부만 떠올린다: 실력이 높을수록 더 많이 안다. 가끔은 아예 못 떠올려 시간을 넘긴다.
+      const knowRate = 0.12 + ctx.skill * 0.4;
+      const blank = Math.random() < 0.06 * (1.2 - ctx.skill);
+      const known = blank ? [] : all.filter(w => !used.includes(w) && Math.random() < knowRate);
+      if (!known.length) return; // 못 찾음 → 서버 타임아웃으로 탈락(사람과 동일)
+      const word = pick(known);
+      // 생각하는 시간. 타임리밋을 넘기지 않게 1.5초 여유를 둔다.
+      const wait = Math.max(300, Math.min(human(ctx, 2000, 8000), limit - 1500 - (Date.now() - startedAt)));
+      ctx.later(() => {
+        if (token !== myTurnToken) return;
+        ctx.emitAction({ type: 'submit_word', word });
+      }, wait);
+    })();
+  });
+}
+
+// ---- 헥사곤 ----
+
+// 서버 games/hexagon.ts 의 ALL_LINES 와 동일(일직선 3칸 27개).
+const HEX_LINES: number[][] = [
+  [0, 1, 2], [3, 4, 5], [4, 5, 6], [7, 8, 9], [8, 9, 10], [9, 10, 11], [12, 13, 14], [13, 14, 15], [16, 17, 18],
+  [0, 3, 7], [1, 4, 8], [2, 5, 9], [4, 8, 12], [5, 9, 13], [6, 10, 14], [9, 13, 16], [10, 14, 17], [11, 15, 18],
+  [0, 4, 9], [1, 5, 10], [2, 6, 11], [3, 8, 13], [4, 9, 14], [5, 10, 15], [7, 12, 16], [8, 13, 17], [9, 14, 18],
+];
+const lineKey = (cells: number[]) => [...cells].sort((a, b) => a - b).join(',');
+
+function hexagonStrategy(ctx: BotContext) {
+  let numbers: number[] = [];
+  let target = 0;
+  let known: number[][] = []; // 이번 라운드에 "기억해 둔" 정답 줄(전부는 아니다)
+  const found = new Set<string>();
+  let state: 'idle' | 'memorizing' | 'playing' | 'buzzing' = 'idle';
+  let gen = 0;
+
+  const remaining = () => known.filter(l => !found.has(lineKey(l)));
+  const scheduleBuzz = () => {
+    const my = ++gen;
+    if (state !== 'playing') return;
+    if (!remaining().length) return; // 더 떠오르는 게 없으면 가만히 있는다
+    ctx.later(() => {
+      if (my !== gen || state !== 'playing') return;
+      ctx.emitAction({ type: 'buzz' });
+    }, human(ctx, 5000, 16000));
+  };
+
+  ctx.socket.on('hexagon_round_start', (d: { board?: { number?: number }[]; targetNumber?: number }) => {
+    gen++;
+    state = 'memorizing';
+    found.clear();
+    numbers = Array.isArray(d?.board) ? d.board.map(c => Number(c?.number)) : [];
+    target = Number(d?.targetNumber);
+    const all = numbers.length === 19
+      ? HEX_LINES.filter(l => l.reduce((a, i) => a + numbers[i], 0) === target) : [];
+    // 30초 암기 동안 기억하는 줄의 비율은 실력에 비례한다. 최소 하나는 기억한다.
+    const recall = 0.35 + ctx.skill * 0.5;
+    known = all.filter(() => Math.random() < recall);
+    if (!known.length && all.length) known = [pick(all)];
+  });
+  ctx.socket.on('hexagon_play_start', () => { state = 'playing'; scheduleBuzz(); });
+  ctx.socket.on('hexagon_buzz', (d: { playerIndex?: number }) => {
+    gen++;
+    state = 'buzzing';
+    if (d?.playerIndex !== ctx.myIndex) return;
+    const my = gen;
+    ctx.later(() => {
+      if (my !== gen || state !== 'buzzing') return;
+      const rem = remaining();
+      let cells: number[];
+      // 가끔 틀린 줄을 고른다(이미 찾은 줄이나 합이 맞지 않는 줄) → 서버가 -1.
+      if (!rem.length || Math.random() < 0.1 * (1.2 - ctx.skill)) {
+        const wrong = HEX_LINES.filter(l => !known.some(k => lineKey(k) === lineKey(l)));
+        cells = pick(wrong);
+      } else {
+        cells = pick(rem);
+      }
+      ctx.emitAction({ type: 'answer', cellIndices: Math.random() < 0.5 ? cells : [...cells].reverse() });
+    }, human(ctx, 1200, 3500));
+  });
+  ctx.socket.on('hexagon_answer_result', (d: { foundCombinations?: { cells?: number[] }[] }) => {
+    state = 'playing';
+    if (Array.isArray(d?.foundCombinations)) {
+      for (const fc of d.foundCombinations) if (Array.isArray(fc?.cells)) found.add(lineKey(fc.cells));
+    }
+    scheduleBuzz();
+  });
+  ctx.socket.on('hexagon_buzz_timeout', () => { state = 'playing'; scheduleBuzz(); });
+  // 더 떠오르는 줄이 없을 때만 넘기기에 동의한다(양쪽 동의 필요).
+  ctx.socket.on('hexagon_skip_available', () => {
+    if (remaining().length) return;
+    ctx.later(() => { if (state === 'playing') ctx.socket.emit('hexagon_skip_round', { roomId: ctx.roomId }); }, rand(1500, 5000));
+  });
+  ctx.socket.on('hexagon_round_end', () => { gen++; state = 'idle'; });
+}
+
+// ---- 피라미드 ----
+
+/** 서버 PyramidGame.evaluateWithPrecedence 와 같은 계산(첫 카드는 값만, 이후 ×는 먼저, +/- 는 왼→오). */
+function pyramidEval(cards: { operator: string; value: number }[]): number {
+  const reduced: number[] = [cards[0].value];
+  const ops: string[] = [];
+  for (let i = 1; i < cards.length; i++) {
+    if (cards[i].operator === '*') reduced[reduced.length - 1] *= cards[i].value;
+    else { reduced.push(cards[i].value); ops.push(cards[i].operator); }
+  }
+  let r = reduced[0];
+  for (let i = 0; i < ops.length; i++) r = ops[i] === '+' ? r + reduced[i + 1] : r - reduced[i + 1];
+  return r;
+}
+
+function pyramidStrategy(ctx: BotContext) {
+  type Card = { operator: string; value: number };
+  let cards: Card[] = [];
+  let answers: number[][] = [];
+  let wrongs: number[][] = [];
+  let state: 'idle' | 'playing' | 'buzzing' = 'idle';
+  let gen = 0;
+
+  const scheduleBuzz = () => {
+    const my = ++gen;
+    if (state !== 'playing' || !answers.length) return;
+    ctx.later(() => {
+      if (my !== gen || state !== 'playing') return;
+      ctx.emitAction({ type: 'buzz' });
+    }, human(ctx, 6000, 22000));
+  };
+
+  ctx.socket.on('pyramid_round_start', (d: { cards?: { operator?: string; value?: number }[]; targetNumber?: number }) => {
+    gen++;
+    state = 'playing';
+    cards = Array.isArray(d?.cards)
+      ? d.cards.map(c => ({ operator: String(c?.operator), value: Number(c?.value) })) : [];
+    const target = Number(d?.targetNumber);
+    answers = [];
+    wrongs = [];
+    if (cards.length === 10 && cards.every(c => Number.isFinite(c.value))) {
+      // 10장 중 3장을 순서 있게 고르는 720가지를 전부 계산한다(서버와 같은 규칙).
+      for (let a = 0; a < 10; a++) for (let b = 0; b < 10; b++) for (let c = 0; c < 10; c++) {
+        if (a === b || b === c || a === c) continue;
+        const seq = [a, b, c];
+        (pyramidEval(seq.map(i => cards[i])) === target ? answers : wrongs).push(seq);
+      }
+    }
+    scheduleBuzz();
+  });
+  ctx.socket.on('pyramid_buzz', (d: { playerIndex?: number }) => {
+    gen++;
+    state = 'buzzing';
+    if (d?.playerIndex !== ctx.myIndex) return;
+    const my = gen;
+    ctx.later(() => {
+      if (my !== gen || state !== 'buzzing') return;
+      const miss = !answers.length || Math.random() < 0.12 * (1.2 - ctx.skill);
+      const seq = miss && wrongs.length ? pick(wrongs) : pick(answers);
+      if (!seq) return;
+      ctx.emitAction({ type: 'answer', sequence: seq });
+    }, human(ctx, 1500, 5000)); // 서버 제한 15초
+  });
+  // 정답이면 곧 pyramid_round_end 가 오고, 오답이면 다시 playing 으로 돌아온다.
+  ctx.socket.on('pyramid_answer_result', (d: { correct?: boolean }) => {
+    state = 'playing';
+    if (d?.correct) { gen++; return; }
+    scheduleBuzz();
+  });
+  ctx.socket.on('pyramid_buzz_timeout', () => { state = 'playing'; scheduleBuzz(); });
+  ctx.socket.on('pyramid_round_end', () => { gen++; state = 'idle'; });
+}
+
 /** 테스트 전용 노출. */
-export const _internal = { STRATEGIES, tttMove, gomokuMove, infiniteTttMove };
+export const _internal = { STRATEGIES, tttMove, gomokuMove, infiniteTttMove, findSets, hunminWordCache };
