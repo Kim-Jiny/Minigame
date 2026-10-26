@@ -102,3 +102,10 @@ ON/OFF, 투입까지 대기시간(3~30초), 실력(0~100%), 동시 봇 수, 오�
 - **"연결 종료 · 연결이 끊어져 게임이 종료되었습니다" 팝업**: 게임이 끝난 방에 늦게 도착한 `game_action`(마지막 탭·타이머 경합)에 서버가 `Invalid room or game not in progress` 에러를 돌려주고, 클라이언트(`GameEventHelper.registerInvalidRoomHandler`)가 이를 '연결 종료'로 처리해 결과 화면 대신 로비로 보냈다. 서버가 `room.status === 'finished'` 인 방의 늦은 입력은 에러 없이 무시하도록 수정(`server/src/socket/index.ts` game_action 핸들러). 봇전은 게임이 빨리 끝나 경합이 더 자주 났을 가능성이 있다. dev 에서 재현 여부 확인 필요.
 - 로비 개편: 게임 그리드 + 시작 시트 + 바로 대전(인트로 자동 매칭). `GameLaunchArgs`(game_intro_view.dart) 참고.
 - 봇 게임 5종 추가(스트룹·순서 기억·타이밍·카드 뒤집기·무한 틱택토). 봇이 find_match 에 isInfinite 를 그대로 전달하며, 무한 틱택토는 `gameType:'infinite_tictactoe'` 와 `tictactoe+isInfinite` 두 경로 모두 처리. 가짜 소켓으로 액션 포맷·카드 기억·승리/방어 수만 확인했고 실서버 매칭은 미확인. 앱 빠른 시작 후보(`_quickStartGames`)도 같은 13종으로 갱신 — `botService.ts` 의 SUPPORTED_GAMES 와 같게 유지할 것.
+
+## 상점 개편 + 봇 17종 (2026-10-26)
+**상점(서버)** — `dm_shop_items` 에 sale_percent/sale_ends_at/badge/is_featured/available_until 추가, 신규 `dm_shop_purchases`(구매 로그, 기존 `purchase_%` 이력 백필)·`dm_shop_meta`, `dm_user_profile_settings.active_mascot_id`. 구매는 트랜잭션(코인 이중 차감 방지). **기간제**: frame/title/theme/avatar/mascot 의 duration_days 를 등급별(일반·레어 30, 에픽 21, 전설 14일)로 1회 마이그레이션(`dm_shop_meta.duration_migrated_v1`), 보유 중 재구매는 연장(최대 365일), 만료된 장착은 자동 해제. 기존에 영구로 산 아이템은 영구 유지. 신규 카테고리 `mascot`(13종, `{skinColor, accessory}`).
+**운영(admin)** — `/api/admin/shop/stats|items|bulk-sale`, `PATCH /shop/items/:id`(가격·ON/OFF·할인%·종료일·배지·추천·한정종료일·기간). DUO 대시보드 "Shop" 탭(KPI·일별 매출·카테고리/등급 비중·인기/미판매·재구매율·곧 만료·일괄 할인). 기존 대시보드의 `shopRevenue` 는 'shop_%' 필터 오류로 항상 0 이었음 → 구매 로그 기준으로 수정.
+**앱** — `AvatarArt`(27종 손그림 CustomPainter, 이모지 대체), 마스코트 스킨·액세서리(`MyMascot`, 로비·프로필), 상점 UI(할인 스티커·신상/한정/추천 배지·추천 스트립·기간 칩·연장하기·만료 임박).
+**봇** — 17종 전부 지원(Set·훈민정음·헥사곤·수식피라미드 추가; 무한 Set·하드코어 제외). 훈민정음은 `dm_korean_words` 사전 의존(운영 DB 단어 수가 적으면 봇이 시간초과 탈락 가능). 헥사곤/피라미드의 풀이 지연값은 추정치. 앱 빠른 시작은 17종 전체, 헥사곤/피라미드/Set 도 `GameLaunchArgs` 로 인트로 생략.
+**미확인(전부)** — 앱 화면(아바타 그림·상점 카드 레이아웃·카드 비율), 서버 마이그레이션 SQL(실DB 미실행), admin 패널, 봇 4종 실서버 매칭. 타임존: admin 날짜는 DB/Node 시간대가 같다고 가정.

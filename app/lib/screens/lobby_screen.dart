@@ -41,6 +41,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
     'tictactoe', 'gomoku', 'rps', 'reaction',
     'speedtap', 'numberbattle', 'mathrace', 'arrowdash',
     'stroop', 'sequence', 'timing', 'cardflip', 'infinite_tictactoe',
+    'set', 'hunmin', 'hexagon', 'pyramid',
   };
 
   int _currentIndex = 0;

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import '../common/game_intro_view.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../config/app_config.dart';
@@ -166,6 +167,12 @@ class _PyramidScreenState extends State<PyramidScreen>
   @override
   void initState() {
     super.initState();
+    // 로비의 '바로 대전'/빠른 시작이면 인트로를 건너뛰고 바로 상대를 찾는다.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || widget.entryMode != GameEntryMode.versus) return;
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is GameLaunchArgs && args.takeAutoStart()) _findMatch();
+    });
     _resultAnimController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),

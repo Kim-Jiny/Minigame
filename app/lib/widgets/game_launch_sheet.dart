@@ -30,7 +30,15 @@ void openGame(
 }) {
   final entry = GameRoutes.buildModeEntry(game.id, mode);
   if (entry != null) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => entry));
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => entry,
+        settings: RouteSettings(
+          arguments: GameLaunchArgs(autoStart: autoStart),
+        ),
+      ),
+    );
     return;
   }
   Navigator.pushNamed(
@@ -49,9 +57,6 @@ class _GameLaunchSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final versus = mode == GameEntryMode.versus;
-    // 헥사곤·피라미드·Set 은 진입 화면에서 직접 고르므로 자동 시작 대상이 아니다.
-    final hasOwnEntry =
-        GameRoutes.buildModeEntry(game.id, mode) != null;
     final nav = Navigator.of(context);
     final parent = nav.context;
 
@@ -122,7 +127,7 @@ class _GameLaunchSheet extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 22),
-          if (versus && !hasOwnEntry) ...[
+          if (versus) ...[
             ChunkyButton(
               label: '바로 대전!',
               icon: Icons.bolt_rounded,
