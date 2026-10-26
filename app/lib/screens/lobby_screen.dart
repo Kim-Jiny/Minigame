@@ -38,10 +38,23 @@ class LobbyScreen extends StatefulWidget {
 
 class _LobbyScreenState extends State<LobbyScreen> {
   static const _quickStartGames = {
-    'tictactoe', 'gomoku', 'rps', 'reaction',
-    'speedtap', 'numberbattle', 'mathrace', 'arrowdash',
-    'stroop', 'sequence', 'timing', 'cardflip', 'infinite_tictactoe',
-    'set', 'hunmin', 'hexagon', 'pyramid',
+    'tictactoe',
+    'gomoku',
+    'rps',
+    'reaction',
+    'speedtap',
+    'numberbattle',
+    'mathrace',
+    'arrowdash',
+    'stroop',
+    'sequence',
+    'timing',
+    'cardflip',
+    'infinite_tictactoe',
+    'set',
+    'hunmin',
+    'hexagon',
+    'pyramid',
   };
 
   int _currentIndex = 0;
@@ -212,95 +225,106 @@ class _LobbyScreenState extends State<LobbyScreen> {
         final unreadCount = friendProvider.totalUnreadCount;
         debugPrint('🔔 LobbyScreen build: unreadCount = $unreadCount');
 
-        return Scaffold(
-          appBar: AppBar(
-            title: Text(
-              _currentIndex == 0
-                  ? '듀오 아레나'
-                  : _currentIndex == 1
-                  ? '친구'
-                  : '프로필',
-            ),
-            shape: const Border(
-              bottom: BorderSide(
-                color: CandyColors.ink,
-                width: CandyTheme.outline,
+        // 로비는 루트 화면: 뒤로가기로 앱이 종료되지 않게 막고,
+        // 게임 탭이 아니면 게임 탭으로 돌아온다.
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop) return;
+            if (_currentIndex != 0) setState(() => _currentIndex = 0);
+          },
+          child: Scaffold(
+            appBar: AppBar(
+              title: Text(
+                _currentIndex == 0
+                    ? '듀오 아레나'
+                    : _currentIndex == 1
+                    ? '친구'
+                    : '프로필',
               ),
-            ),
-          ),
-          body: Consumer<GameProvider>(
-            builder: (context, gameProvider, child) {
-              final showFullNotice =
-                  gameProvider.hasLobbyNotice && _currentIndex == 0;
-              final showCompactNotice =
-                  gameProvider.hasLobbyNotice && _currentIndex != 0;
-              return Column(
-                children: [
-                  if (showFullNotice)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                      child: _buildLobbyNoticeCard(gameProvider),
-                    ),
-                  if (showCompactNotice)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                      child: _buildCompactLobbyNoticeBar(gameProvider),
-                    ),
-                  Expanded(
-                    child: GameScreenTransition(
-                      transitionKey: _currentIndex,
-                      beginOffset: const Offset(0.02, 0),
-                      child: _buildBody(),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-          bottomNavigationBar: BottomNavigationBar(
-            currentIndex: _currentIndex,
-            onTap: (index) {
-              setState(() {
-                _currentIndex = index;
-              });
-            },
-            type: BottomNavigationBarType.fixed,
-            backgroundColor: Colors.white,
-            selectedItemColor: CandyColors.pink,
-            unselectedItemColor: CandyColors.inkSoft,
-            selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w900),
-            unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700),
-            items: [
-              const BottomNavigationBarItem(
-                icon: Icon(Icons.sports_esports_outlined),
-                activeIcon: Icon(Icons.sports_esports),
-                label: '게임',
-              ),
-              BottomNavigationBarItem(
-                icon: Badge(
-                  isLabelVisible: unreadCount > 0,
-                  label: Text(
-                    unreadCount > 99 ? '99+' : unreadCount.toString(),
-                    style: const TextStyle(fontSize: 10),
-                  ),
-                  child: const Icon(Icons.people_outline),
+              shape: const Border(
+                bottom: BorderSide(
+                  color: CandyColors.ink,
+                  width: CandyTheme.outline,
                 ),
-                activeIcon: Badge(
-                  isLabelVisible: unreadCount > 0,
-                  label: Text(
-                    unreadCount > 99 ? '99+' : unreadCount.toString(),
-                    style: const TextStyle(fontSize: 10),
-                  ),
-                  child: const Icon(Icons.people),
+              ),
+            ),
+            body: Consumer<GameProvider>(
+              builder: (context, gameProvider, child) {
+                final showFullNotice =
+                    gameProvider.hasLobbyNotice && _currentIndex == 0;
+                final showCompactNotice =
+                    gameProvider.hasLobbyNotice && _currentIndex != 0;
+                return Column(
+                  children: [
+                    if (showFullNotice)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                        child: _buildLobbyNoticeCard(gameProvider),
+                      ),
+                    if (showCompactNotice)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                        child: _buildCompactLobbyNoticeBar(gameProvider),
+                      ),
+                    Expanded(
+                      child: GameScreenTransition(
+                        transitionKey: _currentIndex,
+                        beginOffset: const Offset(0.02, 0),
+                        child: _buildBody(),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+            bottomNavigationBar: BottomNavigationBar(
+              currentIndex: _currentIndex,
+              onTap: (index) {
+                setState(() {
+                  _currentIndex = index;
+                });
+              },
+              type: BottomNavigationBarType.fixed,
+              backgroundColor: Colors.white,
+              selectedItemColor: CandyColors.pink,
+              unselectedItemColor: CandyColors.inkSoft,
+              selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w900),
+              unselectedLabelStyle: const TextStyle(
+                fontWeight: FontWeight.w700,
+              ),
+              items: [
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.sports_esports_outlined),
+                  activeIcon: Icon(Icons.sports_esports),
+                  label: '게임',
                 ),
-                label: '친구',
-              ),
-              const BottomNavigationBarItem(
-                icon: Icon(Icons.person_outline),
-                activeIcon: Icon(Icons.person),
-                label: '프로필',
-              ),
-            ],
+                BottomNavigationBarItem(
+                  icon: Badge(
+                    isLabelVisible: unreadCount > 0,
+                    label: Text(
+                      unreadCount > 99 ? '99+' : unreadCount.toString(),
+                      style: const TextStyle(fontSize: 10),
+                    ),
+                    child: const Icon(Icons.people_outline),
+                  ),
+                  activeIcon: Badge(
+                    isLabelVisible: unreadCount > 0,
+                    label: Text(
+                      unreadCount > 99 ? '99+' : unreadCount.toString(),
+                      style: const TextStyle(fontSize: 10),
+                    ),
+                    child: const Icon(Icons.people),
+                  ),
+                  label: '친구',
+                ),
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.person_outline),
+                  activeIcon: Icon(Icons.person),
+                  label: '프로필',
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -392,9 +416,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
       onTap: () {
         // 상대가 바로 잡히도록 매칭 봇이 지원하는 게임만 후보로 한다.
         // 서버 botService.ts 의 SUPPORTED_GAMES 와 같게 유지할 것.
-        final pool = GameRegistry.forEntry(GameEntryMode.versus)
-            .where((g) => _quickStartGames.contains(g.id))
-            .toList();
+        final pool = GameRegistry.forEntry(
+          GameEntryMode.versus,
+        ).where((g) => _quickStartGames.contains(g.id)).toList();
         final game = pool[math.Random().nextInt(pool.length)];
         openGame(context, game, GameEntryMode.versus, autoStart: true);
       },
