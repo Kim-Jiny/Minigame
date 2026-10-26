@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/friend_provider.dart';
@@ -17,7 +18,9 @@ import '../widgets/cartoon/cartoon_card.dart';
 import '../widgets/cartoon/duo_mascot.dart';
 import '../widgets/cartoon/floating_bg.dart';
 import '../widgets/cartoon/pop_in.dart';
-import 'mode_games_screen.dart';
+import 'ranked_screen.dart';
+import '../navigation/game_routes.dart';
+import '../widgets/game_launch_sheet.dart';
 
 class _LobbyNoticeStyle {
   final Color color;
@@ -35,6 +38,7 @@ class LobbyScreen extends StatefulWidget {
 
 class _LobbyScreenState extends State<LobbyScreen> {
   int _currentIndex = 0;
+  GameEntryMode _mode = GameEntryMode.versus;
   String? _lastProcessedInvitationRoomId; // 중복 초대 게임 처리 방지
   int? _openInvitationDialogId;
   RemoteConfigService? _configService;
@@ -311,6 +315,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   Widget _buildGamesTab() {
     final auth = context.watch<AuthProvider>();
+    final games = GameRegistry.forEntry(_mode);
     return FloatingBackground(
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -333,18 +338,33 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildGreeting(auth.nickname ?? '플레이어'),
-                    const SizedBox(height: 28),
-                    PopIn(
-                      delay: const Duration(milliseconds: 150),
-                      child: _buildEntryCard(
-                        GameEntryMode.versus,
-                        emphasized: true,
-                      ),
-                    ),
                     const SizedBox(height: 18),
                     PopIn(
-                      delay: const Duration(milliseconds: 300),
-                      child: _buildEntryCard(GameEntryMode.solo),
+                      delay: const Duration(milliseconds: 120),
+                      child: _buildQuickStart(),
+                    ),
+                    const SizedBox(height: 18),
+                    _buildModeToggle(),
+                    if (_mode == GameEntryMode.versus) ...[
+                      const SizedBox(height: 14),
+                      _buildRankedCard(),
+                    ],
+                    const SizedBox(height: 16),
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: games.length,
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            mainAxisSpacing: 14,
+                            crossAxisSpacing: 14,
+                            childAspectRatio: 1.08,
+                          ),
+                      itemBuilder: (_, i) => PopIn(
+                        delay: Duration(milliseconds: 40 * i),
+                        child: _buildGameTile(games[i]),
+                      ),
                     ),
                   ],
                 ),
@@ -352,6 +372,181 @@ class _LobbyScreenState extends State<LobbyScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  /// 아무 대전 게임이나 골라 바로 매칭을 시작한다.
+  Widget _buildQuickStart() {
+    return CartoonCard(
+      color: CandyColors.pink,
+      radius: 26,
+      padding: const EdgeInsets.all(18),
+      onTap: () {
+        final pool = GameRegistry.forEntry(GameEntryMode.versus)
+            .where((g) => GameRoutes.buildModeEntry(g.id, GameEntryMode.versus) == null)
+            .toList();
+        final game = pool[math.Random().nextInt(pool.length)];
+        openGame(context, game, GameEntryMode.versus, autoStart: true);
+      },
+      child: const Row(
+        children: [
+          Icon(Icons.bolt_rounded, color: Colors.white, size: 40),
+          SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '빠른 시작',
+                  style: TextStyle(
+                    fontFamily: CandyTheme.displayFont,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  '아무 게임이나 바로 매칭!',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Icon(Icons.play_circle_fill_rounded, color: Colors.white, size: 34),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModeToggle() {
+    Widget seg(GameEntryMode m) {
+      final selected = _mode == m;
+      return Expanded(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            if (_mode != m) setState(() => _mode = m);
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            padding: const EdgeInsets.symmetric(vertical: 11),
+            decoration: BoxDecoration(
+              color: selected ? m.color : Colors.transparent,
+              borderRadius: BorderRadius.circular(16),
+              border: selected
+                  ? Border.all(color: CandyColors.ink, width: 2.5)
+                  : null,
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  m.icon,
+                  size: 20,
+                  color: selected ? Colors.white : CandyColors.inkSoft,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  m == GameEntryMode.versus ? '대전' : '혼자',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    color: selected ? Colors.white : CandyColors.inkSoft,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return CartoonCard(
+      radius: 20,
+      shadow: 3,
+      padding: const EdgeInsets.all(5),
+      child: Row(
+        children: [seg(GameEntryMode.versus), seg(GameEntryMode.solo)],
+      ),
+    );
+  }
+
+  Widget _buildRankedCard() {
+    return CartoonCard(
+      color: CandyColors.tangerine,
+      radius: 22,
+      shadow: 4,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const RankedScreen()),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.emoji_events_rounded, color: Colors.white, size: 30),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              '랭크전 · Bo3 ELO 매칭',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          Icon(Icons.arrow_forward_rounded, color: Colors.white),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGameTile(GameMeta game) {
+    return CartoonCard(
+      radius: 22,
+      shadow: 4,
+      padding: const EdgeInsets.all(12),
+      onTap: () => showGameLaunchSheet(context, game, _mode),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(
+              color: game.color,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: CandyColors.ink, width: 2.5),
+            ),
+            child: Icon(game.icon, color: Colors.white, size: 32),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            game.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              color: CandyColors.ink,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            game.tempo.duration,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: CandyColors.inkSoft,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -395,67 +590,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildEntryCard(GameEntryMode entry, {bool emphasized = false}) {
-    final count = GameRegistry.countForEntry(entry);
-    final color = entry == GameEntryMode.versus
-        ? CandyColors.pink
-        : CandyColors.mint;
-    final fg = emphasized ? Colors.white : CandyColors.ink;
-    return CartoonCard(
-      color: color,
-      radius: 26,
-      padding: const EdgeInsets.all(20),
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => ModeGamesScreen(entry: entry)),
-        );
-      },
-      child: Row(
-        children: [
-          Container(
-            width: 62,
-            height: 62,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: CandyColors.ink, width: 3),
-            ),
-            child: Icon(entry.icon, color: color, size: 32),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  entry.title,
-                  style: TextStyle(
-                    fontFamily: CandyTheme.displayFont,
-                    fontSize: 23,
-                    fontWeight: FontWeight.w900,
-                    color: fg,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  '$count개 게임 · ${entry.tagline}',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: fg.withValues(alpha: 0.85),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Icon(Icons.play_circle_fill_rounded, color: fg, size: 34),
-        ],
-      ),
     );
   }
 

@@ -5,10 +5,25 @@ import '../../widgets/cartoon/chunky_button.dart';
 import '../../widgets/cartoon/duo_mascot.dart';
 import '../../widgets/cartoon/pop_in.dart';
 
+/// 로비 시트에서 "바로 시작"으로 들어왔을 때 라우트 arguments 로 전달되는 값.
+/// 첫 번째 [GameIntroView] 가 한 번만 소비하므로, 결과 후 idle 로 돌아와도 자동 재매칭되지 않는다.
+class GameLaunchArgs {
+  final bool autoStart;
+  bool _consumed = false;
+
+  GameLaunchArgs({this.autoStart = false});
+
+  bool takeAutoStart() {
+    if (!autoStart || _consumed) return false;
+    _consumed = true;
+    return true;
+  }
+}
+
 /// 게임 진입(대기) 화면 공통 위젯.
 /// 부드러운 히어로 아이콘 + 제목/설명 + 풀폭 1차 CTA(상대 찾기) + 토널 보조(친구 초대).
 /// 게임마다 아이콘·제목·설명만 다르고 배치는 동일하게 통일한다.
-class GameIntroView extends StatelessWidget {
+class GameIntroView extends StatefulWidget {
   final Gradient backgroundGradient;
   final Color accentColor;
 
@@ -45,7 +60,34 @@ class GameIntroView extends StatelessWidget {
   });
 
   @override
+  State<GameIntroView> createState() => _GameIntroViewState();
+}
+
+class _GameIntroViewState extends State<GameIntroView> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is GameLaunchArgs && args.takeAutoStart()) {
+        widget.onFindMatch();
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final backgroundGradient = widget.backgroundGradient;
+    final accentColor = widget.accentColor;
+    final icon = widget.icon;
+    final emoji = widget.emoji;
+    final title = widget.title;
+    final descriptions = widget.descriptions;
+    final onFindMatch = widget.onFindMatch;
+    final onInviteFriend = widget.onInviteFriend;
+    final findMatchLabel = widget.findMatchLabel;
+    final extra = widget.extra;
     return Container(
       decoration: BoxDecoration(gradient: backgroundGradient),
       child: SafeArea(
@@ -73,7 +115,7 @@ class GameIntroView extends StatelessWidget {
                             child: Center(
                               child: emoji != null
                                   ? Text(
-                                      emoji!,
+                                      emoji,
                                       style: const TextStyle(fontSize: 48),
                                     )
                                   : Icon(icon, size: 52, color: accentColor),
@@ -121,7 +163,7 @@ class GameIntroView extends StatelessWidget {
                         ),
                       ),
                     ),
-                  if (extra != null) ...[const SizedBox(height: 24), extra!],
+                  if (extra != null) ...[const SizedBox(height: 24), extra],
                   const SizedBox(height: 36),
                   // 1차 CTA — 상대 찾기 (풀폭)
                   ChunkyButton(
