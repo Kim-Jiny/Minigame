@@ -16,6 +16,7 @@ import 'maintenance_screen.dart';
 import '../theme/candy_theme.dart';
 import '../widgets/cartoon/cartoon_card.dart';
 import '../widgets/cartoon/duo_mascot.dart';
+import '../widgets/cartoon/my_mascot.dart';
 import '../widgets/cartoon/floating_bg.dart';
 import '../widgets/cartoon/pop_in.dart';
 import 'ranked_screen.dart';
@@ -561,7 +562,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
   Widget _buildGreeting(String nickname) {
     return Row(
       children: [
-        const DuoMascot(size: 84, mood: MascotMood.cheer),
+        const MyMascot(size: 84, mood: MascotMood.cheer),
         const SizedBox(width: 12),
         Expanded(
           child: CartoonCard(

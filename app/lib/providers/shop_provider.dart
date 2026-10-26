@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'mixins/provider_feedback.dart';
 import '../services/socket_service.dart';
@@ -14,6 +15,7 @@ class ShopProvider extends ChangeNotifier with ProviderFeedback {
   bool _listenersInitialized = false;
   bool _hasFetchedInitialData = false;
   String? _lastChangedNickname;
+  Timer? _expiryTimer;
 
   List<ShopItem> get shopItems => _shopItems;
   List<UserItem> get userItems => _userItems;
@@ -44,13 +46,70 @@ class ShopProvider extends ChangeNotifier with ProviderFeedback {
     return _userItems.any((item) => item.itemId == itemId && !item.isExpired);
   }
 
-  // 아이템 장착 여부 확인
+  /// 보유 기록(UserItem). 기간제는 만료일을 가진다. 없으면 null.
+  UserItem? ownedRecord(int itemId) {
+    UserItem? best;
+    for (final u in _userItems) {
+      if (u.itemId != itemId || u.isExpired) continue;
+      // 영구 > 더 늦게 만료되는 쪽
+      if (best == null ||
+          u.expiresAt == null ||
+          (best.expiresAt != null && u.expiresAt!.isAfter(best.expiresAt!))) {
+        best = u;
+      }
+    }
+    return best;
+  }
+
+  // 아이템 장착 여부 확인 (만료된 기간제는 서버 갱신 전이라도 장착 아님으로 본다)
   bool isEquipped(int itemId) {
-    if (_profileSettings == null) return false;
-    return _profileSettings!.activeFrameId == itemId ||
-        _profileSettings!.activeTitleId == itemId ||
-        _profileSettings!.activeThemeId == itemId ||
-        _profileSettings!.activeAvatarId == itemId;
+    final s = _profileSettings;
+    if (s == null) return false;
+    final active = s.activeFrameId == itemId ||
+        s.activeTitleId == itemId ||
+        s.activeThemeId == itemId ||
+        s.activeAvatarId == itemId ||
+        s.activeMascotId == itemId;
+    if (!active) return false;
+    final expiredOnly = _userItems.any((u) => u.itemId == itemId && u.isExpired) &&
+        ownedRecord(itemId) == null;
+    return !expiredOnly;
+  }
+
+  /// 소켓이 연결돼 있으면 보유 아이템/프로필 설정을 다시 받는다(앱 복귀·상점 진입 시).
+  void refreshOwnership() {
+    if (!_socketService.isReady) return;
+    getUserItems();
+    getProfileSettings();
+  }
+
+  // 장착 중인 기간제 아이템이 만료되는 순간 서버 상태를 다시 받아 기본값으로 돌아가게 한다.
+  void _scheduleExpiryRefresh() {
+    _expiryTimer?.cancel();
+    final s = _profileSettings;
+    if (s == null) return;
+    DateTime? soonest;
+    for (final id in [
+      s.activeFrameId,
+      s.activeTitleId,
+      s.activeThemeId,
+      s.activeAvatarId,
+      s.activeMascotId,
+    ]) {
+      if (id == null) continue;
+      final exp = ownedRecord(id)?.expiresAt;
+      if (exp != null && (soonest == null || exp.isBefore(soonest))) {
+        soonest = exp;
+      }
+    }
+    if (soonest == null) return;
+    var wait = soonest.difference(DateTime.now()) + const Duration(seconds: 2);
+    if (wait > const Duration(days: 20)) return; // 타이머 한도 보호
+    if (wait.isNegative) wait = const Duration(seconds: 2);
+    _expiryTimer = Timer(wait, () {
+      notifyListeners(); // isEquipped 가 즉시 만료를 반영
+      refreshOwnership();
+    });
   }
 
   void initialize() {
@@ -90,6 +149,7 @@ class ShopProvider extends ChangeNotifier with ProviderFeedback {
       _userItems = (data['items'] as List)
           .map((item) => UserItem.fromJson(item))
           .toList();
+      _scheduleExpiryRefresh();
       notifyListeners();
     });
 
@@ -97,6 +157,7 @@ class ShopProvider extends ChangeNotifier with ProviderFeedback {
     _socketListeners.on('profile_settings', (data) {
       if (data['settings'] != null) {
         _profileSettings = UserProfileSettings.fromJson(data['settings']);
+        _scheduleExpiryRefresh();
       }
       notifyListeners();
     });
@@ -108,6 +169,7 @@ class ShopProvider extends ChangeNotifier with ProviderFeedback {
         setSuccess(data['message']);
         // 보유 아이템 새로고침
         getUserItems();
+        getProfileSettings();
       } else {
         setError(data['message']);
       }
@@ -230,6 +292,7 @@ class ShopProvider extends ChangeNotifier with ProviderFeedback {
     _shopItems = [];
     _userItems = [];
     _profileSettings = null;
+    _expiryTimer?.cancel();
     _hasFetchedInitialData = false;
     _lastChangedNickname = null;
     clearFeedback();
@@ -238,6 +301,7 @@ class ShopProvider extends ChangeNotifier with ProviderFeedback {
 
   @override
   void dispose() {
+    _expiryTimer?.cancel();
     _socketListeners.offAll();
     super.dispose();
   }

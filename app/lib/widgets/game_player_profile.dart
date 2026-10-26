@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/shop_item.dart';
+import 'cartoon/avatar_art.dart';
 
 class GamePlayerProfile extends StatelessWidget {
   final String name;
@@ -93,9 +94,7 @@ class GamePlayerProfile extends StatelessWidget {
 
   Widget _buildFramedAvatar(Color? frameColor, Color? glowColor, bool isRainbow) {
     // 아바타 정보 가져오기
-    final avatarInfo = profileSettings?.getAvatarInfo();
-    final avatarEmoji = avatarInfo?.$1;
-    final avatarBgColor = avatarInfo?.$2;
+    final avatarArt = profileSettings?.getAvatarArt();
 
     return Container(
       decoration: BoxDecoration(
@@ -134,17 +133,23 @@ class GamePlayerProfile extends StatelessWidget {
                 )
               : null,
         ),
-        child: CircleAvatar(
-          radius: 24,
-          backgroundColor: avatarBgColor ?? (isMe ? activeColor.withValues(alpha: 0.2) : Colors.grey.shade200),
-          child: avatarEmoji != null
-              ? Text(avatarEmoji, style: const TextStyle(fontSize: 28))
-              : Icon(
+        child: avatarArt != null
+            ? AvatarArt(
+                itemKey: avatarArt.key,
+                emoji: avatarArt.emoji,
+                bgColor: avatarArt.bg,
+                size: 48,
+                outline: false,
+              )
+            : CircleAvatar(
+                radius: 24,
+                backgroundColor: isMe ? activeColor.withValues(alpha: 0.2) : Colors.grey.shade200,
+                child: Icon(
                   Icons.person,
                   size: 24,
                   color: isMe ? activeColor : Colors.grey,
                 ),
-        ),
+              ),
       ),
     );
   }

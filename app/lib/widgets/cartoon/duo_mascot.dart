@@ -11,12 +11,16 @@ class DuoMascot extends StatefulWidget {
   final MascotMood mood;
   final bool animate;
 
+  /// 몸 위에 얹는 액세서리(ribbon|sunglasses|headphones|cap|wizard|flower|party|crown|halo|horns). null/none 이면 없음.
+  final String? accessory;
+
   const DuoMascot({
     super.key,
     this.size = 96,
     this.color = CandyColors.pink,
     this.mood = MascotMood.happy,
     this.animate = true,
+    this.accessory,
   });
 
   @override
@@ -49,7 +53,12 @@ class _DuoMascotState extends State<DuoMascot>
         animation: _c,
         builder: (_, _) => CustomPaint(
           size: Size(widget.size, widget.size),
-          painter: _MascotPainter(widget.color, widget.mood, _c.value),
+          painter: _MascotPainter(
+            widget.color,
+            widget.mood,
+            _c.value,
+            widget.accessory,
+          ),
         ),
       ),
     );
@@ -60,7 +69,8 @@ class _MascotPainter extends CustomPainter {
   final Color color;
   final MascotMood mood;
   final double t;
-  _MascotPainter(this.color, this.mood, this.t);
+  final String? accessory;
+  _MascotPainter(this.color, this.mood, this.t, [this.accessory]);
 
   Paint get _line => Paint()
     ..color = CandyColors.ink
@@ -241,10 +251,157 @@ class _MascotPainter extends CustomPainter {
       canvas.drawOval(f, Paint()..color = CandyColors.deepen(color, 0.08));
       canvas.drawOval(f, _line);
     }
+    if (accessory != null) _paintAccessory(canvas, u);
     canvas.restore();
+  }
+
+  void _shape(Canvas canvas, Path p, Color col, double u) {
+    canvas.drawPath(p, Paint()..color = col);
+    canvas.drawPath(p, _line);
+  }
+
+  Path _poly(double u, List<double> xy) {
+    final p = Path();
+    for (var i = 0; i < xy.length; i += 2) {
+      i == 0
+          ? p.moveTo(xy[i] * u, xy[i + 1] * u)
+          : p.lineTo(xy[i] * u, xy[i + 1] * u);
+    }
+    return p..close();
+  }
+
+  Rect _r(double u, double l, double t, double w, double h) =>
+      Rect.fromLTWH(l * u, t * u, w * u, h * u);
+
+  void _paintAccessory(Canvas canvas, double u) {
+    switch (accessory) {
+      case 'ribbon':
+        const c = Color(0xFFFF4D7D);
+        _shape(canvas, _poly(u, [66, 22, 82, 12, 82, 32]), c, u);
+        _shape(canvas, _poly(u, [66, 22, 50, 12, 50, 32]), c, u);
+        canvas.drawCircle(Offset(66 * u, 22 * u), 5 * u, Paint()..color = const Color(0xFFFFB3C7));
+        canvas.drawCircle(Offset(66 * u, 22 * u), 5 * u, _line);
+      case 'sunglasses':
+        for (final x in [33.0, 67.0]) {
+          final r = RRect.fromRectAndRadius(
+            Rect.fromCenter(center: Offset(x * u, 52 * u), width: 24 * u, height: 16 * u),
+            Radius.circular(6 * u),
+          );
+          canvas.drawRRect(r, Paint()..color = CandyColors.ink);
+          canvas.drawRRect(r, _line);
+          canvas.drawLine(
+            Offset((x - 7) * u, 48 * u),
+            Offset((x - 2) * u, 48 * u),
+            Paint()
+              ..color = Colors.white.withValues(alpha: 0.8)
+              ..strokeWidth = 2.4 * u
+              ..strokeCap = StrokeCap.round,
+          );
+        }
+        canvas.drawLine(Offset(45 * u, 52 * u), Offset(55 * u, 52 * u), _line);
+      case 'headphones':
+        final band = Path()
+          ..moveTo(12 * u, 50 * u)
+          ..quadraticBezierTo(50 * u, -8 * u, 88 * u, 50 * u);
+        canvas.drawPath(
+          band,
+          Paint()
+            ..color = CandyColors.ink
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 8 * u
+            ..strokeCap = StrokeCap.round,
+        );
+        canvas.drawPath(
+          band,
+          Paint()
+            ..color = CandyColors.sky
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 3.4 * u
+            ..strokeCap = StrokeCap.round,
+        );
+        for (final x in [4.0, 84.0]) {
+          final r = RRect.fromRectAndRadius(_r(u, x, 42, 12, 24), Radius.circular(5 * u));
+          canvas.drawRRect(r, Paint()..color = CandyColors.sky);
+          canvas.drawRRect(r, _line);
+        }
+      case 'cap':
+        final dome = Path()
+          ..moveTo(22 * u, 32 * u)
+          ..quadraticBezierTo(24 * u, 6 * u, 52 * u, 8 * u)
+          ..quadraticBezierTo(78 * u, 10 * u, 80 * u, 32 * u)
+          ..close();
+        _shape(canvas, dome, CandyColors.sky, u);
+        final brim = Path()
+          ..moveTo(60 * u, 30 * u)
+          ..quadraticBezierTo(90 * u, 26 * u, 96 * u, 36 * u)
+          ..quadraticBezierTo(74 * u, 38 * u, 56 * u, 34 * u)
+          ..close();
+        _shape(canvas, brim, CandyColors.skyDeep, u);
+        canvas.drawCircle(Offset(51 * u, 8 * u), 3 * u, Paint()..color = CandyColors.skyDeep);
+      case 'wizard':
+        _shape(canvas, _poly(u, [30, 30, 52, 0, 72, 30]), CandyColors.grape, u);
+        canvas.drawOval(_r(u, 22, 26, 58, 12), Paint()..color = CandyColors.grapeDeep);
+        canvas.drawOval(_r(u, 22, 26, 58, 12), _line);
+        canvas.drawCircle(Offset(52 * u, 17 * u), 3.4 * u, Paint()..color = CandyColors.sun);
+      case 'flower':
+        final ctr = Offset(30 * u, 22 * u);
+        for (var i = 0; i < 5; i++) {
+          final a = i * math.pi * 2 / 5;
+          final o = ctr + Offset(math.cos(a), math.sin(a)) * 7 * u;
+          canvas.drawCircle(o, 5.4 * u, Paint()..color = const Color(0xFFFFB3C7));
+          canvas.drawCircle(o, 5.4 * u, _line..strokeWidth = 2.2 * u);
+        }
+        canvas.drawCircle(ctr, 4.4 * u, Paint()..color = CandyColors.sun);
+        canvas.drawCircle(ctr, 4.4 * u, _line);
+      case 'party':
+        canvas.save();
+        canvas.translate(50 * u, 28 * u);
+        canvas.rotate(0.22);
+        canvas.translate(-50 * u, -28 * u);
+        _shape(canvas, _poly(u, [36, 30, 50, -2, 64, 30]), CandyColors.pink, u);
+        canvas.drawLine(Offset(41 * u, 20 * u), Offset(59 * u, 24 * u), Paint()..color = CandyColors.sun..strokeWidth = 3.4 * u);
+        canvas.drawCircle(Offset(50 * u, -1 * u), 4 * u, Paint()..color = CandyColors.sun);
+        canvas.drawCircle(Offset(50 * u, -1 * u), 4 * u, _line);
+        canvas.restore();
+      case 'crown':
+        final crown = Path()
+          ..moveTo(30 * u, 30 * u)
+          ..lineTo(28 * u, 8 * u)
+          ..lineTo(40 * u, 19 * u)
+          ..lineTo(50 * u, 4 * u)
+          ..lineTo(60 * u, 19 * u)
+          ..lineTo(72 * u, 8 * u)
+          ..lineTo(70 * u, 30 * u)
+          ..close();
+        _shape(canvas, crown, CandyColors.sun, u);
+        canvas.drawCircle(Offset(50 * u, 23 * u), 3 * u, Paint()..color = CandyColors.pink);
+      case 'halo':
+        final ring = Rect.fromCenter(center: Offset(50 * u, 8 * u), width: 38 * u, height: 12 * u);
+        canvas.drawOval(
+          ring,
+          Paint()
+            ..color = CandyColors.ink
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 8 * u,
+        );
+        canvas.drawOval(
+          ring,
+          Paint()
+            ..color = CandyColors.sun
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 3.6 * u,
+        );
+      case 'horns':
+        const c = Color(0xFFE5484D);
+        _shape(canvas, _poly(u, [26, 32, 18, 6, 40, 26]), c, u);
+        _shape(canvas, _poly(u, [74, 32, 82, 6, 60, 26]), c, u);
+    }
   }
 
   @override
   bool shouldRepaint(_MascotPainter old) =>
-      old.t != t || old.color != color || old.mood != mood;
+      old.t != t ||
+      old.color != color ||
+      old.mood != mood ||
+      old.accessory != accessory;
 }

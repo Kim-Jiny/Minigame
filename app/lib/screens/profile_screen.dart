@@ -12,7 +12,9 @@ import 'inquiry_screen.dart';
 import '../theme/candy_theme.dart';
 import '../widgets/cartoon/cartoon_card.dart';
 import '../widgets/cartoon/chunky_button.dart';
+import '../widgets/cartoon/avatar_art.dart';
 import '../widgets/cartoon/duo_mascot.dart';
+import '../widgets/cartoon/my_mascot.dart';
 import '../widgets/cartoon/floating_bg.dart';
 import '../widgets/cartoon/pop_in.dart';
 
@@ -308,14 +310,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     // 아바타 정보
-    String? avatarEmoji;
-    Color? avatarBgColor;
-
-    final activeAvatar = profileSettings?.activeAvatar;
-    if (activeAvatar != null) {
-      avatarEmoji = activeAvatar.avatarEmoji;
-      avatarBgColor = activeAvatar.avatarBgColor;
-    }
+    final avatarArt = profileSettings?.getAvatarArt();
 
     return CartoonCard(
       padding: EdgeInsets.zero,
@@ -334,12 +329,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: Column(
           children: [
             // 프레임이 적용된 아바타
-            _buildFramedAvatar(
-              frameColor,
-              glowColor,
-              isRainbow,
-              avatarEmoji,
-              avatarBgColor,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                _buildFramedAvatar(frameColor, glowColor, isRainbow, avatarArt),
+                const SizedBox(width: 10),
+                // 내가 장착한 마스코트 스킨
+                const MyMascot(size: 72),
+              ],
             ),
             const SizedBox(height: 14),
 
@@ -421,8 +419,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     Color? frameColor,
     Color? glowColor,
     bool isRainbow,
-    String? avatarEmoji,
-    Color? avatarBgColor,
+    ({String key, String? emoji, Color bg})? avatarArt,
   ) {
     return Container(
       decoration: BoxDecoration(
@@ -460,14 +457,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ? Border.all(color: CandyColors.ink, width: 3)
               : null,
         ),
-        child: CircleAvatar(
-          radius: 40,
-          backgroundColor:
-              avatarBgColor ?? Colors.white.withValues(alpha: 0.35),
-          child: avatarEmoji != null
-              ? Text(avatarEmoji, style: const TextStyle(fontSize: 48))
-              : const Icon(Icons.person, size: 40, color: Colors.white),
-        ),
+        child: avatarArt != null
+            ? AvatarArt(
+                itemKey: avatarArt.key,
+                emoji: avatarArt.emoji,
+                bgColor: avatarArt.bg,
+                size: 80,
+                outline: false,
+              )
+            : CircleAvatar(
+                radius: 40,
+                backgroundColor: Colors.white.withValues(alpha: 0.35),
+                child: const Icon(Icons.person, size: 40, color: Colors.white),
+              ),
       ),
     );
   }

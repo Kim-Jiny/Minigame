@@ -149,6 +149,8 @@ class _AuthWrapperState extends State<AuthWrapper> with WidgetsBindingObserver {
     } else if (state == AppLifecycleState.resumed && auth.isLoggedIn) {
       // 로그인 상태면 항상 소켓 재확인
       _socketService.connect();
+      // 기간제 아이템이 자는 동안 만료됐을 수 있으니 보유/장착 상태 갱신
+      context.read<ShopProvider>().refreshOwnership();
 
       final pausedDuration = _pausedAt != null
           ? DateTime.now().difference(_pausedAt!).inSeconds

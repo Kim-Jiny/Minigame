@@ -7,6 +7,7 @@ import '../providers/auth_provider.dart';
 import '../models/shop_item.dart';
 import '../services/ad_service.dart';
 import '../theme/candy_theme.dart';
+import '../widgets/cartoon/avatar_art.dart';
 import '../widgets/cartoon/cartoon_card.dart';
 import '../widgets/cartoon/chunky_button.dart';
 import '../widgets/cartoon/confetti_burst.dart';
@@ -25,19 +26,25 @@ class _ShopScreenState extends State<ShopScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   ShopItem? _lastPurchasedItem; // 마지막 구매 시도한 아이템
+  bool _ownedOnly = false; // '내 아이템' 보기
 
   final List<_TabInfo> _tabs = [
     _TabInfo(Icons.auto_awesome, '프레임', CandyColors.grape),
     _TabInfo(Icons.military_tech, '칭호', CandyColors.pink),
     _TabInfo(Icons.palette, '테마', CandyColors.sky),
     _TabInfo(Icons.face, '아바타', CandyColors.mint),
+    _TabInfo(Icons.pets, '마스코트', CandyColors.grapeDeep),
     _TabInfo(Icons.confirmation_number, '티켓', CandyColors.tangerine),
   ];
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
+    // 기간제 아이템이 그새 만료됐을 수 있으니 진입 시 보유/장착 상태를 갱신
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<ShopProvider>().refreshOwnership();
+    });
   }
 
   @override
@@ -320,6 +327,7 @@ class _ShopScreenState extends State<ShopScreen>
                   _buildItemGrid(shopProvider, ShopCategory.title),
                   _buildItemGrid(shopProvider, ShopCategory.theme),
                   _buildItemGrid(shopProvider, ShopCategory.avatar),
+                  _buildItemGrid(shopProvider, ShopCategory.mascot),
                   _buildTicketList(shopProvider, statsProvider),
                 ],
               ),
@@ -520,6 +528,42 @@ class _ShopScreenState extends State<ShopScreen>
     );
   }
 
+  /// 목록 정렬 점수(낮을수록 앞). 추천/할인/신상이 먼저, 보유는 뒤(만료 임박 보유는 그 앞).
+  int _rank(ShopProvider sp, ShopItem i) {
+    if (sp.hasItem(i.id)) {
+      return (sp.ownedRecord(i.id)?.isExpiringSoon ?? false) ? 9 : 10;
+    }
+    var r = 6;
+    if (i.isFeatured) r -= 3;
+    if (i.isOnSale) r -= 2;
+    if (i.badge == 'new') r -= 1;
+    return r;
+  }
+
+  /// 내 아이템 보기 정렬: 만료 임박 순, 영구는 뒤.
+  int _ownedCompare(ShopProvider sp, ShopItem a, ShopItem b) {
+    final ea = sp.ownedRecord(a.id)?.expiresAt;
+    final eb = sp.ownedRecord(b.id)?.expiresAt;
+    if (ea == null && eb == null) return a.rarity.index.compareTo(b.rarity.index);
+    if (ea == null) return 1;
+    if (eb == null) return -1;
+    return ea.compareTo(eb);
+  }
+
+  /// 추천 / 신상 / 할인 중 가로 스트립에 들어갈 아이템(안 가진 것만).
+  List<ShopItem> _highlightItems(ShopProvider sp) {
+    final list = sp.shopItems
+        .where(
+          (i) =>
+              i.category != ShopCategory.ticket &&
+              !sp.hasItem(i.id) &&
+              (i.isFeatured || i.badge == 'new' || i.isOnSale),
+        )
+        .toList()
+      ..sort((a, b) => _rank(sp, a).compareTo(_rank(sp, b)));
+    return list.take(12).toList();
+  }
+
   Widget _buildItemGrid(ShopProvider shopProvider, ShopCategory category) {
     final items = shopProvider.getItemsByCategory(category);
 
@@ -556,15 +600,22 @@ class _ShopScreenState extends State<ShopScreen>
       );
     }
 
-    // 정렬: 보유 아이템 먼저, 그 다음 희귀도순 (커먼 → 레어 → 에픽 → 레전더리)
-    final sortedItems = List<ShopItem>.from(items)
-      ..sort((a, b) {
-        final aOwned = shopProvider.hasItem(a.id) ? 0 : 1;
-        final bOwned = shopProvider.hasItem(b.id) ? 0 : 1;
-        if (aOwned != bOwned) return aOwned.compareTo(bOwned);
-        // 희귀도 순 (common=0, rare=1, epic=2, legendary=3)
-        return a.rarity.index.compareTo(b.rarity.index);
-      });
+    // 정렬: 추천/할인/신상 → 희귀도, 보유는 뒤. 내 아이템 보기는 만료 임박 순.
+    final List<ShopItem> sortedItems;
+    if (_ownedOnly) {
+      sortedItems = items.where((i) => shopProvider.hasItem(i.id)).toList()
+        ..sort((a, b) => _ownedCompare(shopProvider, a, b));
+    } else {
+      sortedItems = List<ShopItem>.from(items)
+        ..sort((a, b) {
+          final ra = _rank(shopProvider, a), rb = _rank(shopProvider, b);
+          if (ra != rb) return ra.compareTo(rb);
+          return a.rarity.index.compareTo(b.rarity.index);
+        });
+    }
+    final highlights = _ownedOnly
+        ? const <ShopItem>[]
+        : _highlightItems(shopProvider);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -578,29 +629,206 @@ class _ShopScreenState extends State<ShopScreen>
             : 2;
         final horizontalPadding = width >= 900 ? 24.0 : 16.0;
 
-        return GridView.builder(
-          padding: EdgeInsets.fromLTRB(
-            horizontalPadding,
-            12,
-            horizontalPadding,
-            28,
-          ),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            childAspectRatio: width >= 900 ? 0.8 : 0.72,
-            crossAxisSpacing: 14,
-            mainAxisSpacing: 14,
-          ),
-          itemCount: sortedItems.length,
-          itemBuilder: (context, index) {
-            final item = sortedItems[index];
-            return PopIn(
-              delay: Duration(milliseconds: math.min(index * 40, 400)),
-              child: _buildItemCard(shopProvider, item),
-            );
-          },
+        return CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(child: _buildFilterBar(horizontalPadding)),
+            if (highlights.isNotEmpty)
+              SliverToBoxAdapter(
+                child: _buildHighlightStrip(
+                  shopProvider,
+                  highlights,
+                  horizontalPadding,
+                ),
+              ),
+            if (sortedItems.isEmpty)
+              const SliverFillRemaining(
+                hasScrollBody: false,
+                child: Center(
+                  child: Text(
+                    '보유한 아이템이 없어요',
+                    style: TextStyle(
+                      color: CandyColors.inkSoft,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+              )
+            else
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                  horizontalPadding,
+                  6,
+                  horizontalPadding,
+                  28,
+                ),
+                sliver: SliverGrid(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: columns,
+                    childAspectRatio: width >= 900 ? 0.78 : 0.68,
+                    crossAxisSpacing: 14,
+                    mainAxisSpacing: 14,
+                  ),
+                  delegate: SliverChildBuilderDelegate((context, index) {
+                    final item = sortedItems[index];
+                    return PopIn(
+                      delay: Duration(milliseconds: math.min(index * 40, 400)),
+                      child: _buildItemCard(shopProvider, item),
+                    );
+                  }, childCount: sortedItems.length),
+                ),
+              ),
+          ],
         );
       },
+    );
+  }
+
+  /// '전체 / 내 아이템' 전환 알약.
+  Widget _buildFilterBar(double hPad) {
+    Widget pill(String label, bool selected, VoidCallback onTap) {
+      return GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected ? CandyColors.sun : Colors.white,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: CandyColors.ink, width: 2.5),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: CandyColors.ink,
+              fontWeight: FontWeight.w900,
+              fontSize: 13,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(hPad, 12, hPad, 6),
+      child: Row(
+        children: [
+          pill('전체', !_ownedOnly, () => setState(() => _ownedOnly = false)),
+          const SizedBox(width: 8),
+          pill('내 아이템', _ownedOnly, () => setState(() => _ownedOnly = true)),
+        ],
+      ),
+    );
+  }
+
+  /// 상단 '추천 / 신상 / 할인 중' 가로 스트립.
+  Widget _buildHighlightStrip(
+    ShopProvider sp,
+    List<ShopItem> items,
+    double hPad,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: hPad),
+            child: _buildSectionHeader(
+              '추천 · 신상 · 할인 중',
+              Icons.local_fire_department,
+              CandyColors.tangerine,
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 156,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 6),
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
+              itemBuilder: (context, i) => _buildHighlightTile(sp, items[i]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHighlightTile(ShopProvider sp, ShopItem item) {
+    final rc = _rarityColor(item.rarity);
+    return SizedBox(
+      width: 118,
+      child: CartoonCard(
+        onTap: () => _showItemDialog(
+          sp,
+          item,
+          sp.hasItem(item.id),
+          sp.isEquipped(item.id),
+        ),
+        color: _tint(rc),
+        padding: const EdgeInsets.all(6),
+        radius: 20,
+        shadow: 4,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: CandyColors.ink, width: 2.5),
+                ),
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: Padding(
+                        padding: const EdgeInsets.all(5),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: _buildItemPreview(item),
+                        ),
+                      ),
+                    ),
+                    Positioned(top: 3, left: 3, child: _badgeRibbon(item)),
+                    if (item.isOnSale)
+                      Positioned(right: 3, bottom: 3, child: _saleSticker(item)),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              item.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 12,
+                color: CandyColors.ink,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Center(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: item.price == 0
+                    ? const Text(
+                        '무료',
+                        style: TextStyle(
+                          color: CandyColors.ink,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 12,
+                        ),
+                      )
+                    : _coinChip('${item.price}', fontSize: 11, iconSize: 13),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -632,10 +860,98 @@ class _ShopScreenState extends State<ShopScreen>
     );
   }
 
+  /// 한정 판매 남은 기간 짧은 표기: 'D-3' / '5시간'.
+  String _shortLeft(Duration d) {
+    if (d.inDays >= 1) return 'D-${d.inDays}';
+    if (d.inHours >= 1) return '${d.inHours}시간';
+    return '${math.max(d.inMinutes, 1)}분';
+  }
+
+  /// 'N일 남음' / 'N시간 남음' / 'N분 남음'.
+  String _leftText(Duration d) {
+    if (d.inDays > 0) return '${d.inDays}일 남음';
+    if (d.inHours > 0) return '${d.inHours}시간 남음';
+    return '${math.max(d.inMinutes, 1)}분 남음';
+  }
+
+  /// NEW / HOT / 한정(카운트다운) / 추천 리본. 해당 없으면 빈 위젯.
+  Widget _badgeRibbon(ShopItem item) {
+    final badge = item.badge ?? (item.availableUntil != null ? 'limited' : null);
+    switch (badge) {
+      case 'new':
+        return _ribbon('NEW', CandyColors.pink, icon: Icons.auto_awesome);
+      case 'hot':
+        return _ribbon(
+          'HOT',
+          CandyColors.tangerine,
+          icon: Icons.local_fire_department,
+        );
+      case 'limited':
+        final left = item.availableLeft;
+        return _ribbon(
+          left != null && !left.isNegative ? '한정 ${_shortLeft(left)}' : '한정',
+          CandyColors.grape,
+          icon: Icons.timer,
+        );
+    }
+    if (item.isFeatured) {
+      return _ribbon('추천', CandyColors.skyDeep, icon: Icons.star_rounded);
+    }
+    return const SizedBox.shrink();
+  }
+
+  /// 빨간 '-N%' 스티커.
+  Widget _saleSticker(ShopItem item) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFF3B4E),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: CandyColors.ink, width: 2),
+      ),
+      child: Text(
+        '-${item.discountPercent}%',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 11,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+
+  Widget _durationChip(int days) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: CandyColors.ink, width: 2),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.timer_outlined, size: 11, color: CandyColors.ink),
+          const SizedBox(width: 2),
+          Text(
+            '$days일',
+            style: const TextStyle(
+              color: CandyColors.ink,
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildItemCard(ShopProvider shopProvider, ShopItem item) {
     final hasItem = shopProvider.hasItem(item.id);
     final isEquipped = shopProvider.isEquipped(item.id);
     final rc = _rarityColor(item.rarity);
+    final rec = shopProvider.ownedRecord(item.id);
+    final expiring = rec?.isExpiringSoon ?? false;
 
     return CartoonCard(
       onTap: () => _showItemDialog(shopProvider, item, hasItem, isEquipped),
@@ -682,6 +998,26 @@ class _ShopScreenState extends State<ShopScreen>
                       left: 4,
                       child: _ribbon('보유', CandyColors.sky),
                     ),
+                  // 신상 / 인기 / 한정 배지 (안 가진 아이템만)
+                  if (!hasItem)
+                    Positioned(top: 4, right: 4, child: _badgeRibbon(item)),
+                  // 만료 임박 경고
+                  if (expiring)
+                    Positioned(
+                      left: 4,
+                      bottom: 4,
+                      child: _ribbon(
+                        '곧 만료!',
+                        const Color(0xFFFF3B4E),
+                        icon: Icons.warning_amber_rounded,
+                      ),
+                    ),
+                  if (!hasItem && item.isOnSale)
+                    Positioned(
+                      right: 4,
+                      bottom: 4,
+                      child: _saleSticker(item),
+                    ),
                 ],
               ),
             ),
@@ -725,6 +1061,12 @@ class _ShopScreenState extends State<ShopScreen>
                               ),
                             ),
                           ),
+                          if (item.durationDays != null &&
+                              item.category != ShopCategory.ticket &&
+                              !hasItem) ...[
+                            const SizedBox(width: 6),
+                            _durationChip(item.durationDays!),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 4),
@@ -741,7 +1083,7 @@ class _ShopScreenState extends State<ShopScreen>
                       ),
                       const SizedBox(height: 4),
                       // 가격/상태
-                      _buildPriceOrStatus(item, hasItem, isEquipped),
+                      _buildPriceOrStatus(item, hasItem, isEquipped, rec),
                     ],
                   ),
                 ),
@@ -753,8 +1095,36 @@ class _ShopScreenState extends State<ShopScreen>
     );
   }
 
-  Widget _buildPriceOrStatus(ShopItem item, bool hasItem, bool isEquipped) {
+  Widget _buildPriceOrStatus(
+    ShopItem item,
+    bool hasItem,
+    bool isEquipped,
+    UserItem? rec,
+  ) {
     if (hasItem) {
+      // 기간제 보유: 남은 기간 (임박하면 빨강)
+      if (rec != null && rec.expiresAt != null) {
+        final red = rec.isExpiringSoon;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: red ? const Color(0xFFFFE0E3) : Colors.white,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: red ? const Color(0xFFFF3B4E) : CandyColors.ink,
+              width: 2,
+            ),
+          ),
+          child: Text(
+            red ? rec.shortLeftText : '${rec.shortLeftText} · ${rec.expiresInText}',
+            style: TextStyle(
+              color: red ? const Color(0xFFD01E31) : CandyColors.ink,
+              fontWeight: FontWeight.w900,
+              fontSize: 11,
+            ),
+          ),
+        );
+      }
       return const SizedBox.shrink();
     }
 
@@ -777,7 +1147,40 @@ class _ShopScreenState extends State<ShopScreen>
       );
     }
 
-    return _coinChip('${item.price}', fontSize: 12, iconSize: 15);
+    final chip = _coinChip('${item.price}', fontSize: 12, iconSize: 15);
+    if (!item.isOnSale) return chip;
+    final left = item.saleEndsAt?.difference(DateTime.now());
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            chip,
+            const SizedBox(width: 6),
+            Text(
+              '${item.originalPrice}',
+              style: const TextStyle(
+                color: CandyColors.inkSoft,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                decoration: TextDecoration.lineThrough,
+              ),
+            ),
+          ],
+        ),
+        if (left != null && !left.isNegative)
+          Text(
+            _leftText(left),
+            style: const TextStyle(
+              color: Color(0xFFD01E31),
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+      ],
+    );
   }
 
   Widget _buildItemPreview(ShopItem item) {
@@ -790,6 +1193,8 @@ class _ShopScreenState extends State<ShopScreen>
         return _buildThemePreview(item);
       case ShopCategory.avatar:
         return _buildAvatarPreview(item);
+      case ShopCategory.mascot:
+        return _buildMascotPreview(item);
       case ShopCategory.ticket:
         return _buildTicketPreview(item);
     }
@@ -913,24 +1318,20 @@ class _ShopScreenState extends State<ShopScreen>
   }
 
   Widget _buildAvatarPreview(ShopItem item) {
-    final emoji = item.avatarEmoji ?? '👤';
-    final bgColor = item.avatarBgColor ?? const Color(0xFFE9E4F5);
+    return AvatarArt(
+      itemKey: item.itemKey,
+      emoji: item.avatarEmoji,
+      bgColor: item.avatarBgColor,
+      size: 76,
+    );
+  }
 
-    return Container(
-      width: 70,
-      height: 70,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: bgColor,
-        boxShadow: [
-          BoxShadow(
-            color: bgColor.withValues(alpha: 0.5),
-            blurRadius: 8,
-            spreadRadius: 2,
-          ),
-        ],
-      ),
-      child: Center(child: Text(emoji, style: const TextStyle(fontSize: 40))),
+  Widget _buildMascotPreview(ShopItem item) {
+    return DuoMascot(
+      size: 78,
+      color: item.mascotSkinColor ?? CandyColors.pink,
+      accessory: item.mascotAccessory,
+      animate: false,
     );
   }
 
@@ -1213,6 +1614,14 @@ class _ShopScreenState extends State<ShopScreen>
     bool isEquipped,
   ) {
     final rc = _rarityColor(item.rarity);
+    final rec = shopProvider.ownedRecord(item.id);
+    // 기간제 보유 아이템은 연장 가능
+    final canRenew =
+        rec != null &&
+        rec.expiresAt != null &&
+        item.durationDays != null &&
+        item.category != ShopCategory.ticket &&
+        !item.isDefault;
 
     showModalBottomSheet(
       context: context,
@@ -1295,7 +1704,8 @@ class _ShopScreenState extends State<ShopScreen>
                 textAlign: TextAlign.center,
               ),
 
-              if (item.durationDays != null) ...[
+              if (item.durationDays != null &&
+                  item.category != ShopCategory.ticket) ...[
                 const SizedBox(height: 12),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -1318,8 +1728,55 @@ class _ShopScreenState extends State<ShopScreen>
                   ],
                 ),
               ],
+              if (rec != null && rec.expiresAt != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  rec.isExpiringSoon
+                      ? '곧 만료! · ${rec.expiresInText} (${_fmtDate(rec.expiresAt!)})'
+                      : '${rec.expiresInText} · ${_fmtDate(rec.expiresAt!)}까지',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: rec.isExpiringSoon
+                        ? const Color(0xFFD01E31)
+                        : CandyColors.ink,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ] else if (!hasItem && item.price > 0) ...[
+                const SizedBox(height: 12),
+                _buildDialogPrice(item),
+              ],
+              if (item.availableLeft != null &&
+                  !item.availableLeft!.isNegative &&
+                  !hasItem) ...[
+                const SizedBox(height: 8),
+                Text(
+                  '한정 판매 · ${_leftText(item.availableLeft!)}',
+                  style: const TextStyle(
+                    color: CandyColors.grapeDeep,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
 
               const SizedBox(height: 24),
+
+              if (canRenew) ...[
+                ChunkyButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _confirmPurchase(shopProvider, item, renewFrom: rec);
+                  },
+                  label: item.price == 0 ? '무료 연장' : '연장하기 · ${item.price}',
+                  icon: item.price == 0 ? Icons.update : Icons.monetization_on_rounded,
+                  color: CandyColors.sun,
+                  textColor: CandyColors.ink,
+                  height: 54,
+                  radius: 16,
+                  fontSize: 16,
+                ),
+                const SizedBox(height: 12),
+              ],
 
               // 버튼들
               Row(
@@ -1374,7 +1831,11 @@ class _ShopScreenState extends State<ShopScreen>
                           Navigator.pop(context);
                           _confirmPurchase(shopProvider, item);
                         },
-                        label: item.price == 0 ? '무료 획득' : '${item.price} 구매',
+                        label: item.price == 0
+                            ? '무료 획득'
+                            : (item.durationDays != null
+                                  ? '${item.price} / ${item.durationDays}일 구매'
+                                  : '${item.price} 구매'),
                         icon: item.price == 0
                             ? null
                             : Icons.monetization_on_rounded,
@@ -1400,24 +1861,96 @@ class _ShopScreenState extends State<ShopScreen>
     return Center(child: _coinChip(text, fontSize: 16, iconSize: 20));
   }
 
-  void _confirmPurchase(ShopProvider shopProvider, ShopItem item) {
+  static String _fmtDate(DateTime d) =>
+      '${d.year}.${d.month.toString().padLeft(2, '0')}.${d.day.toString().padLeft(2, '0')}';
+
+  /// 시트 안 가격 표시: 할인이면 원가 취소선 + -N% + 실제 가격, 기간제면 '/ N일'.
+  Widget _buildDialogPrice(ShopItem item) {
+    final dur = item.durationDays != null && item.category != ShopCategory.ticket
+        ? ' / ${item.durationDays}일'
+        : '';
+    final left = item.saleEndsAt?.difference(DateTime.now());
+    return Column(
+      children: [
+        if (item.isOnSale)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                '${item.originalPrice}',
+                style: const TextStyle(
+                  color: CandyColors.inkSoft,
+                  fontWeight: FontWeight.w800,
+                  decoration: TextDecoration.lineThrough,
+                ),
+              ),
+              const SizedBox(width: 8),
+              _saleSticker(item),
+            ],
+          ),
+        const SizedBox(height: 4),
+        _priceBox('${item.price} 코인$dur'),
+        if (item.isOnSale && left != null && !left.isNegative)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              '할인 ${_leftText(left)}',
+              style: const TextStyle(
+                color: Color(0xFFD01E31),
+                fontWeight: FontWeight.w900,
+                fontSize: 12,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  void _confirmPurchase(
+    ShopProvider shopProvider,
+    ShopItem item, {
+    UserItem? renewFrom,
+  }) {
+    final renew = renewFrom != null;
+    DateTime? newExpiry;
+    if (item.durationDays != null && item.category != ShopCategory.ticket) {
+      final now = DateTime.now();
+      final base = renew && renewFrom.expiresAt!.isAfter(now)
+          ? renewFrom.expiresAt!
+          : now;
+      newExpiry = base.add(Duration(days: item.durationDays!));
+      final cap = now.add(const Duration(days: 365));
+      if (newExpiry.isAfter(cap)) newExpiry = cap;
+    }
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text(
-          '구매 확인',
-          style: TextStyle(fontWeight: FontWeight.w900),
+        title: Text(
+          renew ? '연장 확인' : '구매 확인',
+          style: const TextStyle(fontWeight: FontWeight.w900),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              '${item.name}을(를) 구매할까요?',
+              renew
+                  ? '${item.name}을(를) 연장할까요?'
+                  : '${item.name}을(를) 구매할까요?',
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
             if (item.price > 0) ...[
               const SizedBox(height: 12),
-              _priceBox('${item.price} 코인'),
+              _buildDialogPrice(item),
+            ],
+            if (newExpiry != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                '${renew ? '새 만료일' : '만료일'}: ${_fmtDate(newExpiry)}',
+                style: const TextStyle(
+                  color: CandyColors.inkSoft,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
             ],
           ],
         ),
@@ -1429,8 +1962,8 @@ class _ShopScreenState extends State<ShopScreen>
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              // 티켓이 아닌 경우 구매 후 장착 질문을 위해 아이템 저장
-              if (item.category != ShopCategory.ticket) {
+              // 새로 구매한 경우에만 구매 후 장착 질문 (연장은 스낵바 안내)
+              if (!renew && item.category != ShopCategory.ticket) {
                 _lastPurchasedItem = item;
               }
               shopProvider.purchaseItem(item.id);
@@ -1439,7 +1972,7 @@ class _ShopScreenState extends State<ShopScreen>
               backgroundColor: CandyColors.sun,
               foregroundColor: CandyColors.ink,
             ),
-            child: const Text('구매'),
+            child: Text(renew ? '연장' : '구매'),
           ),
         ],
       ),

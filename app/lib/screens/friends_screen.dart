@@ -8,6 +8,7 @@ import '../models/shop_item.dart';
 import '../services/socket_service.dart';
 import 'chat_screen.dart';
 import '../theme/candy_theme.dart';
+import '../widgets/cartoon/avatar_art.dart';
 import '../widgets/cartoon/cartoon_card.dart';
 import '../widgets/cartoon/chunky_button.dart';
 import '../widgets/cartoon/duo_mascot.dart';
@@ -784,9 +785,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
     final isRainbow = friend.profileSettings?.isRainbowFrame() ?? false;
     final hasFrame = frameColors != null || isRainbow;
     // 아바타 정보 가져오기
-    final avatarInfo = friend.profileSettings?.getAvatarInfo();
-    final avatarEmoji = avatarInfo?.$1;
-    final avatarBgColor = avatarInfo?.$2;
+    final avatarArt = friend.profileSettings?.getAvatarArt();
     final isRemoving = friendProvider.isRemoving(friend.id);
     final unread = friendProvider.unreadCounts[friend.id] ?? 0;
 
@@ -821,14 +820,19 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   shape: BoxShape.circle,
                   border: Border.all(color: CandyColors.ink, width: 2.5),
                 ),
-          child: CircleAvatar(
-            radius: 22,
-            backgroundColor:
-                avatarBgColor ?? CandyColors.pink.withValues(alpha: 0.25),
-            child: avatarEmoji != null
-                ? Text(avatarEmoji, style: const TextStyle(fontSize: 24))
-                : const Icon(Icons.person, color: CandyColors.pink),
-          ),
+          child: avatarArt != null
+              ? AvatarArt(
+                  itemKey: avatarArt.key,
+                  emoji: avatarArt.emoji,
+                  bgColor: avatarArt.bg,
+                  size: 44,
+                  outline: false,
+                )
+              : CircleAvatar(
+                  radius: 22,
+                  backgroundColor: CandyColors.pink.withValues(alpha: 0.25),
+                  child: const Icon(Icons.person, color: CandyColors.pink),
+                ),
         ),
         if (friend.isOnline)
           Positioned(
