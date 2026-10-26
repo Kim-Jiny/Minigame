@@ -117,12 +117,42 @@ class AuthProvider extends ChangeNotifier with ProviderFeedback {
       await _completeLogin(user);
       notifyListeners();
     } catch (e) {
-      setError('$errorPrefix: $e');
-      debugPrint(error);
+      // 원문 예외(스택·서버 응답 본문)는 사용자에게 보이지 않게 하고 로그에만 남긴다.
+      debugPrint('$errorPrefix: $e');
+      final message = _friendlyLoginError(errorPrefix, e);
+      if (message != null) setError(message);
     } finally {
       setLoading(false);
       notifyListeners();
     }
+  }
+
+  /// 로그인 예외를 사용자용 문구로 바꾼다. 사용자가 직접 취소한 경우는 null(메시지 없음).
+  String? _friendlyLoginError(String errorPrefix, Object e) {
+    final raw = e.toString().toLowerCase();
+    final provider = errorPrefix.replaceAll(' 로그인 실패', '');
+
+    if (raw.contains('cancel') ||
+        raw.contains('취소') ||
+        raw.contains('sign_in_canceled') ||
+        raw.contains('com.apple.authenticationservices.authorizationerror error 1001')) {
+      return null;
+    }
+    if (raw.contains('banned')) {
+      return '이용이 제한된 계정이에요. 문의하기로 연락해주세요.';
+    }
+    if (raw.contains('socketexception') ||
+        raw.contains('failed host lookup') ||
+        raw.contains('clientexception') ||
+        raw.contains('timeoutexception') ||
+        raw.contains('시간이 초과') ||
+        raw.contains('network')) {
+      return '네트워크 연결이 불안정해요. 잠시 후 다시 시도해주세요.';
+    }
+    if (raw.contains('failed:') && (raw.contains('500') || raw.contains('502') || raw.contains('503'))) {
+      return '서버가 잠시 불안정해요. 잠시 후 다시 시도해주세요.';
+    }
+    return '$provider 로그인에 실패했어요. 잠시 후 다시 시도해주세요.';
   }
 
   Future<void> _invalidateSession() async {
@@ -315,7 +345,8 @@ class AuthProvider extends ChangeNotifier with ProviderFeedback {
       notifyListeners();
       return true;
     } catch (e) {
-      setError('닉네임 변경 실패: $e');
+      debugPrint('닉네임 변경 실패: $e');
+      setError('닉네임을 바꾸지 못했어요. 잠시 후 다시 시도해주세요.');
       debugPrint(error);
       return false;
     } finally {
@@ -355,7 +386,8 @@ class AuthProvider extends ChangeNotifier with ProviderFeedback {
       notifyListeners();
       return true;
     } catch (e) {
-      setError('회원 탈퇴 실패: $e');
+      debugPrint('회원 탈퇴 실패: $e');
+      setError('회원 탈퇴에 실패했어요. 잠시 후 다시 시도해주세요.');
       debugPrint(error);
       return false;
     } finally {
