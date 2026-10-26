@@ -39,6 +39,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
   static const _quickStartGames = {
     'tictactoe', 'gomoku', 'rps', 'reaction',
     'speedtap', 'numberbattle', 'mathrace', 'arrowdash',
+    'stroop', 'sequence', 'timing', 'cardflip', 'infinite_tictactoe',
   };
 
   int _currentIndex = 0;

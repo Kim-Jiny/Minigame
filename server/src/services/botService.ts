@@ -23,7 +23,10 @@ export interface BotSettings {
 const DEFAULT_SETTINGS: BotSettings = { enabled: false, waitSeconds: 5, skill: 0.5, maxConcurrent: 10 };
 
 /** 봇이 둘 수 있는 게임. 하드코어는 턴제 게임만 허용(규칙이 같고 제한시간만 짧다). */
-const SUPPORTED_GAMES = ['tictactoe', 'gomoku', 'rps', 'reaction', 'speedtap', 'numberbattle', 'mathrace', 'arrowdash'];
+const SUPPORTED_GAMES = [
+  'tictactoe', 'gomoku', 'rps', 'reaction', 'speedtap', 'numberbattle', 'mathrace', 'arrowdash',
+  'stroop', 'sequence', 'timing', 'cardflip', 'infinite_tictactoe',
+];
 const HARDCORE_OK = ['tictactoe', 'gomoku'];
 
 const POOL_SIZE = 30;
@@ -44,7 +47,8 @@ const randInt = (a: number, b: number) => Math.floor(rand(a, b + 1));
 const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 
 export function isGameSupported(gameType: string, isHardcore: boolean, isInfinite: boolean): boolean {
-  if (isInfinite) return false;
+  // 무한모드는 틱택토(무한 틱택토)만 지원한다. SET 등 다른 게임의 무한모드는 제외.
+  if (isInfinite && gameType !== 'tictactoe' && gameType !== 'infinite_tictactoe') return false;
   if (!SUPPORTED_GAMES.includes(gameType)) return false;
   if (isHardcore && !HARDCORE_OK.includes(gameType)) return false;
   return true;
@@ -148,7 +152,7 @@ export async function scheduleFill(req: FillRequest): Promise<void> {
       if (!req.isStillWaiting()) return;
       const now = await getSettings(true); // 대기 중 관리자가 껐을 수 있다
       if (!now.enabled || activeBots >= now.maxConcurrent) return;
-      await spawnBot(req.gameType, req.isHardcore, now.skill);
+      await spawnBot(req.gameType, req.isHardcore, req.isInfinite, now.skill);
     } catch (e) {
       stats.failed++;
       console.error('[bot] fill failed:', e);
@@ -156,7 +160,7 @@ export async function scheduleFill(req: FillRequest): Promise<void> {
   }, delay);
 }
 
-async function spawnBot(gameType: string, isHardcore: boolean, skill: number): Promise<void> {
+async function spawnBot(gameType: string, isHardcore: boolean, isInfinite: boolean, skill: number): Promise<void> {
   const account = await acquireAccount();
   if (!account) return;
   activeAccountIds.add(account.id);
@@ -196,7 +200,7 @@ async function spawnBot(gameType: string, isHardcore: boolean, skill: number): P
     socket.emit('join_lobby', { nickname: account.nickname, token: generateToken(account.id) });
   });
   socket.on('lobby_joined', () => {
-    socket.emit('find_match', { gameType, isHardcore });
+    socket.emit('find_match', { gameType, isHardcore, isInfinite });
   });
   socket.on('auth_error', cleanup);
   socket.on('connect_error', () => { stats.failed++; cleanup(); });
@@ -221,7 +225,8 @@ async function spawnBot(gameType: string, isHardcore: boolean, skill: number): P
   });
   socket.on('opponent_reconnected', () => { opponentGone = false; });
 
-  const strategy = STRATEGIES[gameType];
+  const isInfiniteTtt = gameType === 'infinite_tictactoe' || (gameType === 'tictactoe' && isInfinite);
+  const strategy = isInfiniteTtt ? STRATEGIES.infinite_tictactoe : STRATEGIES[gameType];
   if (strategy) strategy(ctx);
 }
 
@@ -336,6 +341,115 @@ const STRATEGIES: Record<string, (ctx: BotContext) => void> = {
     });
   },
 
+  stroop(ctx) {
+    ctx.socket.on('stroop_show', (d: { color: string; colors?: string[] }) => {
+      // 먼저 맞히면 점수, 틀리면 상대 점수 — 글자색을 읽는 사람다운 반응 속도.
+      const miss = Math.random() < 0.12 * (1.2 - ctx.skill);
+      const colors = d.colors ?? ['red', 'blue', 'green', 'yellow'];
+      const wrong = pick(colors.filter(c => c !== d.color));
+      ctx.later(() => ctx.emitAction({ selectedColor: miss ? wrong : d.color }), human(ctx, 900, 2300));
+    });
+  },
+
+  sequence(ctx) {
+    let level = -1;
+    let sequence: number[] = [];
+    let timeLimit = 10000;
+    ctx.socket.on('sequence_show', (d: { sequence: number[]; level: number; timeLimit?: number }) => {
+      sequence = d.sequence;
+      level = d.level;
+      timeLimit = d.timeLimit ?? 10000;
+    });
+    let startedLevel = -1;
+    // 입력 단계가 시작되면(재접속 재전송 포함 레벨당 1회) 한 칸씩 누른다.
+    ctx.socket.on('sequence_round_resumed', (d: { sequence?: number[]; level?: number; phase?: string }) => {
+      const lv = d.level ?? level;
+      const seq = d.sequence ?? sequence;
+      if (d.phase && d.phase !== 'playing') return;
+      if (startedLevel === lv || !seq.length) return;
+      startedLevel = lv;
+      // 레벨이 높을수록 실수 확률이 커진다. 실수하면 그 판은 탈락(상대와 비교).
+      const failAt = Math.random() < Math.min(0.7, (0.03 + lv * 0.035) * (1.35 - ctx.skill))
+        ? randInt(0, seq.length - 1) : -1;
+      const gap = Math.min(human(ctx, 380, 800), (timeLimit * 0.6) / seq.length);
+      let i = 0;
+      const tick = () => {
+        if (i >= seq.length) return;
+        const expected = seq[i];
+        const position = i === failAt
+          ? pick([0, 1, 2, 3, 4, 5, 6, 7, 8].filter(x => x !== expected)) : expected;
+        ctx.emitAction({ position });
+        if (i === failAt) return;
+        i++;
+        ctx.later(tick, gap * rand(0.8, 1.25));
+      };
+      ctx.later(tick, rand(500, 1000));
+    });
+  },
+
+  timing(ctx) {
+    ctx.socket.on('timing_round_start', () => {
+      // 막대는 클라이언트가 그리므로 서버는 멈춘 위치(0~1)만 받는다. 중앙(0.5)에서 실력만큼 벗어난다.
+      const spread = 0.05 + (1 - ctx.skill) * 0.3;
+      const position = Math.max(0, Math.min(1, 0.5 + (Math.random() + Math.random() - 1) * spread));
+      ctx.later(() => ctx.emitAction({ type: 'stop', position }), rand(900, 3000));
+    });
+  },
+
+  cardflip(ctx) {
+    const known = new Map<number, string>(); // 위치 → 기억하는 심볼
+    const matched = new Set<number>();
+    let flips = 0;
+    const memory = 0.55 + ctx.skill * 0.4; // 본 카드를 기억할 확률
+    const free = () => Array.from({ length: 20 }, (_, i) => i).filter(i => !matched.has(i));
+
+    const firstFlip = () => {
+      const pos = free();
+      // 짝을 아는 쌍이 있으면 먼저 그 쌍을 맞춘다.
+      const bySymbol = new Map<string, number[]>();
+      for (const i of pos) {
+        const sym = known.get(i);
+        if (sym) bySymbol.set(sym, [...(bySymbol.get(sym) ?? []), i]);
+      }
+      for (const arr of bySymbol.values()) if (arr.length >= 2) return arr[0];
+      const unknown = pos.filter(i => !known.has(i));
+      return pick(unknown.length ? unknown : pos);
+    };
+    const secondFlip = (firstPos: number) => {
+      const sym = known.get(firstPos);
+      const mate = sym ? free().find(i => i !== firstPos && known.get(i) === sym) : undefined;
+      if (mate !== undefined) return mate;
+      const rest = free().filter(i => i !== firstPos);
+      const unknown = rest.filter(i => !known.has(i));
+      return pick(unknown.length ? unknown : rest);
+    };
+
+    let firstPos = -1;
+    ctx.socket.on('cardflip_turn', (d: { currentTurn: number }) => {
+      flips = 0;
+      firstPos = -1;
+      if (d.currentTurn !== ctx.myIndex) return;
+      ctx.later(() => ctx.emitAction({ position: (firstPos = firstFlip()) }), human(ctx, 1200, 3000));
+    });
+    ctx.socket.on('cardflip_flip', (d: { playerIndex: number; position: number; symbol: string }) => {
+      if (Math.random() < memory) known.set(d.position, d.symbol);
+      if (d.playerIndex !== ctx.myIndex) return;
+      flips++;
+      if (flips === 1) {
+        const first = d.position;
+        ctx.later(() => ctx.emitAction({ position: secondFlip(first) }), human(ctx, 900, 2200));
+      }
+    });
+    ctx.socket.on('cardflip_result', (d: { matchedPositions?: number[] }) => {
+      matched.clear();
+      (d.matchedPositions ?? []).forEach(i => { matched.add(i); known.delete(i); });
+    });
+  },
+
+  infinite_tictactoe(ctx) {
+    turnBased(ctx, (board, me) => infiniteTttMove(board as (number | null)[], me, ctx.skill));
+  },
+
   tictactoe(ctx) {
     turnBased(ctx, (board, me) => tttMove(board as (number | null)[], me, ctx.skill));
   },
@@ -400,6 +514,25 @@ function tttMove(board: (number | null)[], me: number, skill: number): number {
   return pick(bestMoves);
 }
 
+/** 무한 틱택토: 한 수 앞만 본다(이기는 수 → 막는 수 → 중앙/모서리). 말이 사라지는 규칙은 판이 반영해 준다. */
+function infiniteTttMove(board: (number | null)[], me: number, skill: number): number {
+  const empty = board.map((c, i) => (c === null ? i : -1)).filter(i => i >= 0);
+  if (!empty.length) return -1;
+  if (Math.random() < 0.35 * (1 - skill)) return pick(empty);
+  const wins = (who: number) => empty.filter(i => {
+    const b = [...board];
+    b[i] = who;
+    return tttWinner(b) === who;
+  });
+  const mine = wins(me);
+  if (mine.length) return pick(mine);
+  const theirs = wins(1 - me);
+  if (theirs.length && Math.random() < 0.55 + skill * 0.4) return pick(theirs);
+  if (empty.includes(4) && Math.random() < 0.6) return 4;
+  const corners = empty.filter(i => [0, 2, 6, 8].includes(i));
+  return pick(corners.length && Math.random() < 0.6 ? corners : empty);
+}
+
 const GN = 15;
 const DIRS: [number, number][] = [[0, 1], [1, 0], [1, 1], [1, -1]];
 
@@ -456,4 +589,4 @@ function gomokuMove(board: (number | null)[], me: number, skill: number): number
 }
 
 /** 테스트 전용 노출. */
-export const _internal = { STRATEGIES, tttMove, gomokuMove };
+export const _internal = { STRATEGIES, tttMove, gomokuMove, infiniteTttMove };
