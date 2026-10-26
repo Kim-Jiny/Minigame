@@ -219,6 +219,41 @@ export async function setupDatabase() {
       EXCEPTION WHEN duplicate_column THEN NULL;
       END $$;
 
+      -- 상점 운영 컬럼(할인·배지·추천·판매 종료일) — 컬럼별 IF NOT EXISTS
+      ALTER TABLE dm_shop_items ADD COLUMN IF NOT EXISTS sale_percent INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE dm_shop_items ADD COLUMN IF NOT EXISTS sale_ends_at TIMESTAMP NULL;
+      ALTER TABLE dm_shop_items ADD COLUMN IF NOT EXISTS badge VARCHAR(20) NULL;
+      ALTER TABLE dm_shop_items ADD COLUMN IF NOT EXISTS is_featured BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE dm_shop_items ADD COLUMN IF NOT EXISTS available_until TIMESTAMP NULL;
+
+      -- 마스코트 장착 컬럼
+      ALTER TABLE dm_user_profile_settings ADD COLUMN IF NOT EXISTS active_mascot_id INTEGER REFERENCES dm_shop_items(id);
+
+      -- 상점 구매 내역(통계용). price_paid = 실제 차감 코인, original_price = 할인 전 정가
+      CREATE TABLE IF NOT EXISTS dm_shop_purchases (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES dm_users(id),
+        item_id INTEGER REFERENCES dm_shop_items(id),
+        item_key VARCHAR(50) NOT NULL,
+        category VARCHAR(30) NOT NULL,
+        price_paid INTEGER NOT NULL,
+        original_price INTEGER NOT NULL,
+        discount_percent INTEGER NOT NULL DEFAULT 0,
+        is_renewal BOOLEAN NOT NULL DEFAULT FALSE,
+        duration_days INTEGER NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      ALTER TABLE dm_shop_purchases ADD COLUMN IF NOT EXISTS is_renewal BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE dm_shop_purchases ADD COLUMN IF NOT EXISTS duration_days INTEGER NULL;
+      CREATE INDEX IF NOT EXISTS idx_dm_shop_purchases_created_at ON dm_shop_purchases(created_at);
+      CREATE INDEX IF NOT EXISTS idx_dm_shop_purchases_item_id ON dm_shop_purchases(item_id);
+
+      -- 상점 1회성 마이그레이션 플래그
+      CREATE TABLE IF NOT EXISTS dm_shop_meta (
+        key VARCHAR(50) PRIMARY KEY,
+        value TEXT
+      );
+
       -- 인덱스 추가
       CREATE INDEX IF NOT EXISTS idx_dm_user_items_user_id ON dm_user_items(user_id);
       CREATE INDEX IF NOT EXISTS idx_dm_user_items_expires_at ON dm_user_items(expires_at);
@@ -1066,6 +1101,22 @@ async function seedShopItems(client: any) {
     { category: 'avatar', item_key: 'avatar_devil', name: '악마', description: '장난꾸러기 악마', price: 600, rarity: 'legendary', sort_order: 33, preview_data: { emoji: '😈', bgColor: '#EF9A9A' } },
     { category: 'avatar', item_key: 'avatar_angel', name: '천사', description: '순수한 천사', price: 600, rarity: 'legendary', sort_order: 34, preview_data: { emoji: '😇', bgColor: '#FFF59D' } },
     { category: 'avatar', item_key: 'avatar_crown', name: '왕', description: '최고의 존재', price: 800, rarity: 'legendary', sort_order: 35, preview_data: { emoji: '🤴', bgColor: '#FFD54F' } },
+
+    // === 마스코트 (기간제) ===
+    { category: 'mascot', item_key: 'mascot_default', name: '기본 듀오', description: '기본 모습의 귀여운 듀오', price: 0, rarity: 'common', is_default: true, sort_order: 0, preview_data: { skinColor: '#FF6B9D', accessory: 'none' } },
+    { category: 'mascot', item_key: 'mascot_mint', name: '민트 듀오', description: '상쾌한 민트빛 듀오', price: 150, rarity: 'common', duration_days: 30, sort_order: 1, preview_data: { skinColor: '#2EC4A6', accessory: 'none' } },
+    { category: 'mascot', item_key: 'mascot_sky', name: '하늘 듀오', description: '하늘을 닮은 시원한 듀오', price: 150, rarity: 'common', duration_days: 30, sort_order: 2, preview_data: { skinColor: '#4DB8FF', accessory: 'none' } },
+    { category: 'mascot', item_key: 'mascot_sun', name: '햇살 듀오', description: '햇살처럼 따뜻한 듀오', price: 150, rarity: 'common', duration_days: 30, sort_order: 3, preview_data: { skinColor: '#FFC93C', accessory: 'none' } },
+    { category: 'mascot', item_key: 'mascot_ribbon', name: '리본 듀오', description: '머리에 리본을 단 듀오', price: 300, rarity: 'rare', duration_days: 30, sort_order: 10, preview_data: { skinColor: '#FF6B9D', accessory: 'ribbon' } },
+    { category: 'mascot', item_key: 'mascot_sunglasses', name: '쿨 듀오', description: '선글라스로 멋을 낸 듀오', price: 300, rarity: 'rare', duration_days: 30, sort_order: 11, preview_data: { skinColor: '#4DB8FF', accessory: 'sunglasses' } },
+    { category: 'mascot', item_key: 'mascot_headphones', name: '음악 듀오', description: '헤드폰으로 리듬을 타는 듀오', price: 300, rarity: 'rare', duration_days: 30, sort_order: 12, preview_data: { skinColor: '#A66CFF', accessory: 'headphones' } },
+    { category: 'mascot', item_key: 'mascot_cap', name: '야구모자 듀오', description: '야구모자를 눌러쓴 듀오', price: 300, rarity: 'rare', duration_days: 30, sort_order: 13, preview_data: { skinColor: '#2EC4A6', accessory: 'cap' } },
+    { category: 'mascot', item_key: 'mascot_wizard', name: '마법사 듀오', description: '신비한 마법을 부리는 듀오', price: 600, rarity: 'epic', duration_days: 21, sort_order: 20, preview_data: { skinColor: '#7B5CFF', accessory: 'wizard' } },
+    { category: 'mascot', item_key: 'mascot_flower', name: '꽃 듀오', description: '머리에 꽃이 활짝 핀 듀오', price: 600, rarity: 'epic', duration_days: 21, sort_order: 21, preview_data: { skinColor: '#FF8FB8', accessory: 'flower' } },
+    { category: 'mascot', item_key: 'mascot_party', name: '파티 듀오', description: '파티 모자로 신나는 듀오', price: 600, rarity: 'epic', duration_days: 21, sort_order: 22, preview_data: { skinColor: '#FFB703', accessory: 'party' } },
+    { category: 'mascot', item_key: 'mascot_crown', name: '왕 듀오', description: '왕관을 쓴 위풍당당 듀오', price: 1000, rarity: 'legendary', duration_days: 14, sort_order: 30, preview_data: { skinColor: '#FFC93C', accessory: 'crown' } },
+    { category: 'mascot', item_key: 'mascot_angel', name: '천사 듀오', description: '후광이 빛나는 천사 듀오', price: 1000, rarity: 'legendary', duration_days: 14, sort_order: 31, preview_data: { skinColor: '#FFF3C4', accessory: 'halo' } },
+    { category: 'mascot', item_key: 'mascot_devil', name: '악마 듀오', description: '뿔이 솟은 장난꾸러기 듀오', price: 1000, rarity: 'legendary', duration_days: 14, sort_order: 32, preview_data: { skinColor: '#FF5A5F', accessory: 'horns' } },
   ];
 
   for (const item of items) {
@@ -1085,6 +1136,32 @@ async function seedShopItems(client: any) {
         item.sort_order,
         item.is_default || false,
       ]
+    );
+  }
+
+  // 기간제 전환(1회): 영구 판매 아이템에 희귀도별 기간 부여. dm_shop_meta 플래그로 이후 관리자 수정은 보존.
+  //  이미 보유 중인 영구(expires_at NULL) 행은 건드리지 않는다(기존 보유자 유지).
+  const durFlag = await client.query(`SELECT 1 FROM dm_shop_meta WHERE key = 'duration_migrated_v1'`);
+  if (durFlag.rows.length === 0) {
+    await client.query(
+      `UPDATE dm_shop_items SET duration_days = CASE rarity
+           WHEN 'legendary' THEN 14 WHEN 'epic' THEN 21 ELSE 30 END
+       WHERE duration_days IS NULL AND price > 0 AND is_default = FALSE
+         AND category IN ('frame', 'title', 'theme', 'avatar', 'mascot')`
+    );
+    await client.query(`INSERT INTO dm_shop_meta (key, value) VALUES ('duration_migrated_v1', '1') ON CONFLICT (key) DO NOTHING`);
+  }
+
+  // 구매 내역 1회 백필: dm_shop_purchases 가 비어 있을 때만 (매 부팅 안전)
+  const purchaseCount = await client.query(`SELECT COUNT(*)::int AS c FROM dm_shop_purchases`);
+  if (purchaseCount.rows[0].c === 0) {
+    await client.query(
+      `INSERT INTO dm_shop_purchases (user_id, item_id, item_key, category, price_paid, original_price, discount_percent, is_renewal, duration_days, created_at)
+       SELECT h.user_id, si.id, si.item_key, si.category, -h.amount, si.price, 0, FALSE, NULL, h.created_at
+       FROM dm_mileage_history h
+       JOIN dm_shop_items si ON si.item_key = substring(h.reason from 10)
+       WHERE h.reason LIKE 'purchase\\_%' AND h.amount < 0 AND h.user_id IS NOT NULL
+       ORDER BY h.id`
     );
   }
 

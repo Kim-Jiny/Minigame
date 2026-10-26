@@ -38,6 +38,11 @@ export interface Friend {
     activeAvatarName?: string;
     activeAvatarRarity?: string;
     activeAvatarPreviewData?: any;
+    activeMascotId?: number | null;
+    activeMascotKey?: string;
+    activeMascotName?: string;
+    activeMascotRarity?: string;
+    activeMascotPreviewData?: any;
   } | null;
 }
 
@@ -330,10 +335,10 @@ export const friendService = {
 
     const result = await pool.query(
       `SELECT u.id, u.nickname, u.email, u.avatar_url as "avatarUrl", fc.code as "friendCode", f.memo,
-              ups.active_frame_id as "activeFrameId",
-              ups.active_title_id as "activeTitleId",
-              ups.active_theme_id as "activeThemeId",
-              ups.active_avatar_id as "activeAvatarId",
+              frame.id as "activeFrameId",
+              title.id as "activeTitleId",
+              theme.id as "activeThemeId",
+              avatar.id as "activeAvatarId",
               frame.item_key as "activeFrameKey",
               frame.name as "activeFrameName",
               frame.rarity as "activeFrameRarity",
@@ -349,15 +354,21 @@ export const friendService = {
               avatar.item_key as "activeAvatarKey",
               avatar.name as "activeAvatarName",
               avatar.rarity as "activeAvatarRarity",
-              avatar.preview_data as "activeAvatarPreviewData"
+              avatar.preview_data as "activeAvatarPreviewData",
+              mascot.id as "activeMascotId",
+              mascot.item_key as "activeMascotKey",
+              mascot.name as "activeMascotName",
+              mascot.rarity as "activeMascotRarity",
+              mascot.preview_data as "activeMascotPreviewData"
        FROM dm_users u
        JOIN dm_friendships f ON u.id = f.friend_id
        LEFT JOIN dm_friend_codes fc ON u.id = fc.user_id
        LEFT JOIN dm_user_profile_settings ups ON u.id = ups.user_id
-       LEFT JOIN dm_shop_items frame ON ups.active_frame_id = frame.id
-       LEFT JOIN dm_shop_items title ON ups.active_title_id = title.id
-       LEFT JOIN dm_shop_items theme ON ups.active_theme_id = theme.id
-       LEFT JOIN dm_shop_items avatar ON ups.active_avatar_id = avatar.id
+       LEFT JOIN dm_shop_items frame ON ups.active_frame_id = frame.id AND (frame.is_default OR EXISTS (SELECT 1 FROM dm_user_items ui_frame WHERE ui_frame.user_id = u.id AND ui_frame.item_id = frame.id AND (ui_frame.expires_at IS NULL OR ui_frame.expires_at > CURRENT_TIMESTAMP)))
+       LEFT JOIN dm_shop_items title ON ups.active_title_id = title.id AND (title.is_default OR EXISTS (SELECT 1 FROM dm_user_items ui_title WHERE ui_title.user_id = u.id AND ui_title.item_id = title.id AND (ui_title.expires_at IS NULL OR ui_title.expires_at > CURRENT_TIMESTAMP)))
+       LEFT JOIN dm_shop_items theme ON ups.active_theme_id = theme.id AND (theme.is_default OR EXISTS (SELECT 1 FROM dm_user_items ui_theme WHERE ui_theme.user_id = u.id AND ui_theme.item_id = theme.id AND (ui_theme.expires_at IS NULL OR ui_theme.expires_at > CURRENT_TIMESTAMP)))
+       LEFT JOIN dm_shop_items avatar ON ups.active_avatar_id = avatar.id AND (avatar.is_default OR EXISTS (SELECT 1 FROM dm_user_items ui_avatar WHERE ui_avatar.user_id = u.id AND ui_avatar.item_id = avatar.id AND (ui_avatar.expires_at IS NULL OR ui_avatar.expires_at > CURRENT_TIMESTAMP)))
+       LEFT JOIN dm_shop_items mascot ON ups.active_mascot_id = mascot.id AND (mascot.is_default OR EXISTS (SELECT 1 FROM dm_user_items ui_mascot WHERE ui_mascot.user_id = u.id AND ui_mascot.item_id = mascot.id AND (ui_mascot.expires_at IS NULL OR ui_mascot.expires_at > CURRENT_TIMESTAMP)))
        WHERE f.user_id = $1
        ORDER BY u.nickname`,
       [userId]
@@ -371,7 +382,7 @@ export const friendService = {
       avatarUrl: row.avatarUrl,
       friendCode: row.friendCode,
       memo: row.memo,
-      profileSettings: row.activeFrameKey || row.activeTitleKey || row.activeThemeKey || row.activeAvatarKey ? {
+      profileSettings: row.activeFrameKey || row.activeTitleKey || row.activeThemeKey || row.activeAvatarKey || row.activeMascotKey ? {
         activeFrameId: row.activeFrameId,
         activeFrameKey: row.activeFrameKey,
         activeFrameName: row.activeFrameName,
@@ -392,6 +403,11 @@ export const friendService = {
         activeAvatarName: row.activeAvatarName,
         activeAvatarRarity: row.activeAvatarRarity,
         activeAvatarPreviewData: row.activeAvatarPreviewData,
+        activeMascotId: row.activeMascotId,
+        activeMascotKey: row.activeMascotKey,
+        activeMascotName: row.activeMascotName,
+        activeMascotRarity: row.activeMascotRarity,
+        activeMascotPreviewData: row.activeMascotPreviewData,
       } : null,
     }));
   },

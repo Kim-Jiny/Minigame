@@ -402,7 +402,7 @@
   </style>
   <link rel="stylesheet" href="theme.css?v=20261023c"> <!-- 공통 카툰 테마 -->
   <link rel="stylesheet" href="mfa.css?v=20261023c"> <!-- [MFA] -->
-  <link rel="stylesheet" href="duo.css?v=20261024a"> <!-- 듀오 운영 개요·봇 패널 -->
+  <link rel="stylesheet" href="duo.css?v=20261026a"> <!-- 듀오 운영 개요·봇 패널 -->
 </head>
 <body>
   <!-- Login -->
@@ -462,6 +462,7 @@
       <button onclick="switchTab('users', this)">Users</button>
       <button onclick="switchTab('inquiries', this)">Inquiries</button>
       <button onclick="switchTab('notices', this)">Notices</button>
+      <button onclick="switchTab('shop', this); shopLoad()">Shop</button>
       <button onclick="switchTab('settings', this)">Settings</button>
     </div>
 
@@ -517,6 +518,11 @@
         </thead>
         <tbody id="noticesBody"><tr><td colspan="6" class="empty">Loading...</td></tr></tbody>
       </table>
+    </div>
+
+    <!-- Shop Tab (듀오 상점 통계·운영) -->
+    <div class="tab-content" id="tab-shop">
+      <div id="shopPanel"><div class="empty">Loading...</div></div>
     </div>
 
     <!-- Settings Tab -->
@@ -1078,7 +1084,7 @@
   </div>
 
   <script src="mfa.js?v=20261023c"></script> <!-- [MFA] -->
-  <script src="duo.js?v=20261024a"></script> <!-- 듀오 운영 개요·봇 패널 -->
+  <script src="duo.js?v=20261026a"></script> <!-- 듀오 운영 개요·봇 패널 -->
   <script>
     let token = localStorage.getItem('adminToken');
     let currentInquiry = null;

@@ -1,4 +1,4 @@
-/* 듀오 아레나 운영 개요·봇 패널. #tab-dashboard / #botPanel 범위만 건드린다. */
+/* 듀오 아레나 운영 개요·봇 패널·상점 패널. #tab-dashboard / #botPanel / #shopPanel 범위만 건드린다. */
 .duo-live { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 18px; }
 .duo-live .live-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--ok, #34b27f); margin-right: 6px; animation: duoPulse 1.6s infinite; }
 @keyframes duoPulse { 0% { box-shadow: 0 0 0 0 rgba(52,178,127,.55); } 70% { box-shadow: 0 0 0 8px rgba(52,178,127,0); } 100% { box-shadow: 0 0 0 0 rgba(52,178,127,0); } }
@@ -20,3 +20,25 @@
 .bot-state .state-text.on { color: #27ae60; }
 .bot-state .state-text.off { color: #999; }
 .bot-tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; background: rgba(124,108,242,.12); color: #7c6cf2; margin: 2px 4px 2px 0; }
+
+/* 상점 패널 (#shopPanel) */
+#shopPanel .shop-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+#shopPanel .shop-range { display: inline-flex; border: 1px solid #ddd; border-radius: 10px; overflow: hidden; }
+#shopPanel .shop-range button { border: 0; background: transparent; padding: 7px 16px; cursor: pointer; font-size: 13px; color: #666; }
+#shopPanel .shop-range button.on { background: #7c6cf2; color: #fff; font-weight: 700; }
+#shopPanel .shop-kpis { margin-bottom: 8px; }
+#shopPanel .shop-block { margin: 18px 0; }
+#shopPanel .shop-pct { color: #999; font-weight: 400; }
+#shopPanel .shop-chip { font-size: 11px; margin-left: 4px; }
+#shopPanel .shop-in { padding: 6px 8px; border: 1px solid #ddd; border-radius: 8px; font-size: 13px; background: transparent; color: inherit; max-width: 100%; }
+#shopPanel .shop-in.w56 { width: 56px; }
+#shopPanel .shop-in.w70 { width: 78px; }
+#shopPanel .shop-in:disabled { opacity: .45; }
+#shopPanel .shop-bulk { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+#shopPanel .shop-save { border: 0; border-radius: 8px; padding: 7px 14px; background: #7c6cf2; color: #fff; font-size: 13px; cursor: pointer; }
+#shopPanel .shop-scroll { overflow-x: auto; }
+#shopPanel .shop-table { min-width: 1040px; }
+#shopPanel .shop-table td { vertical-align: top; }
+#shopPanel .shop-sub { font-size: 11px; color: #999; margin-top: 2px; }
+#shopPanel .shop-msg { display: block; font-size: 11px; color: #27ae60; margin-top: 4px; }
+#shopPanel tr.shop-off td { opacity: .55; }

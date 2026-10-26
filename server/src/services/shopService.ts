@@ -6,7 +6,13 @@ export interface ShopItem {
   itemKey: string;
   name: string;
   description: string;
-  price: number;
+  price: number; // 유효 가격(할인 적용). 구버전 앱은 이 값만 읽는다
+  originalPrice: number; // 정가
+  discountPercent: number; // 할인 없음/만료면 0
+  saleEndsAt: string | null;
+  badge: 'new' | 'hot' | 'limited' | null;
+  isFeatured: boolean;
+  availableUntil: string | null;
   durationDays: number | null;
   rarity: string;
   previewData: any;
@@ -21,6 +27,7 @@ export interface UserItem {
   itemId: number;
   purchasedAt: Date;
   expiresAt: Date | null;
+  isExpiringSoon?: boolean; // 만료 3일 이내
   item?: ShopItem;
 }
 
@@ -30,20 +37,61 @@ export interface UserProfileSettings {
   activeTitleId: number | null;
   activeThemeId: number | null;
   activeAvatarId: number | null;
+  activeMascotId: number | null;
   activeFrame?: ShopItem | null;
   activeTitle?: ShopItem | null;
   activeTheme?: ShopItem | null;
   activeAvatar?: ShopItem | null;
+  activeMascot?: ShopItem | null;
+}
+
+// 할인·판매기간·신규 판정은 DB 시계(CURRENT_TIMESTAMP)로 계산해 컬럼으로 함께 가져온다.
+const SHOP_COMPUTED = `(sale_percent > 0 AND (sale_ends_at IS NULL OR sale_ends_at > CURRENT_TIMESTAMP)) AS sale_active,
+  (available_until IS NULL OR available_until > CURRENT_TIMESTAMP) AS is_available,
+  (created_at > CURRENT_TIMESTAMP - INTERVAL '14 days') AS is_new`;
+
+// 장착 가능한 카테고리 → 프로필 설정 컬럼
+const EQUIP_FIELDS: Record<string, string> = {
+  frame: 'active_frame_id',
+  title: 'active_title_id',
+  theme: 'active_theme_id',
+  avatar: 'active_avatar_id',
+  mascot: 'active_mascot_id',
+};
+
+function iso(v: any): string | null {
+  return v ? new Date(v).toISOString() : null;
+}
+
+function effectivePrice(row: any): number {
+  const base: number = row.price;
+  if (base > 0 && row.sale_active && row.sale_percent > 0) {
+    return Math.max(1, Math.round((base * (100 - row.sale_percent)) / 100));
+  }
+  return base;
 }
 
 function mapShopItem(row: any): ShopItem {
+  const saleOn = !!row.sale_active && row.sale_percent > 0 && row.price > 0;
+  const price = effectivePrice(row);
+  let badge: ShopItem['badge'] = null;
+  if (row.badge === 'new' || row.badge === 'hot' || row.badge === 'limited') badge = row.badge;
+  else if (row.available_until) badge = 'limited';
+  else if (row.is_new && row.price > 0) badge = 'new';
   return {
-    id: row.id,
+    // 보유 목록 조인 시 row.id 는 dm_user_items.id 이므로 상점 아이템 id 는 shop_item_id 를 우선
+    id: row.shop_item_id ?? row.id,
     category: row.category,
     itemKey: row.item_key,
     name: row.name,
     description: row.description,
-    price: row.price,
+    price,
+    originalPrice: row.price,
+    discountPercent: saleOn ? row.sale_percent : 0,
+    saleEndsAt: saleOn ? iso(row.sale_ends_at) : null,
+    badge,
+    isFeatured: !!row.is_featured,
+    availableUntil: iso(row.available_until),
     durationDays: row.duration_days,
     rarity: row.rarity,
     previewData: row.preview_data,
@@ -59,7 +107,7 @@ export const shopService = {
     const pool = getPool();
     if (!pool) return [];
 
-    let query = 'SELECT * FROM dm_shop_items WHERE is_active = TRUE';
+    let query = `SELECT *, ${SHOP_COMPUTED} FROM dm_shop_items WHERE is_active = TRUE AND (available_until IS NULL OR available_until > CURRENT_TIMESTAMP)`;
     const params: any[] = [];
 
     if (category) {
@@ -79,8 +127,12 @@ export const shopService = {
     if (!pool) return [];
 
     const result = await pool.query(
-      `SELECT ui.*, si.category, si.item_key, si.name, si.description, si.price,
-              si.duration_days, si.rarity, si.preview_data, si.sort_order, si.is_active, si.is_default
+      `SELECT ui.*, si.id AS shop_item_id, si.category, si.item_key, si.name, si.description, si.price,
+              si.duration_days, si.rarity, si.preview_data, si.sort_order, si.is_active, si.is_default,
+              si.sale_percent, si.sale_ends_at, si.badge, si.is_featured, si.available_until, si.created_at,
+              (si.sale_percent > 0 AND (si.sale_ends_at IS NULL OR si.sale_ends_at > CURRENT_TIMESTAMP)) AS sale_active,
+              (si.created_at > CURRENT_TIMESTAMP - INTERVAL '14 days') AS is_new,
+              (ui.expires_at IS NOT NULL AND ui.expires_at <= CURRENT_TIMESTAMP + INTERVAL '3 days') AS is_expiring_soon
        FROM dm_user_items ui
        JOIN dm_shop_items si ON ui.item_id = si.id
        WHERE ui.user_id = $1
@@ -95,6 +147,7 @@ export const shopService = {
       itemId: row.item_id,
       purchasedAt: row.purchased_at,
       expiresAt: row.expires_at,
+      isExpiringSoon: !!row.is_expiring_soon,
       item: mapShopItem(row),
     }));
   },
@@ -102,9 +155,8 @@ export const shopService = {
   // 유저 프로필 설정 조회
   async getUserProfileSettings(userId: number): Promise<UserProfileSettings> {
     const pool = getPool();
-    if (!pool) {
-      return { userId, activeFrameId: null, activeTitleId: null, activeThemeId: null, activeAvatarId: null };
-    }
+    const empty: UserProfileSettings = { userId, activeFrameId: null, activeTitleId: null, activeThemeId: null, activeAvatarId: null, activeMascotId: null };
+    if (!pool) return empty;
 
     // 설정 조회
     const settingsResult = await pool.query(
@@ -120,7 +172,7 @@ export const shopService = {
         `INSERT INTO dm_user_profile_settings (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`,
         [userId]
       );
-      settings = { userId, activeFrameId: null, activeTitleId: null, activeThemeId: null, activeAvatarId: null };
+      settings = { ...empty };
     } else {
       const row = settingsResult.rows[0];
       settings = {
@@ -129,122 +181,162 @@ export const shopService = {
         activeTitleId: row.active_title_id,
         activeThemeId: row.active_theme_id,
         activeAvatarId: row.active_avatar_id,
+        activeMascotId: row.active_mascot_id ?? null,
       };
     }
 
-    // 장착 아이템 상세 조회
-    if (settings.activeFrameId) {
-      const frameResult = await pool.query('SELECT * FROM dm_shop_items WHERE id = $1', [settings.activeFrameId]);
-      if (frameResult.rows.length > 0) {
-        settings.activeFrame = mapShopItem(frameResult.rows[0]);
+    // 장착 아이템 상세 조회 + 보유 만료된 장착은 해제(DB도 정리 → 기본값으로 복귀)
+    const slots: Array<[string, keyof UserProfileSettings, keyof UserProfileSettings]> = [
+      ['active_frame_id', 'activeFrameId', 'activeFrame'],
+      ['active_title_id', 'activeTitleId', 'activeTitle'],
+      ['active_theme_id', 'activeThemeId', 'activeTheme'],
+      ['active_avatar_id', 'activeAvatarId', 'activeAvatar'],
+      ['active_mascot_id', 'activeMascotId', 'activeMascot'],
+    ];
+    const ids = slots.map(([, idKey]) => settings[idKey] as number | null).filter((v): v is number => !!v);
+    if (ids.length > 0) {
+      const itemsResult = await pool.query(
+        `SELECT *, ${SHOP_COMPUTED},
+                EXISTS (SELECT 1 FROM dm_user_items ui WHERE ui.user_id = $1 AND ui.item_id = dm_shop_items.id
+                        AND (ui.expires_at IS NULL OR ui.expires_at > CURRENT_TIMESTAMP)) AS owned
+         FROM dm_shop_items WHERE id = ANY($2::int[])`,
+        [userId, ids]
+      );
+      const byId = new Map<number, any>(itemsResult.rows.map((r: any) => [r.id, r]));
+      const clear: string[] = [];
+      for (const [col, idKey, itemKey] of slots) {
+        const id = settings[idKey] as number | null;
+        if (!id) continue;
+        const r = byId.get(id);
+        if (r && (r.is_default || r.owned)) {
+          (settings as any)[itemKey] = mapShopItem(r);
+        } else {
+          (settings as any)[idKey] = null;
+          clear.push(col);
+        }
       }
-    }
-    if (settings.activeTitleId) {
-      const titleResult = await pool.query('SELECT * FROM dm_shop_items WHERE id = $1', [settings.activeTitleId]);
-      if (titleResult.rows.length > 0) {
-        settings.activeTitle = mapShopItem(titleResult.rows[0]);
-      }
-    }
-    if (settings.activeThemeId) {
-      const themeResult = await pool.query('SELECT * FROM dm_shop_items WHERE id = $1', [settings.activeThemeId]);
-      if (themeResult.rows.length > 0) {
-        settings.activeTheme = mapShopItem(themeResult.rows[0]);
-      }
-    }
-    if (settings.activeAvatarId) {
-      const avatarResult = await pool.query('SELECT * FROM dm_shop_items WHERE id = $1', [settings.activeAvatarId]);
-      if (avatarResult.rows.length > 0) {
-        settings.activeAvatar = mapShopItem(avatarResult.rows[0]);
+      if (clear.length > 0) {
+        await pool.query(
+          `UPDATE dm_user_profile_settings SET ${clear.map(c => `${c} = NULL`).join(', ')} WHERE user_id = $1`,
+          [userId]
+        );
       }
     }
 
     return settings;
   },
 
-  // 아이템 구매
+  // 아이템 구매 — 한 트랜잭션(코인 행 FOR UPDATE + 잔액 가드 차감). 기간제는 보유 중 연장(갱신) 가능.
   async purchaseItem(userId: number, itemId: number): Promise<{ success: boolean; message: string; item?: UserItem; coins?: number }> {
     const pool = getPool();
     if (!pool) return { success: false, message: '데이터베이스 연결 실패' };
 
+    const client = await pool.connect();
     try {
-      // 아이템 정보 조회
-      const itemResult = await pool.query('SELECT * FROM dm_shop_items WHERE id = $1 AND is_active = TRUE', [itemId]);
-      if (itemResult.rows.length === 0) {
+      await client.query('BEGIN');
+
+      // 아이템 정보 조회 (판매 중 + 판매기간 이내)
+      const itemResult = await client.query(
+        `SELECT *, ${SHOP_COMPUTED} FROM dm_shop_items WHERE id = $1 AND is_active = TRUE`,
+        [itemId]
+      );
+      if (itemResult.rows.length === 0 || !itemResult.rows[0].is_available) {
+        await client.query('ROLLBACK');
         return { success: false, message: '아이템을 찾을 수 없습니다.' };
       }
-      const item = mapShopItem(itemResult.rows[0]);
+      const row = itemResult.rows[0];
+      const item = mapShopItem(row);
+      const price = item.price; // 유효 가격
+      const isTicket = item.category === 'ticket';
+      const durationDays: number | null = row.duration_days || null;
 
-      // 티켓이 아닌 경우 이미 보유중인지 확인
-      if (item.category !== 'ticket') {
-        const ownedResult = await pool.query(
-          `SELECT * FROM dm_user_items WHERE user_id = $1 AND item_id = $2
-           AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
+      // 보유 확인(행 잠금). 티켓은 소모품이라 건너뜀
+      let renewal = false;
+      if (!isTicket) {
+        const owned = await client.query(
+          `SELECT expires_at IS NULL AS permanent,
+                  (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP) AS active,
+                  (expires_at >= CURRENT_TIMESTAMP + INTERVAL '365 days') AS cap_reached
+           FROM dm_user_items WHERE user_id = $1 AND item_id = $2 FOR UPDATE`,
           [userId, itemId]
         );
-        if (ownedResult.rows.length > 0) {
-          return { success: false, message: '이미 보유 중인 아이템입니다.' };
+        if (owned.rows.length > 0 && owned.rows[0].active) {
+          if (owned.rows[0].permanent || !durationDays) {
+            await client.query('ROLLBACK');
+            return { success: false, message: '이미 보유 중인 아이템입니다.' };
+          }
+          if (owned.rows[0].cap_reached) {
+            await client.query('ROLLBACK');
+            return { success: false, message: '더 이상 연장할 수 없어요. (최대 365일까지 보유 가능)' };
+          }
+          renewal = true;
         }
       }
 
-      // 코인 확인
-      const mileageResult = await pool.query('SELECT mileage FROM dm_user_mileage WHERE user_id = $1', [userId]);
-      const currentCoins = mileageResult.rows.length > 0 ? mileageResult.rows[0].mileage : 0;
-
-      if (currentCoins < item.price) {
+      // 코인 행 잠금 후 잔액 확인
+      const mileageResult = await client.query('SELECT mileage FROM dm_user_mileage WHERE user_id = $1 FOR UPDATE', [userId]);
+      const currentCoins: number = mileageResult.rows.length > 0 ? (mileageResult.rows[0].mileage || 0) : 0;
+      if (currentCoins < price) {
+        await client.query('ROLLBACK');
         return { success: false, message: '코인이 부족합니다.', coins: currentCoins };
       }
 
-      // 코인 차감
-      await pool.query(
-        'UPDATE dm_user_mileage SET mileage = mileage - $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
-        [item.price, userId]
+      // 코인 차감 (잔액 가드)
+      const deducted = await client.query(
+        `UPDATE dm_user_mileage SET mileage = mileage - $1, updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = $2 AND mileage >= $1 RETURNING mileage`,
+        [price, userId]
       );
-
-      // 기록 저장
-      await pool.query(
-        'INSERT INTO dm_mileage_history (user_id, amount, reason) VALUES ($1, $2, $3)',
-        [userId, -item.price, `purchase_${item.itemKey}`]
-      );
-
-      // 만료일 계산
-      let expiresAt = null;
-      if (item.durationDays) {
-        expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + item.durationDays);
+      if (deducted.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, message: '코인이 부족합니다.', coins: currentCoins };
       }
+      const newBalance: number = deducted.rows[0].mileage;
+
+      // 기록 저장 (코인 내역 + 상점 구매 내역)
+      await client.query(
+        'INSERT INTO dm_mileage_history (user_id, amount, reason) VALUES ($1, $2, $3)',
+        [userId, -price, `purchase_${item.itemKey}`]
+      );
+      await client.query(
+        `INSERT INTO dm_shop_purchases (user_id, item_id, item_key, category, price_paid, original_price, discount_percent, is_renewal, duration_days)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [userId, itemId, item.itemKey, item.category, price, item.originalPrice, item.discountPercent, renewal, durationDays]
+      );
 
       // 티켓은 dm_user_items에 저장하지 않고 바로 반환
-      if (item.category === 'ticket') {
-        const newBalance = currentCoins - item.price;
+      if (isTicket) {
+        await client.query('COMMIT');
         return {
           success: true,
           message: `${item.name}을(를) 구매했습니다!`,
           coins: newBalance,
-          item: {
-            id: 0,
-            userId,
-            itemId: item.id,
-            purchasedAt: new Date(),
-            expiresAt: null,
-            item: item,
-          }
+          item: { id: 0, userId, itemId: item.id, purchasedAt: new Date(), expiresAt: null, item },
         };
       }
 
-      // 아이템 지급
-      const insertResult = await pool.query(
-        `INSERT INTO dm_user_items (user_id, item_id, expires_at)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (user_id, item_id) DO UPDATE SET expires_at = $3
-         RETURNING *`,
-        [userId, itemId, expiresAt]
-      );
+      // 아이템 지급 / 기간 연장 (만료일은 DB 시계로 계산: 연장은 max(now, 현재 만료) + 기간, 최대 now+365일)
+      const insertResult = renewal
+        ? await client.query(
+            `UPDATE dm_user_items
+             SET expires_at = LEAST(GREATEST(CURRENT_TIMESTAMP, expires_at) + make_interval(days => $3::int),
+                                    CURRENT_TIMESTAMP + INTERVAL '365 days')
+             WHERE user_id = $1 AND item_id = $2 RETURNING *`,
+            [userId, itemId, durationDays]
+          )
+        : await client.query(
+            `INSERT INTO dm_user_items (user_id, item_id, expires_at, purchased_at)
+             VALUES ($1, $2, CASE WHEN $3::int IS NULL THEN NULL ELSE CURRENT_TIMESTAMP + make_interval(days => $3::int) END, CURRENT_TIMESTAMP)
+             ON CONFLICT (user_id, item_id) DO UPDATE SET expires_at = EXCLUDED.expires_at, purchased_at = CURRENT_TIMESTAMP
+             RETURNING *`,
+            [userId, itemId, durationDays]
+          );
 
-      const newBalance = currentCoins - item.price;
+      await client.query('COMMIT');
 
       return {
         success: true,
-        message: `${item.name}을(를) 구매했습니다!`,
+        message: renewal ? `${item.name} 기간을 연장했습니다!` : `${item.name}을(를) 구매했습니다!`,
         coins: newBalance,
         item: {
           id: insertResult.rows[0].id,
@@ -252,12 +344,15 @@ export const shopService = {
           itemId: insertResult.rows[0].item_id,
           purchasedAt: insertResult.rows[0].purchased_at,
           expiresAt: insertResult.rows[0].expires_at,
-          item: item,
-        }
+          item,
+        },
       };
     } catch (error) {
+      try { await client.query('ROLLBACK'); } catch { /* ignore */ }
       console.error('Purchase item error:', error);
       return { success: false, message: '구매 중 오류가 발생했습니다.' };
+    } finally {
+      client.release();
     }
   },
 
@@ -268,14 +363,14 @@ export const shopService = {
 
     try {
       // 아이템 정보 조회
-      const itemResult = await pool.query('SELECT * FROM dm_shop_items WHERE id = $1', [itemId]);
+      const itemResult = await pool.query(`SELECT *, ${SHOP_COMPUTED} FROM dm_shop_items WHERE id = $1`, [itemId]);
       if (itemResult.rows.length === 0) {
         return { success: false, message: '아이템을 찾을 수 없습니다.' };
       }
       const item = mapShopItem(itemResult.rows[0]);
 
       // 장착 가능한 카테고리 확인
-      if (!['frame', 'title', 'theme', 'avatar'].includes(item.category)) {
+      if (!(item.category in EQUIP_FIELDS)) {
         return { success: false, message: '장착할 수 없는 아이템입니다.' };
       }
 
@@ -292,14 +387,8 @@ export const shopService = {
       }
 
       // 카테고리별 필드 결정
-      let field: string;
-      switch (item.category) {
-        case 'frame': field = 'active_frame_id'; break;
-        case 'title': field = 'active_title_id'; break;
-        case 'theme': field = 'active_theme_id'; break;
-        case 'avatar': field = 'active_avatar_id'; break;
-        default: return { success: false, message: '잘못된 카테고리입니다.' };
-      }
+      const field = EQUIP_FIELDS[item.category];
+      if (!field) return { success: false, message: '잘못된 카테고리입니다.' };
 
       // 프로필 설정 업데이트
       await pool.query(
@@ -324,14 +413,8 @@ export const shopService = {
 
     try {
       // 카테고리별 필드 결정
-      let field: string;
-      switch (category) {
-        case 'frame': field = 'active_frame_id'; break;
-        case 'title': field = 'active_title_id'; break;
-        case 'theme': field = 'active_theme_id'; break;
-        case 'avatar': field = 'active_avatar_id'; break;
-        default: return { success: false, message: '잘못된 카테고리입니다.' };
-      }
+      const field = EQUIP_FIELDS[category];
+      if (!field) return { success: false, message: '잘못된 카테고리입니다.' };
 
       // 프로필 설정 업데이트
       await pool.query(
@@ -534,34 +617,14 @@ export const shopService = {
     if (!pool) return;
 
     try {
-      // 만료된 아이템 ID 조회
-      const expiredItems = await pool.query(
-        `SELECT DISTINCT item_id FROM dm_user_items WHERE expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP`
-      );
-
-      // 만료된 아이템을 장착 중인 경우 해제
-      for (const row of expiredItems.rows) {
-        const itemId = row.item_id;
-
-        // 프레임 장착 해제
+      // 보유가 만료된 아이템을 장착 중인 유저의 장착 해제 (갱신해서 아직 유효한 유저는 유지, 기본 아이템 제외)
+      for (const field of Object.values(EQUIP_FIELDS)) {
         await pool.query(
-          `UPDATE dm_user_profile_settings SET active_frame_id = NULL WHERE active_frame_id = $1`,
-          [itemId]
-        );
-        // 칭호 장착 해제
-        await pool.query(
-          `UPDATE dm_user_profile_settings SET active_title_id = NULL WHERE active_title_id = $1`,
-          [itemId]
-        );
-        // 테마 장착 해제
-        await pool.query(
-          `UPDATE dm_user_profile_settings SET active_theme_id = NULL WHERE active_theme_id = $1`,
-          [itemId]
-        );
-        // 아바타 장착 해제
-        await pool.query(
-          `UPDATE dm_user_profile_settings SET active_avatar_id = NULL WHERE active_avatar_id = $1`,
-          [itemId]
+          `UPDATE dm_user_profile_settings ps SET ${field} = NULL
+           WHERE ps.${field} IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM dm_shop_items si WHERE si.id = ps.${field} AND si.is_default)
+             AND NOT EXISTS (SELECT 1 FROM dm_user_items ui WHERE ui.user_id = ps.user_id AND ui.item_id = ps.${field}
+                             AND (ui.expires_at IS NULL OR ui.expires_at > CURRENT_TIMESTAMP))`
         );
       }
 
@@ -582,7 +645,7 @@ export const shopService = {
     if (!pool) return [];
 
     const result = await pool.query(
-      'SELECT * FROM dm_shop_items WHERE is_default = TRUE ORDER BY category, sort_order'
+      `SELECT *, ${SHOP_COMPUTED} FROM dm_shop_items WHERE is_default = TRUE ORDER BY category, sort_order`
     );
     return result.rows.map(mapShopItem);
   },

@@ -201,10 +201,9 @@ router.get('/stats', verifyAdminToken, async (req: Request, res: Response): Prom
       `),
       pool.query(`
         SELECT
-          COALESCE(SUM(CASE WHEN h.created_at >= CURRENT_DATE THEN ABS(h.amount) ELSE 0 END), 0) as today,
-          COALESCE(SUM(ABS(h.amount)), 0) as total
-        FROM dm_mileage_history h
-        WHERE h.reason LIKE 'shop_%'
+          COALESCE(SUM(CASE WHEN p.created_at >= CURRENT_DATE THEN p.price_paid ELSE 0 END), 0) as today,
+          COALESCE(SUM(p.price_paid), 0) as total
+        FROM dm_shop_purchases p
       `),
       pool.query(`
         SELECT
@@ -301,6 +300,284 @@ router.put('/bot', verifyAdminToken, async (req: Request, res: Response): Promis
   } catch (error) {
     console.error('Update bot settings error:', error);
     res.status(500).json({ error: 'Failed to update bot settings' });
+  }
+});
+
+// ============================================================
+// 상점 운영: 통계 · 아이템 관리(가격/할인/배지/추천/판매기간/이용기간) · 일괄 할인
+// ============================================================
+const SHOP_CATEGORIES = ['frame', 'title', 'theme', 'avatar', 'mascot', 'ticket'];
+const SHOP_RARITIES = ['common', 'rare', 'epic', 'legendary'];
+const SHOP_BADGES = ['new', 'hot', 'limited'];
+
+// 할인 적용 유효 가격(shopService.effectivePrice 와 같은 공식)
+const SHOP_EFFECTIVE_PRICE_SQL = `CASE WHEN si.price > 0 AND si.sale_percent > 0 AND (si.sale_ends_at IS NULL OR si.sale_ends_at > CURRENT_TIMESTAMP)
+  THEN GREATEST(1, ROUND(si.price * (100 - si.sale_percent) / 100.0)::int) ELSE si.price END`;
+
+/** 관리자 상점 아이템 행(판매 집계 포함). where 는 si 별칭 기준 조건(파라미터 $1 사용 가능). */
+async function queryAdminShopItems(pool: any, where = 'TRUE', params: any[] = []) {
+  const r = await pool.query(`
+    SELECT si.id, si.item_key, si.category, si.name, si.rarity, si.price AS base_price,
+           ${SHOP_EFFECTIVE_PRICE_SQL} AS effective_price,
+           si.sale_percent, si.sale_ends_at,
+           (si.sale_percent > 0 AND (si.sale_ends_at IS NULL OR si.sale_ends_at > CURRENT_TIMESTAMP)) AS sale_active,
+           si.badge, si.is_featured, si.available_until, si.duration_days, si.is_active, si.is_default, si.created_at, si.sort_order,
+           COALESCE(s.sales_total, 0) AS sales_total, COALESCE(s.revenue_total, 0) AS revenue_total,
+           COALESCE(s.sales_range, 0) AS sales_range
+    FROM dm_shop_items si
+    LEFT JOIN (
+      SELECT p.item_id, COUNT(*) AS sales_total, SUM(p.price_paid) AS revenue_total,
+             COUNT(*) FILTER (WHERE p.created_at >= CURRENT_DATE - INTERVAL '29 days') AS sales_range
+      FROM dm_shop_purchases p JOIN dm_users u ON u.id = p.user_id AND u.is_bot = FALSE
+      GROUP BY p.item_id
+    ) s ON s.item_id = si.id
+    WHERE ${where}
+    ORDER BY si.category, si.sort_order, si.id`, params);
+  return r.rows.map((x: any) => ({
+    id: x.id,
+    itemKey: x.item_key,
+    category: x.category,
+    name: x.name,
+    rarity: x.rarity,
+    basePrice: x.base_price,
+    price: x.effective_price,
+    salePercent: x.sale_percent,
+    saleActive: x.sale_active,
+    saleEndsAt: x.sale_ends_at,
+    badge: x.badge,
+    isFeatured: x.is_featured,
+    availableUntil: x.available_until,
+    durationDays: x.duration_days,
+    isActive: x.is_active,
+    isDefault: x.is_default,
+    createdAt: x.created_at,
+    salesTotal: parseInt(x.sales_total),
+    revenueTotal: parseInt(x.revenue_total),
+    salesRange: parseInt(x.sales_range),
+  }));
+}
+
+// GET /api/admin/shop/stats?days=30 - 상점 매출·구매 통계 (매출 = 소비된 코인)
+router.get('/shop/stats', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const days = Math.min(365, Math.max(1, parseInt(String(req.query.days ?? '30'), 10) || 30));
+    const since = `CURRENT_DATE - ($1::int - 1) * INTERVAL '1 day'`;
+    const P = 'dm_shop_purchases p JOIN dm_users u ON u.id = p.user_id AND u.is_bot = FALSE';
+
+    const [sum, active, circ, flow, owned, daily, byCat, byRar, top, never, sale] = await Promise.all([
+      pool.query(`
+        SELECT
+          COALESCE(SUM(p.price_paid) FILTER (WHERE p.created_at >= CURRENT_DATE), 0) AS revenue_today,
+          COALESCE(SUM(p.price_paid) FILTER (WHERE p.created_at >= CURRENT_DATE - INTERVAL '6 days'), 0) AS revenue_7d,
+          COALESCE(SUM(p.price_paid), 0) AS revenue_range,
+          COUNT(*) FILTER (WHERE p.created_at >= CURRENT_DATE) AS purchases_today,
+          COUNT(*) AS purchases_range,
+          COUNT(*) FILTER (WHERE p.is_renewal) AS renewals_range,
+          COUNT(DISTINCT p.user_id) AS buyers_range
+        FROM ${P} WHERE p.created_at >= ${since}`, [days]),
+      pool.query(`
+        SELECT (SELECT COUNT(DISTINCT s.user_id) FROM dm_user_sessions s JOIN dm_users u ON u.id = s.user_id AND u.is_bot = FALSE
+                WHERE s.created_at >= ${since}) AS active_users,
+               (SELECT COUNT(*) FROM dm_users WHERE is_bot = FALSE) AS total_users`, [days]),
+      pool.query(`SELECT COALESCE(SUM(m.mileage), 0) AS coins FROM dm_user_mileage m JOIN dm_users u ON u.id = m.user_id AND u.is_bot = FALSE`),
+      pool.query(`
+        SELECT COALESCE(SUM(h.amount) FILTER (WHERE h.amount > 0), 0) AS earned,
+               COALESCE(-SUM(h.amount) FILTER (WHERE h.amount < 0), 0) AS spent
+        FROM dm_mileage_history h JOIN dm_users u ON u.id = h.user_id AND u.is_bot = FALSE
+        WHERE h.created_at >= ${since}`, [days]),
+      pool.query(`
+        SELECT COUNT(*) FILTER (WHERE ui.expires_at > CURRENT_TIMESTAMP) AS active_timed,
+               COUNT(*) FILTER (WHERE ui.expires_at > CURRENT_TIMESTAMP AND ui.expires_at <= CURRENT_TIMESTAMP + INTERVAL '3 days') AS expiring_3d
+        FROM dm_user_items ui
+        JOIN dm_shop_items si ON si.id = ui.item_id AND si.is_default = FALSE
+        JOIN dm_users u ON u.id = ui.user_id AND u.is_bot = FALSE`),
+      pool.query(`
+        SELECT d::date AS day,
+               COALESCE(SUM(p.price_paid), 0) AS revenue, COUNT(p.id) AS purchases, COUNT(DISTINCT p.user_id) AS buyers
+        FROM generate_series(CURRENT_DATE - ($1::int - 1) * INTERVAL '1 day', CURRENT_DATE, INTERVAL '1 day') d
+        LEFT JOIN (SELECT p.* FROM dm_shop_purchases p JOIN dm_users u ON u.id = p.user_id AND u.is_bot = FALSE) p
+               ON p.created_at::date = d::date
+        GROUP BY d ORDER BY d`, [days]),
+      pool.query(`SELECT p.category, SUM(p.price_paid) AS revenue, COUNT(*) AS purchases FROM ${P}
+                  WHERE p.created_at >= ${since} GROUP BY p.category ORDER BY revenue DESC`, [days]),
+      pool.query(`SELECT si.rarity, SUM(p.price_paid) AS revenue, COUNT(*) AS purchases FROM ${P}
+                  JOIN dm_shop_items si ON si.id = p.item_id
+                  WHERE p.created_at >= ${since} GROUP BY si.rarity ORDER BY revenue DESC`, [days]),
+      pool.query(`SELECT si.id, si.item_key, si.name, si.category, si.rarity, COUNT(*) AS purchases,
+                         COUNT(*) FILTER (WHERE p.is_renewal) AS renewals, SUM(p.price_paid) AS revenue
+                  FROM ${P} JOIN dm_shop_items si ON si.id = p.item_id
+                  WHERE p.created_at >= ${since}
+                  GROUP BY si.id ORDER BY purchases DESC, revenue DESC LIMIT 15`, [days]),
+      pool.query(`SELECT si.id, si.item_key, si.name, si.category, si.rarity, si.price
+                  FROM dm_shop_items si
+                  WHERE si.is_active = TRUE AND si.is_default = FALSE AND si.price > 0 AND si.category <> 'ticket'
+                    AND NOT EXISTS (SELECT 1 FROM dm_shop_purchases p WHERE p.item_id = si.id AND p.created_at >= ${since})
+                  ORDER BY si.price DESC, si.id LIMIT 15`, [days]),
+      pool.query(`SELECT si.id, si.name, p.discount_percent, COUNT(*) AS purchases
+                  FROM ${P} JOIN dm_shop_items si ON si.id = p.item_id
+                  WHERE p.created_at >= ${since} AND p.discount_percent > 0
+                  GROUP BY si.id, si.name, p.discount_percent ORDER BY purchases DESC LIMIT 20`, [days]),
+    ]);
+
+    const s = sum.rows[0];
+    const buyers = parseInt(s.buyers_range);
+    const purchasesRange = parseInt(s.purchases_range);
+    const revenueRange = parseInt(s.revenue_range);
+    const activeUsers = parseInt(active.rows[0].active_users);
+    const denom = activeUsers > 0 ? activeUsers : parseInt(active.rows[0].total_users);
+    res.json({
+      days,
+      summary: {
+        revenueToday: parseInt(s.revenue_today),
+        revenue7d: parseInt(s.revenue_7d),
+        revenueRange,
+        purchasesToday: parseInt(s.purchases_today),
+        purchasesRange,
+        buyersRange: buyers,
+        payersRate: denom > 0 ? Math.min(1, buyers / denom) : 0,
+        arpu: denom > 0 ? Math.round((revenueRange / denom) * 10) / 10 : 0,
+        renewalRate: purchasesRange > 0 ? parseInt(s.renewals_range) / purchasesRange : 0,
+        activeTimedOwnerships: parseInt(owned.rows[0].active_timed),
+        expiringIn3d: parseInt(owned.rows[0].expiring_3d),
+        coinsInCirculation: parseInt(circ.rows[0].coins),
+        coinsEarnedRange: parseInt(flow.rows[0].earned),
+        coinsSpentRange: parseInt(flow.rows[0].spent),
+      },
+      daily: daily.rows.map((r: any) => ({
+        date: r.day instanceof Date ? `${r.day.getFullYear()}-${String(r.day.getMonth() + 1).padStart(2, '0')}-${String(r.day.getDate()).padStart(2, '0')}` : String(r.day).slice(0, 10),
+        revenue: parseInt(r.revenue), purchases: parseInt(r.purchases), buyers: parseInt(r.buyers),
+      })),
+      byCategory: byCat.rows.map((r: any) => ({ category: r.category, revenue: parseInt(r.revenue), purchases: parseInt(r.purchases) })),
+      byRarity: byRar.rows.map((r: any) => ({ rarity: r.rarity, revenue: parseInt(r.revenue), purchases: parseInt(r.purchases) })),
+      topItems: top.rows.map((r: any) => ({
+        itemId: r.id, itemKey: r.item_key, name: r.name, category: r.category, rarity: r.rarity,
+        purchases: parseInt(r.purchases), renewals: parseInt(r.renewals), revenue: parseInt(r.revenue),
+      })),
+      neverSold: never.rows.map((r: any) => ({ itemId: r.id, itemKey: r.item_key, name: r.name, category: r.category, rarity: r.rarity, price: r.price })),
+      salePerformance: sale.rows.map((r: any) => ({ itemId: r.id, name: r.name, discountPercent: r.discount_percent, purchasesRange: parseInt(r.purchases) })),
+    });
+  } catch (error) {
+    console.error('Get shop stats error:', error);
+    res.status(500).json({ error: 'Failed to get shop stats' });
+  }
+});
+
+// GET /api/admin/shop/items - 비활성 포함 전체 아이템 + 판매 집계
+router.get('/shop/items', verifyAdminToken, async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    res.json({ items: await queryAdminShopItems(pool) });
+  } catch (error) {
+    console.error('Get shop items error:', error);
+    res.status(500).json({ error: 'Failed to get shop items' });
+  }
+});
+
+// ISO 문자열|null 검증. 유효하면 문자열, null 이면 null, 잘못되면 undefined
+function parseIsoOrNull(v: unknown): string | null | undefined {
+  if (v === null) return null;
+  if (typeof v !== 'string' || !v || Number.isNaN(new Date(v).getTime())) return undefined;
+  return new Date(v).toISOString();
+}
+
+// PATCH /api/admin/shop/items/:id - 부분 수정
+router.patch('/shop/items/:id', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isInteger(id)) { res.status(400).json({ error: 'invalid id' }); return; }
+    const cur = await pool.query('SELECT id, item_key, category, is_default FROM dm_shop_items WHERE id = $1', [id]);
+    if (cur.rows.length === 0) { res.status(404).json({ error: 'Item not found' }); return; }
+    const { category, is_default: isDefault } = cur.rows[0];
+    const b = req.body ?? {};
+    const sets: string[] = [];
+    const vals: any[] = [];
+    const add = (col: string, v: any, cast = '') => { vals.push(v); sets.push(`${col} = $${vals.length}${cast}`); };
+    const bad = (msg: string) => { res.status(400).json({ error: msg }); };
+
+    if (b.price !== undefined) {
+      if (isDefault) { bad('기본 아이템은 가격을 바꿀 수 없어요'); return; }
+      if (!Number.isInteger(b.price) || b.price < 0 || b.price > 100000) { bad('price must be an integer 0..100000'); return; }
+      add('price', b.price);
+    }
+    if (b.isActive !== undefined) {
+      if (typeof b.isActive !== 'boolean') { bad('isActive must be boolean'); return; }
+      add('is_active', b.isActive);
+    }
+    if (b.salePercent !== undefined) {
+      if (!Number.isInteger(b.salePercent) || b.salePercent < 0 || b.salePercent > 90) { bad('salePercent must be an integer 0..90'); return; }
+      add('sale_percent', b.salePercent);
+    }
+    if (b.saleEndsAt !== undefined) {
+      const v = parseIsoOrNull(b.saleEndsAt);
+      if (v === undefined) { bad('saleEndsAt must be ISO date or null'); return; }
+      add('sale_ends_at', v, '::timestamptz');
+    }
+    if (b.badge !== undefined) {
+      if (b.badge !== null && !SHOP_BADGES.includes(b.badge)) { bad('badge must be new|hot|limited|null'); return; }
+      add('badge', b.badge);
+    }
+    if (b.isFeatured !== undefined) {
+      if (typeof b.isFeatured !== 'boolean') { bad('isFeatured must be boolean'); return; }
+      add('is_featured', b.isFeatured);
+    }
+    if (b.availableUntil !== undefined) {
+      const v = parseIsoOrNull(b.availableUntil);
+      if (v === undefined) { bad('availableUntil must be ISO date or null'); return; }
+      add('available_until', v, '::timestamptz');
+    }
+    if (b.durationDays !== undefined) {
+      if (isDefault || category === 'ticket') { bad('기본 아이템·티켓은 이용 기간을 설정할 수 없어요'); return; }
+      if (b.durationDays !== null && (!Number.isInteger(b.durationDays) || b.durationDays < 1 || b.durationDays > 365)) { bad('durationDays must be an integer 1..365 or null'); return; }
+      add('duration_days', b.durationDays);
+    }
+    if (sets.length === 0) { bad('수정할 항목이 없어요'); return; }
+
+    vals.push(id);
+    await pool.query(`UPDATE dm_shop_items SET ${sets.join(', ')} WHERE id = $${vals.length}`, vals);
+    console.log(`[shop] item ${cur.rows[0].item_key} updated by admin ${(req as any).admin?.username}:`, JSON.stringify(b));
+    const items = await queryAdminShopItems(pool, 'si.id = $1', [id]);
+    res.json({ item: items[0] });
+  } catch (error) {
+    console.error('Update shop item error:', error);
+    res.status(500).json({ error: 'Failed to update shop item' });
+  }
+});
+
+// POST /api/admin/shop/bulk-sale - { category?, rarity?, salePercent, saleEndsAt? } 기본 아님·판매 중 아이템에 일괄 할인(0=해제)
+router.post('/shop/bulk-sale', verifyAdminToken, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const pool = getPool();
+    if (!pool) { res.status(500).json({ error: 'Database not available' }); return; }
+    const { category, rarity, salePercent, saleEndsAt } = req.body ?? {};
+    if (!Number.isInteger(salePercent) || salePercent < 0 || salePercent > 90) { res.status(400).json({ error: 'salePercent must be an integer 0..90' }); return; }
+    if (category !== undefined && category !== null && category !== '' && !SHOP_CATEGORIES.includes(category)) { res.status(400).json({ error: 'invalid category' }); return; }
+    if (rarity !== undefined && rarity !== null && rarity !== '' && !SHOP_RARITIES.includes(rarity)) { res.status(400).json({ error: 'invalid rarity' }); return; }
+    let ends: string | null = null;
+    if (saleEndsAt !== undefined && saleEndsAt !== null && saleEndsAt !== '') {
+      const v = parseIsoOrNull(saleEndsAt);
+      if (v === undefined) { res.status(400).json({ error: 'saleEndsAt must be ISO date or null' }); return; }
+      ends = v;
+    }
+    if (salePercent === 0) ends = null;
+
+    const conds = ['is_default = FALSE', 'is_active = TRUE', 'price > 0'];
+    const vals: any[] = [salePercent, ends];
+    if (category) { vals.push(category); conds.push(`category = $${vals.length}`); }
+    if (rarity) { vals.push(rarity); conds.push(`rarity = $${vals.length}`); }
+    const r = await pool.query(
+      `UPDATE dm_shop_items SET sale_percent = $1, sale_ends_at = $2::timestamptz WHERE ${conds.join(' AND ')}`,
+      vals
+    );
+    console.log(`[shop] bulk sale ${salePercent}% (category=${category || '*'}, rarity=${rarity || '*'}, ends=${ends}) by admin ${(req as any).admin?.username}: ${r.rowCount} items`);
+    res.json({ updated: r.rowCount ?? 0 });
+  } catch (error) {
+    console.error('Bulk sale error:', error);
+    res.status(500).json({ error: 'Failed to apply bulk sale' });
   }
 });
 
