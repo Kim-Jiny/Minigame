@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'cartoon/title_icon_art.dart';
 import '../models/shop_item.dart';
 import 'cartoon/avatar_art.dart';
+import 'cartoon/duo_mascot.dart';
+import '../theme/candy_theme.dart';
 
 class GamePlayerProfile extends StatelessWidget {
   final String name;
@@ -72,7 +74,7 @@ class GamePlayerProfile extends StatelessWidget {
     return Column(
       children: [
         // 프레임이 적용된 아바타
-        _buildFramedAvatar(frameColor, glowColor, isRainbow),
+        _withPet(_buildFramedAvatar(frameColor, glowColor, isRainbow)),
         const SizedBox(height: 4),
         // 닉네임
         Text(
@@ -89,6 +91,31 @@ class GamePlayerProfile extends StatelessWidget {
           _buildTitleWidget(titleText, titleIcon, titleGradientColors),
         // 추가 위젯 (말 개수 등)
         if (extraWidget != null) extraWidget!,
+      ],
+    );
+  }
+
+  /// 아바타 모서리에 걸쳐 펫처럼 따라다니는 마스코트. 내 쪽은 오른쪽, 상대 쪽은 왼쪽(화면 안쪽)에 둔다.
+  Widget _withPet(Widget avatar) {
+    final mascot = profileSettings?.getMascotInfo();
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
+      children: [
+        avatar,
+        Positioned(
+          right: isMe ? -18 : null,
+          left: isMe ? null : -18,
+          bottom: -6,
+          child: IgnorePointer(
+            child: DuoMascot(
+              size: 32,
+              color: mascot?.$1 ?? CandyColors.pink,
+              accessory: mascot?.$2,
+              mood: isActive ? MascotMood.cheer : MascotMood.happy,
+            ),
+          ),
+        ),
       ],
     );
   }
