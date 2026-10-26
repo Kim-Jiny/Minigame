@@ -56,14 +56,14 @@ class SocketService {
   /// 핸드셰이크 인증 정보 설정. 이미 다른 auth 로 연결돼 있으면 새 auth 로 재연결한다.
   void setAuth(Map<String, dynamic> auth) {
     _auth = Map<String, dynamic>.from(auth);
-    final socket = _socket;
-    if (socket != null) {
-      socket.auth = _auth;
-      _isReady = false;
-      socket
-        ..disconnect()
-        ..connect();
+    if (_socket != null) {
+      // 계정이 바뀌면(게스트→소셜 등) 이전 신원으로 열린 소켓·대기 emit 을 모두 버리고
+      // 다음 connect() 에서 새 auth 로 소켓을 새로 만든다. 재사용하면 서버가 이전
+      // 신원(게스트)으로 인증한 연결에서 친구 코드 등을 요청해 '로그인이 필요합니다' 가 난다.
+      _teardownSocket();
+      _currentUrl = null;
     }
+    _pendingEmits.clear();
   }
 
   void connect() {
@@ -113,6 +113,8 @@ class SocketService {
     _teardownSocket();
     _currentUrl = null;
     _pendingEmits.clear();
+    // 로그아웃 뒤 누군가 emit() 해서 옛 계정 auth 로 소켓이 다시 열리는 일을 막는다.
+    _auth = const {};
   }
 
   void _teardownSocket() {
@@ -132,7 +134,8 @@ class SocketService {
 
     AppLogger.debug('📤 queue emit: $event (ready=$_isReady)');
     _pendingEmits.add(_QueuedEmit(event, data));
-    // 소켓이 없거나 끊겨 있으면 연결을 보장한다.
+    // 소켓이 없거나 끊겨 있으면 연결을 보장한다. 인증 정보가 없으면(로그아웃 상태) 연결하지 않는다.
+    if (_auth.isEmpty) return;
     connect();
   }
 

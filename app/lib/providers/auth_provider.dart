@@ -98,8 +98,11 @@ class AuthProvider extends ChangeNotifier with ProviderFeedback {
   }
 
   Future<void> _completeLogin(UserInfo user) async {
-    await _saveUserInfo(user);
+    // 소켓 auth 가 새 계정으로 설정되기 전에 '로그인됨' 으로 보이면 화면이 먼저 열려
+    // 옛(게스트) auth 로 요청을 보낼 수 있다. 소켓 연결을 시작한 뒤에 로그인 상태로 만든다.
+    await _saveUserInfo(user, markLoggedIn: false);
     await _connectSocket();
+    _isLoggedIn = true;
   }
 
   Future<void> _runLoginFlow({
@@ -133,12 +136,12 @@ class AuthProvider extends ChangeNotifier with ProviderFeedback {
     notifyListeners();
   }
 
-  Future<void> _saveUserInfo(UserInfo user) async {
+  Future<void> _saveUserInfo(UserInfo user, {bool markLoggedIn = true}) async {
     _userId = user.id;
     _nickname = user.nickname;
     _email = user.email;
     _avatarUrl = user.avatarUrl;
-    _isLoggedIn = true;
+    if (markLoggedIn) _isLoggedIn = true;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('user_id', user.id);

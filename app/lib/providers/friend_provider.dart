@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'mixins/provider_feedback.dart';
 import '../services/socket_service.dart';
@@ -204,6 +205,7 @@ class FriendProvider extends ChangeNotifier with ProviderFeedback {
     // 친구 코드 응답
     _socketListeners.on('friend_code', (data) {
       debugPrint('📥 Received friend_code: ${data['code']}');
+      _codeRetries = 0;
       _myFriendCode = data['code'];
       notifyListeners();
     });
@@ -211,6 +213,16 @@ class FriendProvider extends ChangeNotifier with ProviderFeedback {
     _socketListeners.on('friend_code_error', (data) {
       _myFriendCode = null;
       final message = data['message'] as String? ?? '친구 코드를 불러오지 못했습니다.';
+      // 로그인 직후 인증이 아직 반영되기 전의 일시적 거절일 수 있어 조용히 재시도한다.
+      if (message.contains('로그인') && _codeRetries < 5) {
+        _codeRetries++;
+        Timer(const Duration(seconds: 2), () {
+          _lastCodeRequestAt = null;
+          ensureFriendCode();
+        });
+        notifyListeners();
+        return;
+      }
       setError(message);
       notifyListeners();
     });
@@ -465,6 +477,7 @@ class FriendProvider extends ChangeNotifier with ProviderFeedback {
   }
 
   DateTime? _lastCodeRequestAt;
+  int _codeRetries = 0;
 
   /// 코드가 아직 없으면(응답 유실·로그인 직후 경합 등) 다시 요청한다. 3초에 한 번만.
   void ensureFriendCode() {
@@ -601,6 +614,7 @@ class FriendProvider extends ChangeNotifier with ProviderFeedback {
     _invitations = [];
     _hasFetchedInitialData = false;
     _lastCodeRequestAt = null;
+    _codeRetries = 0;
     _unreadCounts = {};
     _pendingRemovals.clear();
     _activeChatFriendId = null;
