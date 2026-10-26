@@ -58,14 +58,21 @@ class _ChunkyButtonState extends State<ChunkyButton> {
               Icon(widget.icon, color: fg, size: widget.fontSize + 4),
               const SizedBox(width: 8),
             ],
-            Text(
-              widget.label!,
-              style: TextStyle(
-                fontFamily: CandyTheme.displayFont,
-                color: fg,
-                fontSize: widget.fontSize,
-                fontWeight: FontWeight.w900,
-                letterSpacing: -0.3,
+            // 좁은 버튼에서는 글자가 줄어들어 넘치지 않게 한다.
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  widget.label!,
+                  maxLines: 1,
+                  style: TextStyle(
+                    fontFamily: CandyTheme.displayFont,
+                    color: fg,
+                    fontSize: widget.fontSize,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.3,
+                  ),
+                ),
               ),
             ),
           ],
