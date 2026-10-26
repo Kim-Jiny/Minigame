@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ 시스템 스플래시: 크림 배경, 아이콘은 비워 두고 Flutter 로딩 화면의 로고로 이어진다 -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:windowSplashScreenBackground">@color/launch_background_color</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_empty</item>
+    </style>
+</resources>
