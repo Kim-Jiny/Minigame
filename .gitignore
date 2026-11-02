@@ -38,3 +38,6 @@ server/public/saja/comics/*
 # [PP] 비즈픽셀 업로드(유저 콘텐츠) — 커밋 제외
 server/public/pp/uploads/*
 !server/public/pp/uploads/.gitkeep
+
+# 스토어 등록용 스크린샷·문구 원본 — 로컬 전용, git에는 안 올린다
+store_assets/
