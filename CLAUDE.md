@@ -10,10 +10,27 @@
 | 성인의 수학 (MathForAdults) | `mfa_` | **별도 리포** `~/Documents/Jiny/MathForAdults` | `/mfa/*` |
 | 라비린스 (Labyrinth) | `lab_` | **별도 리포 + 별도 서버** `~/Documents/Jiny/LabyrinthOnline` (서버 독립 컨테이너 / iOS SwiftUI / Android Compose) | 라비린스 서버가 자체 제공 |
 | PerlerPixel (비즈픽셀) | `pp_` | **별도 리포** `~/Documents/Jiny/PerlerPixel` (iOS SwiftUI / 추후 Android) | `/pp/*` |
+| Deskmates (MacPet, 데스크톱 펫 메신저) | `macpet` (DB 없음) | **별도 리포 + 별도 서버** `~/Documents/Jiny/MacPet` (macOS SwiftUI / 서버 `server/` 독립 컨테이너 `macpet`, JSON 파일 저장) | Deskmates 서버가 자체 제공 (`/macpet/privacy`, `/macpet/terms`) |
 | PokerStyle (홀덤 성향 테스트) | `ps_` | **별도 리포** `~/Documents/Jiny/JinyShop` 의 `/pokerstyle/` 웹도구 (정적 HTML/JS, 브라우저에서 이 서버 호출) | 없음 (웹도구가 자체 안내) |
 
 서버 DB 테이블·라우트·정적페이지는 **프리픽스로 소유권을 구분**한다. `dm_` = 듀오, `ctr_` = 규칙찾기, `sj_` = 사자툰, `mfa_` = 성인의 수학, `lab_` = 라비린스, `pp_` = 비즈픽셀, `ps_` = PokerStyle.
 단, **라비린스만 서버 코드가 이 리포에 없다** — 별도 리포의 독립 컨테이너로 배포되고, 이 리포와는 같은 PostgreSQL(`lab_*` 테이블)과 `JWT_SECRET` 만 공유한다. 아래 [LAB] 섹션 참고.
+
+---
+
+## ⚠️ Deskmates(MacPet) 자산 — 삭제·리팩터링 금지
+
+> Deskmates 서버는 **이 리포와 별개 컨테이너**(`macpet`, 같은 Docker 네트워크 `app-network`)이고 DB 도 따로다(JSON 파일). 이 리포에는 **관리자 화면(Backstage)용 프록시와 화면만** 있다. 서버·앱 코드는 `~/Documents/Jiny/MacPet`.
+> 관리자 API 는 Deskmates 서버의 **내부 전용 포트**(8788, nginx 에 연결 안 함)이고, 이 서버가 `MACPET_ADMIN_URL` + `MACPET_ADMIN_KEY`(Deskmates 의 `ADMIN_KEY` 와 같은 값)로 호출한다. 채팅·쪽지는 Deskmates 가 관리자에게도 내주지 않는다.
+
+| 파일 | Deskmates 구역 |
+|------|----------------|
+| `server/src/routes/admin.ts` | `[MACPET]` 블록: `/api/admin/macpet/*` 프록시 (현황·그룹·사용자, 그룹 삭제·멤버 내보내기·계정 삭제) |
+| `server/public/admin/deskmates.js` `deskmates.css` | 관리자 화면 전체 (현황 · 그룹 · 사용자 탭) |
+| `server/public/admin/index.html` | `GAMES` 의 `{ id: 'deskmates' }` 카드 + `#dmDashboard` 껍데기 + `hideAllDashboards`/`enterGame` 분기 + css·js 로드 |
+| `server/.env.example` | `MACPET_ADMIN_URL`, `MACPET_ADMIN_KEY` |
+
+각 위치에는 `[MACPET]` 마커 주석이 달려 있다. `git grep -n "\[MACPET\]"` 로 전체를 확인할 수 있다.
 
 ---
 

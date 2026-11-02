@@ -1,0 +1,75 @@
+/* [MACPET] Deskmates(MacPet) 관리자 화면 스타일 — #dmDashboard 와 .dm-modal 안에서만 적용한다. 삭제 금지.
+   공용 테마 변수(--brand, --border, --muted …)는 index.html 의 :root 를 그대로 쓴다. */
+
+#dmDashboard { --dm-ok: #34b27f; --dm-bad: #ef6f7b; padding: 0; }
+
+#dmDashboard .dm-tabs { display: flex; flex-wrap: wrap; gap: 10px; padding: 18px 24px 6px; }
+#dmDashboard .dm-tab {
+  padding: 10px 22px; cursor: pointer; white-space: nowrap; font-family: var(--font-cute, inherit); font-size: 16px;
+  color: var(--muted, #7a7391); background: var(--surface, #fff); border: 2px solid var(--border, #f0e3d0); border-radius: 999px;
+  box-shadow: 0 3px 0 var(--lip, #e7d6bc); transition: transform .06s, box-shadow .06s, background .12s, color .12s;
+}
+#dmDashboard .dm-tab:hover { color: var(--brand, #7c6cf2); }
+#dmDashboard .dm-tab.active { color: #fff; background: var(--brand, #7c6cf2); border-color: var(--brand, #7c6cf2); box-shadow: 0 3px 0 var(--brand-lip, #5a4bc8); }
+#dmDashboard .dm-tab:active { transform: translateY(3px); box-shadow: none; }
+
+#dmDashboard .dm-pane { display: none; padding: 24px; }
+#dmDashboard .dm-pane.active { display: block; }
+
+#dmDashboard .dm-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 16px; }
+.dm-bar .grow, .dm-actions .grow { flex: 1; }
+.dm-note { font-size: 12px; color: var(--muted, #7a7391); margin: 0; }
+.dm-input { padding: 9px 14px; min-width: 240px; flex: 1; max-width: 360px; border: 2px solid var(--border, #f0e3d0); border-radius: 14px; background: #fffdf9; font-size: 14px; color: var(--text, #2e2a45); font-family: inherit; }
+.dm-input:focus { outline: none; border-color: var(--brand, #7c6cf2); box-shadow: 0 0 0 4px var(--brand-weak, #f0edff); }
+.dm-btn { padding: 8px 16px; cursor: pointer; font-size: 14px; font-family: inherit; color: var(--text, #2e2a45); background: var(--surface, #fff); border: 2px solid var(--border, #f0e3d0); border-radius: 12px; }
+.dm-btn:hover { border-color: var(--brand, #7c6cf2); color: var(--brand, #7c6cf2); }
+.dm-btn.primary { color: #fff; background: var(--brand, #7c6cf2); border-color: var(--brand, #7c6cf2); }
+.dm-btn.primary:hover { color: #fff; filter: brightness(1.06); }
+.dm-btn.danger { color: #c9444f; border-color: #f2c4c8; }
+.dm-btn.danger:hover { color: #fff; background: var(--dm-bad, #ef6f7b); border-color: var(--dm-bad, #ef6f7b); }
+.dm-btn.small { padding: 4px 10px; font-size: 12px; border-radius: 9px; }
+
+/* ── 숫자 카드 ── */
+#dmDashboard .dm-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+.dm-kpi { padding: 16px 18px; background: var(--surface, #fff); border: 2px solid var(--border, #f0e3d0); border-radius: 18px; box-shadow: 0 3px 0 var(--lip, #e7d6bc); }
+.dm-kpi .label { font-size: 13px; color: var(--muted, #7a7391); }
+.dm-kpi .value { margin: 6px 0 4px; font-size: 30px; font-weight: 800; color: var(--text, #2e2a45); }
+.dm-kpi .sub { font-size: 12px; color: var(--muted, #7a7391); min-height: 16px; }
+.dm-live { color: var(--dm-ok, #34b27f); }
+.dm-skel { height: 112px; border-radius: 18px; background: linear-gradient(90deg, #f4efe6 25%, #faf6ee 50%, #f4efe6 75%); background-size: 200% 100%; animation: dmSkel 1.2s infinite; }
+@keyframes dmSkel { to { background-position: -200% 0; } }
+.dm-empty { padding: 48px 16px; text-align: center; color: var(--muted, #7a7391); }
+
+/* ── 표 ── */
+.dm-table-wrap { overflow-x: auto; background: var(--surface, #fff); border: 2px solid var(--border, #f0e3d0); border-radius: 16px; }
+.dm-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.dm-table th { padding: 10px 14px; text-align: left; font-size: 12px; font-weight: 700; color: var(--muted, #7a7391); border-bottom: 2px solid var(--border, #f0e3d0); white-space: nowrap; }
+.dm-table td { padding: 10px 14px; border-bottom: 1px solid var(--border, #f0e3d0); vertical-align: middle; }
+.dm-table tr:last-child td { border-bottom: none; }
+.dm-table tr.click { cursor: pointer; }
+.dm-table tr.click:hover td { background: var(--brand-weak, #f6f4ff); }
+.dm-table .num, .dm-table th.num { text-align: right; }
+.dm-table .right { text-align: right; white-space: nowrap; }
+.dm-table .muted, .dm-modal .muted { color: var(--muted, #7a7391); }
+.dm-table .mono, .dm-modal .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.dm-table .small { font-size: 11px; }
+
+.dm-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; background: #eef0f6; color: #596078; }
+.dm-badge.apple { background: #1f2330; color: #fff; }
+.dm-badge.google { background: #e8f0fe; color: #1a5fd0; }
+.dm-badge.dev { background: #fff3e0; color: #b26a00; }
+.dm-badge.brand { background: var(--brand-weak, #f0edff); color: var(--brand, #7c6cf2); }
+.dm-dot { display: inline-block; width: 9px; height: 9px; margin-right: 4px; border-radius: 50%; background: #cfd3de; vertical-align: middle; }
+.dm-dot.on { background: var(--dm-ok, #34b27f); box-shadow: 0 0 0 3px rgba(52, 178, 127, .2); }
+.dm-chip { display: inline-block; padding: 2px 9px; margin: 1px 0; border-radius: 999px; font-size: 12px; cursor: pointer; background: var(--brand-weak, #f0edff); color: var(--brand, #7c6cf2); }
+.dm-chip:hover { filter: brightness(.96); }
+
+/* ── 모달 / 알림 ── */
+.dm-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(31, 35, 48, .45); }
+.dm-modal .box { width: min(640px, 100%); max-height: 86vh; overflow: auto; padding: 22px 24px; background: var(--surface, #fff); border-radius: 20px; box-shadow: 0 20px 60px rgba(0, 0, 0, .25); }
+.dm-modal h3 { margin: 0 0 4px; font-size: 20px; }
+.dm-modal .dm-table { margin: 14px 0; }
+.dm-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+#dmToasts { position: fixed; right: 20px; bottom: 20px; z-index: 1100; display: flex; flex-direction: column; gap: 8px; }
+.dm-toast { padding: 11px 18px; border-radius: 12px; font-size: 14px; color: #fff; background: #2e2a45; box-shadow: 0 6px 20px rgba(0, 0, 0, .2); }
+.dm-toast.bad { background: var(--dm-bad, #ef6f7b); }

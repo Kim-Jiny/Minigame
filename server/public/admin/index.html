@@ -402,6 +402,7 @@
   </style>
   <link rel="stylesheet" href="theme.css?v=20261023c"> <!-- 공통 카툰 테마 -->
   <link rel="stylesheet" href="mfa.css?v=20261023c"> <!-- [MFA] -->
+  <link rel="stylesheet" href="deskmates.css?v=20261102a"> <!-- [MACPET] -->
   <link rel="stylesheet" href="duo.css?v=20261026b"> <!-- 듀오 운영 개요·봇 패널 -->
 </head>
 <body>
@@ -636,6 +637,9 @@
 
   <!-- [MFA] 성인의 수학 소유 — 화면·동작은 mfa.js, 스타일은 mfa.css 가 만든다. 이 껍데기 삭제 금지. -->
   <div class="dashboard" id="mfaDashboard" style="display:none"></div>
+
+  <!-- [MACPET] Deskmates(MacPet) 소유 — 화면·동작은 deskmates.js, 스타일은 deskmates.css 가 만든다. 이 껍데기 삭제 금지. -->
+  <div class="dashboard" id="dmDashboard" style="display:none"></div>
 
   <!-- [PP] 비즈픽셀(PerlerPixel) 소유 — #ppDashboard 섹션 삭제·리팩터링 금지 (리포 루트 CLAUDE.md) -->
   <!-- Dashboard (비즈픽셀) -->
@@ -1090,6 +1094,7 @@
   </div>
 
   <script src="mfa.js?v=20261023c"></script> <!-- [MFA] -->
+  <script src="deskmates.js?v=20261102a"></script> <!-- [MACPET] -->
   <script src="duo.js?v=20261026b"></script> <!-- 듀오 운영 개요·봇 패널 -->
   <script>
     let token = localStorage.getItem('adminToken');
@@ -1112,6 +1117,9 @@
       // [PP] 비즈픽셀(PerlerPixel) 소유 — 카드 항목 삭제 금지
       { id: 'pp', name: '비즈픽셀', desc: '도안 공유 · 신고 · 유저 관리', icon: '🧵',
         privacy: '/pp/privacy', terms: '/pp/terms' },
+      // [MACPET] Deskmates(MacPet) 소유 — 카드 항목 삭제 금지. 약관·방침은 Deskmates 서버(같은 도메인 /macpet)가 직접 서빙한다.
+      { id: 'deskmates', name: 'Deskmates', desc: '현황 · 그룹 · 사용자', icon: '🐾',
+        privacy: '/macpet/privacy', terms: '/macpet/terms' },
     ];
 
     let adminName = ''; // 사이드바에 보여줄 접속 중인 관리자 이름
@@ -1213,7 +1221,7 @@
 
     // 모든 대시보드 숨기기 (공통)
     function hideAllDashboards() {
-      ['gameHub','dashboard','ctrDashboard','sajaDashboard','mfaDashboard','ppDashboard']
+      ['gameHub','dashboard','ctrDashboard','sajaDashboard','mfaDashboard','ppDashboard','dmDashboard']
         .forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
     }
 
@@ -1313,6 +1321,9 @@
       } else if (id === 'pp') {   // [PP] 비즈픽셀 소유
         document.getElementById('ppDashboard').style.display = 'block';
         ppEnter();
+      } else if (id === 'deskmates') {   // [MACPET] Deskmates 소유
+        document.getElementById('dmDashboard').style.display = 'block';
+        dmEnter(); // deskmates.js
       }
     }
 

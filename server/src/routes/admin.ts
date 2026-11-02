@@ -3006,4 +3006,48 @@ router.post('/pp/users/:id/tier', verifyAdminToken, async (req: Request, res: Re
   } catch (e) { console.error('[PP] admin tier override error:', e); res.status(500).json({ error: 'Failed' }); }
 });
 
+// ==================================================================
+// [MACPET] Deskmates(MacPet) 소유 — 관리자 화면(public/admin/deskmates.js)용 프록시. 삭제·리팩터링 금지.
+// Deskmates 서버는 이 서버와 별개 컨테이너(JSON 파일 저장)라서, 같은 Docker 네트워크 안의 내부 전용 관리 포트로 전달만 한다.
+// 인터넷에 열려 있지 않다. 채팅·쪽지는 Deskmates 쪽에서 아예 내주지 않는다.
+// ==================================================================
+const MACPET_ADMIN_URL = (process.env.MACPET_ADMIN_URL || '').replace(/\/$/, ''); // 예: http://macpet:8788
+const MACPET_ADMIN_KEY = process.env.MACPET_ADMIN_KEY || '';
+
+async function macpetProxy(res: Response, method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown): Promise<void> {
+  if (!MACPET_ADMIN_URL || !MACPET_ADMIN_KEY) {
+    res.status(503).json({ error: 'Deskmates 연결이 설정되지 않았어요 (MACPET_ADMIN_URL, MACPET_ADMIN_KEY)' });
+    return;
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const r = await fetch(MACPET_ADMIN_URL + path, {
+      method,
+      headers: { Authorization: `Bearer ${MACPET_ADMIN_KEY}`, 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+    const data = await r.json().catch(() => ({}));
+    // Deskmates 의 401(키 불일치)을 그대로 넘기면 대시보드가 "관리자 로그인 만료"로 오해해 로그아웃시킨다.
+    if (r.status === 401) { res.status(502).json({ error: 'Deskmates 관리자 키가 맞지 않아요' }); return; }
+    res.status(r.status).json(data);
+  } catch (e) {
+    console.error('[MACPET] admin proxy error:', e instanceof Error ? e.message : e);
+    res.status(502).json({ error: 'Deskmates 서버에 연결하지 못했어요' });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+const macpetQuery = (req: Request): string => (typeof req.query.q === 'string' && req.query.q ? `?q=${encodeURIComponent(req.query.q)}` : '');
+
+router.get('/macpet/stats', verifyAdminToken, (_req: Request, res: Response) => macpetProxy(res, 'GET', '/admin/stats'));
+router.get('/macpet/groups', verifyAdminToken, (req: Request, res: Response) => macpetProxy(res, 'GET', '/admin/groups' + macpetQuery(req)));
+router.get('/macpet/groups/:code', verifyAdminToken, (req: Request, res: Response) => macpetProxy(res, 'GET', `/admin/groups/${encodeURIComponent(String(req.params.code))}`));
+router.delete('/macpet/groups/:code', verifyAdminToken, (req: Request, res: Response) => macpetProxy(res, 'DELETE', `/admin/groups/${encodeURIComponent(String(req.params.code))}`));
+router.post('/macpet/groups/:code/kick', verifyAdminToken, (req: Request, res: Response) =>
+  macpetProxy(res, 'POST', `/admin/groups/${encodeURIComponent(String(req.params.code))}/kick`, { userId: String(req.body?.userId ?? '') }));
+router.get('/macpet/users', verifyAdminToken, (req: Request, res: Response) => macpetProxy(res, 'GET', '/admin/users' + macpetQuery(req)));
+router.delete('/macpet/users/:id', verifyAdminToken, (req: Request, res: Response) => macpetProxy(res, 'DELETE', `/admin/users/${encodeURIComponent(String(req.params.id))}`));
+
 export default router;
