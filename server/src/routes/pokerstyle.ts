@@ -14,7 +14,8 @@
 //          할 수 있는 것: 오너의 성향 결과(유형 코드·축별 퍼센트) 보기, 평가 1회 제출(선택 한마디 포함).
 //          할 수 없는 것: 오너의 닉네임·받은 평가 수·다른 평가자의 응답·한마디를 보는 것.
 //          ※ 오너가 보낸 평가 링크를 받은 사람은 오너의 성향 결과를 볼 수 있다(링크 공유 = 결과 공개).
-//   ANY    위 둘 외에는 아무것도 읽을 수 없다. 개별 평가 원본은 어떤 응답에도 내려가지 않는다.
+//   ANY    위 둘 외에는 개별 데이터를 읽을 수 없다. 개별 평가 원본은 어떤 응답에도 내려가지 않는다.
+//          예외: GET /stats — 유형 코드별 인원수(집계값)만 공개한다. 표본이 MIN_STATS_SAMPLE 미만이면 숫자를 내려주지 않는다.
 //
 // ── 개인정보 ───────────────────────────────────────────────────────────────
 //   로그인 사용자: 카카오 회원번호(kakao_id)와 닉네임만 저장한다(이메일·프로필사진·연락처는 요청하지 않는다).
@@ -345,6 +346,38 @@ router.delete('/profiles/me/messages/:mid', async (req: Request, res: Response):
   } catch (error) {
     console.error('[PS] delete message error:', error);
     res.status(500).json({ error: 'Failed to delete message' });
+  }
+});
+
+// ── GET /api/pokerstyle/stats — [ANY] 유형 분포 집계 ─────────────────────────
+// → { total, byCode: { LARM: n, … } | null }. 만료되지 않은 프로필의 유형 코드별 인원수만 내려준다(누구의 것인지는 알 수 없다).
+// total 이 MIN_STATS_SAMPLE 미만이면 소수 표본으로 개인을 짐작할 수 있어 byCode 를 null 로 준다. 결과는 10분간 메모리에 캐시한다.
+const MIN_STATS_SAMPLE = 30;
+const STATS_TTL_MS = 10 * 60 * 1000;
+let statsCache: { at: number; body: { total: number; byCode: Record<string, number> | null } } | null = null;
+
+router.get('/stats', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!getPool()) { res.status(500).json({ error: 'Database not available' }); return; }
+    if (limited('ps:stats:' + ipHash(req), 60, 60 * 60 * 1000)) {
+      res.status(429).json({ error: 'too many requests' });
+      return;
+    }
+    const now = Date.now();
+    if (!statsCache || now - statsCache.at > STATS_TTL_MS) {
+      const r = await getPool().query(
+        `SELECT code, COUNT(*)::int AS n FROM ps_profiles WHERE expires_at > NOW() AND code ~ '^[LT][AP][RE][MS]$' GROUP BY code`
+      );
+      const byCode: Record<string, number> = {};
+      let total = 0;
+      for (const row of r.rows) { byCode[row.code] = row.n; total += row.n; }
+      statsCache = { at: now, body: { total, byCode: total >= MIN_STATS_SAMPLE ? byCode : null } };
+    }
+    res.set('Cache-Control', 'public, max-age=300');
+    res.json(statsCache.body);
+  } catch (error) {
+    console.error('[PS] stats error:', error);
+    res.status(500).json({ error: 'Failed to get stats' });
   }
 });
 
